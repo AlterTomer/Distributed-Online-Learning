@@ -1,0 +1,25 @@
+# Virtual environments
+.venv/
+.venv313/
+
+# IDE
+.idea/
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Project data and outputs (see IMPLEMENTATION.md §2)
+data/
+results/
+
+# OS
+Thumbs.db
+.DS_Store
