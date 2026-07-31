@@ -1,0 +1,30 @@
+# The exactness check (WORKPLAN.md section 7.1). Every field below is a
+# precondition of the identity, not a preference:
+#   complete graph + uniform weights, plain SGD (no momentum), float64,
+#   label_availability 1.0 and uniform n so batch sizes are equal across agents.
+include:
+  env: mnist_stationary
+  graph: complete
+  model: mlp_small
+
+learners:
+  - name: centralized_sgd
+    optimizer: sgd
+    momentum: 0.0
+  - name: diffusion_sgd_atc
+    optimizer: sgd
+    momentum: 0.0
+    mix_optimizer_state: none
+
+run:
+  name: x0_exactness
+  seeds: [0]
+  horizon: 50
+  eval_every: 10
+  dtype: float64
+
+graph:
+  weights: uniform
+
+env:
+  label_availability: 1.0

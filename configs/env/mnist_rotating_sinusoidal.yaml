@@ -1,0 +1,5 @@
+# The distribution returns to previously seen states, exposing forgetting.
+drift:
+  schedule: sinusoidal
+  amplitude_degrees: 30.0
+  period: 500

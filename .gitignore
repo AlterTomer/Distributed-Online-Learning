@@ -16,9 +16,11 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Project data and outputs (see IMPLEMENTATION.md §2)
-data/
-results/
+# Project data and outputs (see IMPLEMENTATION.md section 2).
+# Leading slash anchors these to the repo root -- an unanchored "data/" also
+# matches src/dekf_bench/data/ and silently drops the package from commits.
+/data/
+/results/
 
 # OS
 Thumbs.db

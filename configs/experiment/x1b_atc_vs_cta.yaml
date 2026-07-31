@@ -1,0 +1,12 @@
+# Which diffusion ordering, and how much does it matter?
+# Reports parameter disagreement alongside error rate.
+include:
+  env: mnist_stationary
+  graph: ring
+  model: mlp_small
+
+learners: [diffusion_sgd_atc, diffusion_sgd_cta, centralized_sgd]
+
+run:
+  name: x1b_atc_vs_cta
+  horizon: 1500

@@ -1,0 +1,12 @@
+# Rotating baseline: does the gap widen, does local-only collapse? (Q3)
+# alpha = 45 / 1500 = 0.03 deg/step, derived by the loader.
+include:
+  env: mnist_rotating_linear
+  graph: ring
+  model: mlp_small
+
+learners: [centralized_sgd, diffusion_sgd_atc, local_only]
+
+run:
+  name: x2_rotating
+  horizon: 1500

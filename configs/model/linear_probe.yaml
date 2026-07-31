@@ -1,0 +1,6 @@
+# No hidden layer, so theta -> logits is linear and the EKF becomes an exact KF.
+# The regime where the theory holds with no linearisation error.
+name: linear_probe
+input_size: 14
+hidden: []
+output_dim: 10

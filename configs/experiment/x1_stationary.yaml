@@ -1,0 +1,11 @@
+# Stationary baseline: do all methods learn, and what is the gap? (Q1, Q2)
+include:
+  env: mnist_stationary
+  graph: ring
+  model: mlp_small
+
+learners: [centralized_sgd, diffusion_sgd_atc, local_only]
+
+run:
+  name: x1_stationary
+  horizon: 1500

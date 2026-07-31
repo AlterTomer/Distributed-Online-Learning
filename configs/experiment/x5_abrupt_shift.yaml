@@ -1,0 +1,11 @@
+# Adaptation transient around an abrupt shift: the cleanest tracking test (Q3).
+include:
+  env: mnist_rotating_piecewise
+  graph: ring
+  model: mlp_small
+
+learners: [centralized_sgd, diffusion_sgd_atc, local_only]
+
+run:
+  name: x5_abrupt_shift
+  horizon: 1500

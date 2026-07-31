@@ -1,0 +1,5 @@
+# Abrupt jumps at known times; makes the adaptation transient measurable (X5).
+drift:
+  schedule: piecewise
+  change_points: [500]
+  jump_degrees: 15.0

@@ -1,0 +1,4 @@
+topology: grid2d
+params:
+  rows: 2
+  cols: 5

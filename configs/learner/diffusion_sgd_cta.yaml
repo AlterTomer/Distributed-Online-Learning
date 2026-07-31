@@ -1,0 +1,7 @@
+# Secondary: combine-then-adapt, eq. (17) of Olshevskyi et al. Measured in X1b.
+name: diffusion_sgd_cta
+optimizer: sgd_momentum
+lr: 0.05
+momentum: 0.9
+mix_optimizer_state: momentum
+adapt_scope: local

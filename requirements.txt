@@ -1,0 +1,18 @@
+# Exact runtime pins, as provisioned in .venv313 (IMPLEMENTATION.md section 10).
+# Loose ranges live in pyproject.toml.
+#
+# torch/torchvision are CUDA 12.6 builds and are NOT on plain PyPI. Install them
+# first, from the PyTorch index:
+#
+#   pip install torch==2.8.0+cu126 torchvision==0.23.0+cu126 \
+#       --index-url https://download.pytorch.org/whl/cu126
+#
+# then `pip install -r requirements.txt` for the rest. On a CPU-only machine,
+# drop the +cu126 local version and use the /whl/cpu index instead.
+
+numpy==2.1.2
+pandas==2.3.2
+pyarrow==25.0.0
+networkx==3.3
+PyYAML==6.0.3
+matplotlib==3.10.6

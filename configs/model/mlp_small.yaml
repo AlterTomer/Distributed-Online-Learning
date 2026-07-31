@@ -1,0 +1,6 @@
+# PRIMARY model. 196-14-10 on 14x14 downsampled input, p = 2908.
+# Small enough for a dense phase-5 covariance; see WORKPLAN.md section 4.6.
+name: mlp_small
+input_size: 14
+hidden: [14]
+output_dim: 10

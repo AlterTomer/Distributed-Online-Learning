@@ -1,0 +1,50 @@
+# Defaults every config inherits. An experiment config overrides what it needs
+# and selects one entry from each of env/, graph/, model/ plus a list of
+# learners; see configs/experiment/ for examples.
+#
+# Values here are the phase-1 defaults agreed in WORKPLAN.md section 10.
+
+run:
+  name: unnamed
+  seeds: [0, 1, 2, 3, 4]
+  horizon: 1500          # T; see the shard budget in WORKPLAN.md section 4.2
+  eval_every: 25         # K
+  dtype: float32         # float64 for the exactness check
+  device: cpu
+  out_dir: results
+
+graph:
+  topology: ring
+  n_nodes: 10            # N
+  weights: metropolis
+  params: {}
+
+env:
+  samples_per_node_per_step: 2   # n
+  label_availability: 1.0        # pi_lab
+  partition:
+    kind: iid
+    beta: 1.0                    # Dirichlet concentration; used when kind == dirichlet
+  drift:
+    schedule: stationary
+    total_degrees: 45.0          # the cap of WORKPLAN.md section 4.3; alpha is DERIVED
+    change_points: []
+    jump_degrees: 15.0
+    amplitude_degrees: 30.0
+    period: 500
+  drift_scope: global
+  allow_epochs: false
+
+model:
+  name: mlp_small
+  input_size: 14         # 14x14 downsampled input; see WORKPLAN.md section 4.6
+  hidden: [14]
+  output_dim: 10
+
+learners:
+  - name: diffusion_sgd_atc
+
+eval:
+  evalsets: [prequential, current, canonical]
+  backward_offset: 500   # 15 deg of separation at the capped drift rate; 200 gave only 6
+  batch_size: 1000

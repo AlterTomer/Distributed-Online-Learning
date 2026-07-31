@@ -1,0 +1,8 @@
+# Phase 5 placeholder. Interface only; raises NotImplementedError in phase 1.
+# lambda and process_noise_q are two parameterisations of the same forgetting
+# effect and are jointly unidentifiable -- exactly one may be active.
+name: diffusion_ekf
+adapt_scope: local        # Prop. 1 exactness needs one_hop, not local
+lambda_forget: 0.9999
+process_noise_q: null
+prior_scale: 1.0          # P_0 = prior_scale * I; the most sensitive hyperparameter

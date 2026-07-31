@@ -1,0 +1,4 @@
+# Negative control: communication cannot help across components.
+topology: disconnected
+params:
+  n_components: 2

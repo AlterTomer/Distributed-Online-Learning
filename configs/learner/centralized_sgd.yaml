@@ -1,0 +1,5 @@
+# Upper reference for the online setting. Sees the pooled batch; combine is a no-op.
+name: centralized_sgd
+optimizer: sgd_momentum
+lr: 0.05
+momentum: 0.9

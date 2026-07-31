@@ -1,0 +1,6 @@
+# Lower reference. No communication; combine is a no-op.
+# The gap to diffusion_sgd_atc is the value of cooperation (Q2).
+name: local_only
+optimizer: sgd_momentum
+lr: 0.05
+momentum: 0.9

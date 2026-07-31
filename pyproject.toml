@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dekf-bench"
+version = "0.1.0"
+description = "Benchmark for distributed online learning over a graph, and groundwork for the diffusion EKF"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Tomer Alter", email = "tomeralt@post.bgu.ac.il" }]
+
+# Loose ranges here; exact pins live in requirements.txt (IMPLEMENTATION.md section 10).
+dependencies = [
+    "torch>=2.2",
+    "torchvision>=0.17",
+    "numpy>=1.26",
+    "pandas>=2.0",
+    "pyarrow>=14",
+    "networkx>=3.0",
+    "pyyaml>=6.0",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+    "black>=24",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+# E501 is left to black, which owns formatting.
+ignore = ["E501"]
+
+[tool.mypy]
+# Matches the interpreter in .venv313. Pinning 3.11 here (our floor) makes mypy
+# parse third-party stubs under 3.11 rules, and scipy-stubs -- a leftover in this
+# venv that we do not import -- uses 3.12+ `type` statements and fails to parse.
+# CI should run mypy on 3.11 separately if the floor needs enforcing.
+python_version = "3.13"
+packages = ["dekf_bench"]
+mypy_path = "src"
+# Non-blocking at first (IMPLEMENTATION.md section 1); tighten as modules stabilise.
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: takes more than a few seconds; excluded from the fast suite",
+    "needs_data: requires the MNIST cache to be present or downloadable",
+]

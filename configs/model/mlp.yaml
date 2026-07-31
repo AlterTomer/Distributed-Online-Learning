@@ -1,0 +1,6 @@
+# 784-128-10 on full-resolution input, p ~ 1.0e5.
+# Sanity comparison only: a dense covariance here is 1e10 entries.
+name: mlp
+input_size: 28
+hidden: [128]
+output_dim: 10
