@@ -138,6 +138,10 @@ class DriftConfig:
     jump_degrees: float = 15.0
     amplitude_degrees: float = 30.0
     period: int = 500
+    #: Under `drift_scope: per_node`, agents drift at rates spread over
+    #: [1 - spread, 1] times the configured rate. See env/drift.py for why the
+    #: multipliers top out at 1 rather than straddling it.
+    per_node_spread: float = 0.5
 
     #: Beyond roughly this much rotation MNIST labels stop being well defined
     #: (a 6 becomes a 9). See WORKPLAN.md section 4.3.
@@ -165,30 +169,14 @@ class DriftConfig:
                 f"env.drift.amplitude_degrees is {self.amplitude_degrees}, above the "
                 f"{self.MAX_WELL_POSED_DEGREES} degree cap"
             )
+        if not 0.0 <= self.per_node_spread < 1.0:
+            raise ConfigError(
+                f"env.drift.per_node_spread must lie in [0, 1), got {self.per_node_spread}"
+            )
 
-    def alpha_per_step(self, horizon: int) -> float:
-        """Degrees per step, derived from the horizon.
-
-        Zero for every schedule other than ``linear``: piecewise drift moves in
-        jumps and sinusoidal drift is governed by amplitude and period.
-        """
-        if self.schedule != "linear":
-            return 0.0
-        return self.total_degrees / horizon
-
-    def rotation_at(self, t: int, horizon: int) -> float:
-        """Total rotation in degrees applied to the data at step ``t``."""
-        import math
-
-        if self.schedule == "stationary":
-            return 0.0
-        if self.schedule == "linear":
-            return self.alpha_per_step(horizon) * t
-        if self.schedule == "piecewise":
-            return self.jump_degrees * sum(1 for cp in self.change_points if t >= cp)
-        if self.schedule == "sinusoidal":
-            return self.amplitude_degrees * math.sin(2.0 * math.pi * t / self.period)
-        raise ConfigError(f"unhandled drift schedule {self.schedule!r}")  # pragma: no cover
+    # Evaluating the schedule lives in env/drift.py, not here. This class
+    # validates fields; turning a step into a rotation is behaviour, and having
+    # two implementations of "where is the piecewise jump" is how they diverge.
 
 
 @dataclass
@@ -347,15 +335,6 @@ class Config:
                 f"eval.backward_offset ({self.eval.backward_offset}) must be smaller than "
                 f"run.horizon ({self.run.horizon}) or the backward evaluation set never exists"
             )
-
-    @property
-    def alpha_per_step(self) -> float:
-        """Drift rate in degrees per step, derived from the horizon."""
-        return self.env.drift.alpha_per_step(self.run.horizon)
-
-    def rotation_at(self, t: int) -> float:
-        """Rotation in degrees applied to the data at step ``t``."""
-        return self.env.drift.rotation_at(t, self.run.horizon)
 
     def learner(self, name: str) -> LearnerConfig:
         for entry in self.learners:

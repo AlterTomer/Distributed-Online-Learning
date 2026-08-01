@@ -14,6 +14,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from dekf_bench.env.drift import build_drift
 from dekf_bench.runner.seeding import STREAM_NAMES, Seeds
 from dekf_bench.utils.config import MNIST_TRAIN_SIZE, Config, ConfigError, load_config
 
@@ -33,6 +34,8 @@ def describe(config: Config) -> str:
     shard = MNIST_TRAIN_SIZE // graph.n_nodes
     used = graph.n_nodes * env.samples_per_node_per_step * run.horizon
     max_horizon = shard // env.samples_per_node_per_step
+
+    drift = build_drift(config)
 
     lines = [
         f"experiment      {run.name}",
@@ -54,7 +57,7 @@ def describe(config: Config) -> str:
 
     if env.drift.schedule == "linear":
         lines.append(
-            f"                alpha={config.alpha_per_step:.4f} deg/step  "
+            f"                alpha={drift.schedule.alpha:.4f} deg/step  "
             f"(derived: {env.drift.total_degrees} deg / {run.horizon} steps)"
         )
     elif env.drift.schedule == "piecewise":
@@ -69,7 +72,7 @@ def describe(config: Config) -> str:
 
     if env.drift.schedule != "stationary":
         checkpoints = [0, run.horizon // 4, run.horizon // 2, run.horizon]
-        rotations = "  ".join(f"t={t}:{config.rotation_at(t):+.1f}deg" for t in checkpoints)
+        rotations = "  ".join(f"t={t}:{drift.rotation_at(t):+.1f}deg" for t in checkpoints)
         lines.append(f"                rotation   {rotations}")
 
     lines += [

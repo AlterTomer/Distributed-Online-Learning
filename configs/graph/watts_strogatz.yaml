@@ -1,0 +1,6 @@
+# Small-world: a k-regular ring with each edge rewired with probability beta.
+# A few long-range shortcuts collapse the diameter at no extra edge cost.
+topology: watts_strogatz
+params:
+  k: 4
+  beta: 0.2

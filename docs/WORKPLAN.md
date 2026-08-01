@@ -110,6 +110,10 @@ Topologies: complete, ring, path, 2-D grid, star, Erdős–Rényi, Watts–Strog
 
 The relevant scalar summary is the **spectral gap** $1-\rho$, with $\rho=\|\bm A-\tfrac1N\mathbf 1\mathbf 1^{\mathsf T}\|_2$. It is the natural x-axis for Q1: the complete graph has $\rho=0$ and should reproduce centralized behaviour, while a path has $\rho$ near 1 and should be the worst case.
 
+**This definition requires $\bm A$ to be doubly stochastic, and that condition is load-bearing.** The term $\tfrac1N\mathbf1\mathbf1^{\mathsf T}$ is the projector onto the consensus direction only when $\mathbf 1$ is a *left* eigenvector of $\bm A$ as well as a right one. Metropolis weights satisfy this; relative-degree and uniform weights do so only on a **regular** graph. Off that case $\rho>1$ and the "gap" comes out negative — on a 10-agent star with relative-degree weights it is $-1.56$, while the star in fact mixes faster than a ring because the hub aggregates the network in one hop. The quantity is then wrong in sign and in ranking, not merely imprecise.
+
+The benchmark therefore reports two numbers. The **spectral gap** above is used wherever it is defined, which includes all of X3 since that sweep uses Metropolis weights. The **mixing gap** $1-\mathrm{SLEM}$, where SLEM is the second-largest eigenvalue modulus of $\bm A$, is valid for any row-stochastic matrix and coincides with the spectral gap whenever both exist. `env/graph.py` raises rather than returning the undefined value, so a non-Metropolis sweep fails loudly instead of producing a plausible figure.
+
 A second graph $\mathcal G^{\mathrm d}$ (data coupling, over which a predictor's forward pass would exchange information) is **empty for this phase**. MNIST with an MLP is Class L in the research note's terms: every agent's forward pass is purely local. $\mathcal G^{\mathrm d}$ becomes non-trivial only when the project moves to GNNs.
 
 ### 4.2 Sparse data arrival

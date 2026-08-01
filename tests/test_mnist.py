@@ -109,8 +109,9 @@ def test_split_is_frozen() -> None:
     import dataclasses
 
     data = synthetic()
+    # setattr rather than a direct assignment: see the note in test_graph.py.
     with pytest.raises(dataclasses.FrozenInstanceError):
-        data.split = "other"  # type: ignore[misc]
+        setattr(data, "split", "other")  # noqa: B010
 
 
 def test_unknown_split_name_is_rejected() -> None:

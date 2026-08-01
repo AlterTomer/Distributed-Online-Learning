@@ -114,8 +114,9 @@ def test_negative_master_is_rejected() -> None:
 
 def test_seeds_are_frozen() -> None:
     seeds = seeds_for(0)
+    # setattr rather than a direct assignment: see the note in test_graph.py.
     with pytest.raises(dataclasses.FrozenInstanceError):
-        seeds.init = 5  # type: ignore[misc]
+        setattr(seeds, "init", 5)  # noqa: B010
 
 
 def test_iter_seeds_covers_every_master() -> None:

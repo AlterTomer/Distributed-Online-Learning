@@ -79,13 +79,17 @@ needs to restate them.
 | `weights` | str | `metropolis` | `metropolis`, `relative_degree`, `uniform` | Combination rule $a_{vu}$ |
 | `params` | mapping | `{}` | topology-specific | Only `grid2d` is validated today |
 
-`weights` choices: **`metropolis`** is the default and guarantees
-$a_{vv} \ge 1/(1+d_v) > 0$, so an agent never discards its own estimate.
-**`relative_degree`** weights by neighbour degree. **`uniform`** is $a_{vu}=1/N$
-and is what the X0 exactness identity requires — it is not a sensible choice on
-a graph that is not complete.
+`weights` choices:
 
-*Consumed by:* `env/graph.py` (phase 1), every diffusion learner (phase 3).
+- **`metropolis`** (default), $a_{vu} = 1/(1+\max(d_v,d_u))$ on an edge. Symmetric and **doubly stochastic**, and $a_{vv}\ge 1/(1+d_v)>0$ so an agent never discards its own estimate. Doubly stochastic means the network average is invariant under combining — information is redistributed, never created.
+- **`relative_degree`**, $a_{vu} = d_u/\sum_{j\in\mathcal N_v\cup\{v\}}d_j$. Row-stochastic but **not** symmetric: an agent leans toward better-connected neighbours. An isolated agent keeps all its own weight.
+- **`uniform`**, $a_{vu} = 1/(1+d_v)$ over the closed neighbourhood. On a complete graph $d_v = N-1$, so this is exactly the $1/N$ the X0 identity requires; defining it over the neighbourhood rather than as a flat $1/N$ means it also respects a sparser adjacency instead of weighting agents that sent nothing.
+
+On a **regular** graph — a ring, a complete graph — all three coincide.
+
+**Two mixing measures, and the difference matters.** `spectral_gap` is the `WORKPLAN.md` §4.1 definition and is **only valid for doubly stochastic weights**; `env/graph.py` raises rather than returning the negative value it would otherwise produce for `relative_degree` or `uniform` on an irregular graph. `mixing_gap` $= 1-\mathrm{SLEM}$ is always valid and agrees with the spectral gap wherever both are defined. `summary()` reports `spectral_gap: None` in the undefined case and always populates `mixing_gap`.
+
+*Consumed by:* `env/graph.py` (now), every diffusion learner (phase 3).
 
 ### `env`
 
@@ -102,12 +106,30 @@ a graph that is not complete.
 the split is uniform, so every agent sees roughly the same class distribution;
 this is deliberate for X1–X3, because it makes drift the only source of
 non-stationarity and keeps "what does decentralization cost" (Q1) from being
-confounded with "what does heterogeneity cost". Under **`dirichlet`**, for each
-class $c$ a distribution over agents is drawn from $\text{Dir}(\beta\mathbf 1_N)$
-and that class's images are allocated accordingly: $\beta = 0.1$ gives agents
-that each see only two or three digits, and $\beta \to \infty$ approaches IID.
-That is the sharpest form of Q2 — an agent that never sees a 7 can only learn 7s
-through the combine step — and it is what X6 sweeps.
+confounded with "what does heterogeneity cost". Under **`dirichlet`**, each agent
+draws a class preference $\bm q_v \sim \text{Dir}(\beta\mathbf 1_K)$ and is filled
+according to it: $\beta = 0.1$ gives agents that each see only three or four
+digits, and $\beta \to \infty$ approaches IID. That is the sharpest form of Q2 —
+an agent that never sees a 7 can only learn 7s through the combine step — and it
+is what X6 sweeps.
+
+Measured on MNIST at $N=10$, over the shipped `beta` values:
+
+| `beta` | Skew (mean TV from global) | Classes per agent | Shard sizes |
+|---|---|---|---|
+| `iid` | 0.017 | 10 | 6000 |
+| 100 | 0.060 | 10 | 6000 |
+| 1.0 | 0.365 | 7–10 | 6000 |
+| 0.1 | 0.651 | 3–7 | 6000 |
+
+**Shard sizes stay equal under skew.** Only the *composition* varies. The
+classical construction — a Dirichlet draw over agents, per class — makes sizes
+vary by 7× or more, which would both confound X6 with data volume and break the
+shard budget check, since that check assumes equal shards. At $\beta = 0.1$ every
+seed tested left some agent with fewer samples than a default run consumes.
+`env/partition.py` takes `balance_sizes=False` if you want the classical
+behaviour for comparison, and `min_shard_size=` to reject a partition that
+cannot feed the run.
 
 **`allow_epochs`** decides whether a sample may be consumed twice. It is not
 merely bookkeeping. The research note's Assumption 5 requires every labelled
@@ -131,6 +153,18 @@ shard-budget check, and is a real trade rather than a convenience.
 | `jump_degrees` | float | `15.0` | any | `piecewise` |
 | `amplitude_degrees` | float | `30.0` | $\lvert\cdot\rvert \le 45$ | `sinusoidal` |
 | `period` | int | `500` | ≥ 1 | `sinusoidal` |
+| `per_node_spread` | float | `0.5` | $[0, 1)$ | all, under `drift_scope: per_node` |
+
+Under **`drift_scope: per_node`**, agent $v$'s rotation is scaled by a multiplier
+evenly spaced over $[1-\text{spread},\,1]$. The multipliers top out at **1, not
+$1+\text{spread}$**: scaling any agent above the configured rate would carry it
+past the 45° cap the schedule was validated against, so the spread slows the
+laggards rather than accelerating the leaders. `spread: 0` reduces exactly to
+global drift.
+
+Note that per-node drift has **no single network-wide drift state**, so
+`Drift.state_at(t)` raises without a node argument — returning agent 0's state
+would be a silent lie. Use `states_at(t)` for all of them.
 
 **There is no `alpha` field, and supplying one is an error.** The per-step rate
 is derived as `total_degrees / run.horizon`, so changing the horizon cannot
@@ -205,20 +239,150 @@ expensive part of a run and the reason $K = 25$ rather than 1.
 Each file sets `topology` and any `params` it needs. All inherit `n_nodes` from
 `base.yaml`, so a graph file alone never fixes the network size.
 
-| File | `params` | Spectral gap $1-\rho$ | Why it exists |
-|---|---|---|---|
-| `complete.yaml` | — | 1 (best) | Reproduces centralized behaviour; required by X0 |
-| `ring.yaml` | — | moderate | Default for X1/X2; a realistic middling case |
-| `path.yaml` | — | near 0 (worst) | The pessimistic end of the topology sweep |
-| `grid2d.yaml` | `rows`, `cols` | between | `rows × cols` **must** equal `n_nodes`, and this is validated |
-| `star.yaml` | — | moderate | A hub; degree distribution is maximally uneven |
-| `erdos_renyi.yaml` | `p: 0.3` | random | Edge probability; realization is drawn from `seed_graph` |
-| `disconnected.yaml` | `n_components: 2` | 0 | **Negative control.** Communication cannot cross components, so the distributed method must degrade toward local-only |
+### 3.1 At a glance
 
-`watts_strogatz` is a legal `topology` value but has no shipped file yet.
+Measured at $N = 10$ with Metropolis weights, seed 0:
 
-Spectral gap is the natural x-axis for "what does connectivity cost" (Q1) and is
-computed by `env/graph.py` in phase 1, then denormalized into every log row.
+| Topology | Edges | Degrees | Diameter | Mixing gap | `params` |
+|---|---|---|---|---|---|
+| `complete` | 45 | 9–9 | 1 | **1.000** | — |
+| `erdos_renyi` | 19 | 2–5 | 3 | 0.257 | `p` |
+| `watts_strogatz` | 20 | 3–6 | 3 | 0.197 | `k`, `beta` |
+| `ring` | 10 | 2–2 | 5 | 0.127 | — |
+| `star` | 9 | 1–9 | 2 | 0.100 | — |
+| `grid2d` | 13 | 2–3 | 5 | 0.096 | `rows`, `cols` |
+| `path` | 9 | 1–2 | 9 | **0.033** | — |
+| `disconnected` | 20 | 4–4 | ∞ | **0.000** | `n_components` |
+
+Higher mixing gap means information spreads faster. Note that diameter and
+mixing are *not* the same ordering: a star has diameter 2 but mixes worse than
+a ring of diameter 5, because everything must funnel through one hub.
+
+### 3.2 Setting parameters
+
+**From a config.** `params` is a mapping under `graph`, and it merges key by key:
+
+```yaml
+# configs/experiment/my_experiment.yaml
+include:
+  graph: erdos_renyi
+graph:
+  n_nodes: 20
+  params:
+    p: 0.5           # overrides the 0.3 in configs/graph/erdos_renyi.yaml
+```
+
+**From Python**, for a sweep or a notebook — `overrides` reaches nested keys:
+
+```python
+from dekf_bench.utils.config import load_config
+from dekf_bench.env.graph import build_graphs
+
+config = load_config(
+    "x1_stationary",
+    overrides={"include": {"graph": "erdos_renyi"}, "graph": {"params": {"p": 0.5}}},
+)
+graph = build_graphs(config).comm       # 29 edges at N=10, p=0.5
+```
+
+**Bypassing configs entirely**, when you just want a graph object:
+
+```python
+import torch
+from dekf_bench.env.graph import build_graph
+
+graph = build_graph(
+    topology="watts_strogatz",
+    n_nodes=10,
+    weights="metropolis",
+    params={"k": 4, "beta": 0.5},
+    generator=torch.Generator().manual_seed(3),
+)
+print(graph.n_edges, graph.mixing_gap)   # 20  0.2380
+```
+
+The `generator` argument is only read by the random topologies. Pass one derived
+from the `graph` seed stream (`seeds.torch_generator("graph")`) so a topology can
+be redrawn without disturbing the partition or the sample order.
+
+**Sensible defaults for any size.** `default_topology_params(n_nodes)` returns a
+mapping from every topology to parameters that work at that $N$ — it picks the
+most square grid factorisation and an Erdős–Rényi density above the connectivity
+threshold. Used by the sweep runner and by `scripts/check_environment.py`, so
+those choices live in one place:
+
+```python
+from dekf_bench.env.graph import default_topology_params
+
+default_topology_params(10)["grid2d"]        # {'rows': 2, 'cols': 5}
+default_topology_params(16)["grid2d"]        # {'rows': 4, 'cols': 4}
+default_topology_params(10)["erdos_renyi"]   # {'p': 0.4605...}
+```
+
+### 3.3 The topologies
+
+**`complete`** — every pair adjacent, $\binom N2$ edges. Mixing gap exactly 1:
+one combine step reaches full consensus, so the distributed method reproduces
+the centralized one. That is what makes it the X0 exactness setting, and the
+best-case anchor of the topology sweep. No parameters.
+
+**`ring`** — a cycle, each agent adjacent to $i \pm 1 \bmod N$. Regular
+(degree 2), $N$ edges, diameter $\lfloor N/2 \rfloor$. The default for X1/X2: a
+realistic middling case where information takes several steps to cross the
+network. The mixing gap decays roughly as $1/N^2$, so a large ring is genuinely
+hard — doubling $N$ from 10 to 20 cuts the gap by about four. No parameters.
+Below three agents it degenerates to a path, deliberately: `networkx` would
+otherwise return a **self-loop** for a one-node cycle.
+
+**`path`** — a line, $N-1$ edges, diameter $N-1$. The worst connected case and
+the pessimistic end of the sweep: at $N=10$ the mixing gap is 0.033, so a sample
+at one endpoint needs nine steps even to reach the other. No parameters.
+
+**`star`** — node 0 is the hub, adjacent to all $N-1$ leaves; every leaf has
+degree 1. Diameter 2, but that understates the difficulty: all traffic funnels
+through the hub, so the mixing gap (0.100) is *worse* than a ring's. Maximally
+irregular, which makes it the case where `relative_degree` and `uniform` weights
+stop being doubly stochastic — see §2's note on the two gap measures. No
+parameters.
+
+**`grid2d`** — a `rows × cols` lattice, four-neighbour connectivity, no wrap-
+around. Node $(r, c)$ has id $r \cdot \text{cols} + c$ (row-major), so a shard
+assignment can be read straight off the index.
+
+- `rows`, `cols` — **required**, and `rows * cols` must equal `n_nodes`. This is validated twice, at config load and at build, because a silent mismatch would change $N$ rather than fail.
+- Edges: $\text{rows}(\text{cols}-1) + \text{cols}(\text{rows}-1)$. Diameter: $(\text{rows}-1)+(\text{cols}-1)$, the Manhattan span.
+- A prime $N$ forces a $1 \times N$ grid, which **is** a path. Worth knowing before reading a sweep in which the two rows look identical.
+
+**`erdos_renyi`** — each of the $\binom N2$ pairs is an edge independently with
+probability $p$.
+
+- `p` — required, in $[0,1]$. Below about $\ln(N)/N$ the graph is usually disconnected; at $N=10$ that threshold is 0.23.
+- `ensure_connected` — default `true`. Redraws with a new seed until connected, up to 20 attempts, then raises with the threshold quoted in the message. Set `false` if a disconnected draw is the point.
+- Reproducible from `generator`; the same seed always gives the same realization. Because a rejected draw increments the seed, `p` and the seed jointly determine the graph.
+
+**`watts_strogatz`** — a small-world graph: start from a ring where each node
+joins its `k` nearest neighbours, then rewire each edge with probability `beta`.
+
+- `k` — neighbours in the starting ring, default 4, must be `< n_nodes`. Edge count is exactly $Nk/2$ and rewiring preserves it.
+- `beta` — rewiring probability, default 0.2. `beta: 0.0` leaves a plain $k$-regular ring; `beta: 1.0` is essentially random. The interesting middle is where a few long-range shortcuts collapse the diameter at almost no extra cost — at $N=20$, $k=4$: `beta` 0.0 gives diameter 5 and mixing 0.096, while `beta` 0.5 gives diameter 4 and mixing 0.151.
+- `ensure_connected` — default `true`, as for Erdős–Rényi.
+
+**`disconnected`** — the **negative control**. Splits the agents into
+`n_components` groups (sizes differing by at most one) with **no** edge between
+them; each group is internally complete.
+
+- `n_components` — default 2, must be $\le$ `n_nodes`.
+- Mixing gap is exactly 0 and `diameter` is `None`, since a disconnected graph has no diameter.
+- Each component being complete is deliberate: diffusion works *perfectly* within a component, so any shortfall against the connected case is attributable to the missing cross-component links and to nothing else. With `n_components: n_nodes` every agent is isolated and the combine step becomes the identity — which should reproduce `local_only` exactly, and is a cheap consistency check on the learners.
+
+### 3.4 Adding a topology
+
+`TOPOLOGY_BUILDERS` in `env/graph.py` maps a name to a
+`(n_nodes, params, generator) -> nx.Graph` builder. Add an entry, add the name
+to `TOPOLOGIES` in `utils/config.py` so configs may reference it, and add it to
+`default_topology_params`. The builder returns a plain `networkx` graph;
+adjacency conversion, self-loop rejection, weight construction and validation
+are handled for you.
 
 ---
 

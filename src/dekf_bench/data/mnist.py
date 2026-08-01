@@ -228,9 +228,7 @@ def load_mnist(
     They come from separate source files, so train/test leakage is impossible by
     construction rather than by an index check.
     """
-    return load_split("train", root, download=download), load_split(
-        "test", root, download=download
-    )
+    return load_split("train", root, download=download), load_split("test", root, download=download)
 
 
 def channel_statistics(images: torch.Tensor) -> tuple[float, float]:

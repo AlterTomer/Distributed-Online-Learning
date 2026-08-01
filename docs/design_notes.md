@@ -267,6 +267,321 @@ which is the hardest class of bug to attribute in this codebase.
 
 ---
 
+## 2026-07-31 — Phase 1, `env/graph.py`
+
+### ✅ D15. Adjacency has a zero diagonal; combination weights have a positive one
+
+**Decision.** Two matrices, never one. `Graph.adjacency` is who talks to whom
+and its diagonal is **zero**; `Graph.weights` is $a_{vu}$ and its diagonal is
+**strictly positive**.
+
+**Why.** An agent does not send itself a message, but it certainly keeps its own
+estimate — it just computed that estimate from its own data. Conflating the two
+gives two distinct failures. A zero diagonal in $\bm A$ makes an agent discard
+the update it just produced. A non-zero diagonal in the adjacency bills the
+communication ledger for $N$ vectors per step that nobody transmitted, which
+inflates the denominator of every accuracy-versus-communication plot — the
+convention the whole comparison is reported in.
+
+Metropolis weights guarantee $a_{vv} \ge 1/(1+d_v) > 0$, so the positive
+diagonal is structural rather than a special case.
+
+**Guarded by.** `test_adjacency_has_no_self_loops` and
+`test_weights_have_a_strictly_positive_diagonal`, both run across every
+topology × weight-rule combination, plus
+`test_no_agent_combines_an_estimate_it_did_not_receive`.
+
+**Found by these tests.** `nx.cycle_graph(1)` returns a single node **with a
+self-loop**. A one-agent ring would therefore have had a 1 on the adjacency
+diagonal. `_ring` now falls back to `path_graph` below three nodes.
+
+### 🔄 D16. The spec's spectral gap is undefined for non-doubly-stochastic weights
+
+**Decision.** `spectral_gap` implements `WORKPLAN.md` §4.1's
+$1 - \lVert\bm A - \tfrac1N\mathbf1\mathbf1^{\mathsf T}\rVert_2$ but **raises**
+unless the weights are doubly stochastic. A new `mixing_gap` $= 1 - \text{SLEM}$
+is always defined and equals the spectral gap whenever both are.
+
+**Why.** The $\tfrac1N\mathbf1\mathbf1^{\mathsf T}$ term is the projector onto
+the consensus direction only when the all-ones vector is a *left* eigenvector as
+well as a right one — that is, only for doubly stochastic $\bm A$. Metropolis
+weights are; relative-degree and uniform weights are doubly stochastic only on a
+*regular* graph. Off that case the norm exceeds 1 and the formula returns a
+negative number:
+
+| topology / rule | spec gap | doubly stochastic | $1-\text{SLEM}$ |
+|---|---|---|---|
+| star / metropolis | +0.100 | yes | +0.100 |
+| star / relative_degree | **−1.565** | no | **+0.600** |
+| star / uniform | −0.265 | no | +0.500 |
+
+The star with relative-degree weights in fact mixes *very well* — the hub
+aggregates the whole network in one hop — so the reported value is not merely
+imprecise, it is **wrong in sign and in ranking**. Had this reached F3, the
+price-of-connectivity figure would have placed the best-mixing configuration off
+the left-hand end of the axis.
+
+**Consequence.** X3 uses Metropolis weights, where the two measures coincide, so
+no experiment changes. What changes is that a non-Metropolis sweep now fails
+loudly instead of plotting nonsense. `summary()` reports `spectral_gap: None`
+alongside a populated `mixing_gap` rather than emitting the bad number.
+
+**Guarded by.** `test_spectral_gap_refuses_non_doubly_stochastic_weights`,
+`test_the_two_gap_measures_agree_when_both_are_defined`,
+`test_star_with_relative_degree_weights_actually_mixes_fast`.
+
+**Spec impact.** `WORKPLAN.md` §4.1 states the formula without the double
+stochasticity condition. It has been amended.
+
+### ✅ D17. Dirichlet skew holds shard *sizes* equal and skews only composition
+
+**Decision.** `balance_sizes=True` by default. Each agent draws a class
+preference $\bm q_v \sim \mathrm{Dir}(\beta\bm 1_K)$ and is then filled to
+exactly $60000/N$ samples, taking as much of each class as its preference asks
+for and the pool can supply.
+
+**Alternative rejected.** The classical construction (Hsu et al.): per class,
+draw a distribution over *agents*. This is what most federated-learning papers
+use, and it makes shard sizes vary enormously.
+
+**Why.** Two independent problems with unequal sizes.
+
+*It confounds the experiment.* X6 asks "does cooperation still work when agents
+see different classes?" If shard sizes also vary by 7×, the answer mixes label
+skew with data volume and X6 no longer isolates what it is named after.
+
+*It silently starves runs.* The config-time shard budget check ($N n T \le
+60000$) assumes equal shards. Measured on MNIST with the classical
+construction, the smallest shard falls below the 3000 a default run consumes:
+
+| $\beta$ | seeds (of 10) whose smallest shard < 3000 | smallest observed |
+|---|---|---|
+| 1.0 | 1 | 2001 |
+| 0.5 | 8 | 1496 |
+| 0.1 | 10 | 50 |
+
+So at $\beta = 0.1$ **every** seed would exhaust an agent part-way through a run
+that passed validation. Balancing makes the budget check meaningful again.
+
+**Escape hatch.** `balance_sizes=False` still available for comparison against
+the literature, and `build_partition(min_shard_size=...)` rejects a partition
+that cannot feed the run, with a message explaining the interaction.
+
+**Guarded by.** `test_mnist_unbalanced_dirichlet_would_starve_a_default_run`
+(asserted over seeds, since the shortfall is a property of the construction
+rather than of one draw), `test_mnist_balanced_dirichlet_never_starves`,
+`test_balancing_removes_the_size_variation_but_keeps_the_skew`.
+
+### ✅ D18. Dirichlet is sampled through numpy, not `torch.distributions`
+
+**Decision.** `_dirichlet()` consumes the torch generator once to seed a
+`numpy.random.Generator` and draws from that.
+
+**Why.** `torch.distributions.Dirichlet.sample()` accepts **no generator
+argument** and draws from the global RNG. The first implementation used it, and
+`test_the_same_seed_gives_the_same_shards` failed for every $\beta$: the
+partition depended on whatever else had consumed random numbers first, so a run
+could not be reproduced from `seed_partition`.
+
+This is D9 (explicit generators, never global state) reappearing from a
+direction I did not anticipate — not our own code reaching for the global RNG,
+but a *library* doing it silently behind an object that looks stateless. Worth
+checking any other `torch.distributions` use the same way; `torch.randperm` and
+`torch.randint` do take generators, which is why the IID path was unaffected.
+
+**Guarded by.** `test_the_same_seed_gives_the_same_shards`, plus a cross-process
+check that the same seed gives byte-identical shards in a fresh interpreter.
+
+---
+
+## 2026-08-01 — Phase 1, drift and transforms
+
+### 🔄 D19. Schedule evaluation moved out of the config schema into `env/drift.py`
+
+**Decision.** `DriftConfig` validates fields and nothing else. Turning a step
+into a rotation lives in `env/drift.py`, one class per schedule.
+`Config.rotation_at` and `alpha_per_step` were removed and their tests moved to
+`test_drift.py`.
+
+**Why.** The schedule maths was in `utils/config.py` because that is where it
+was first needed. Once `env/drift.py` existed it had two options, both bad:
+duplicate the piecewise logic, or have `env` call *up* into a config object for
+behaviour. Two implementations of "where does the jump land" is precisely the
+kind of pair that diverges silently — one of them gets a fix and the other does
+not, and the evaluation sets end up built at a different rotation than the
+training data.
+
+**Cost.** Three call sites updated (`check_config.py`,
+`make_preliminary_figures.py`, `test_config.py`). Worth doing now; it would have
+been ten call sites after phase 3.
+
+### ✅ D20. The rotation cap is checked against behaviour, not against fields
+
+**Decision.** `build_drift` computes `total_travel` over the horizon and rejects
+anything past 45°. The per-field checks in the config schema stay, but they are
+no longer the last word.
+
+**Why.** Every individual field can look reasonable while the schedule as a
+whole travels too far. `jump_degrees: 15` is inside the cap; four change points
+is a normal-looking list; together they are 60° of rotation and the run is
+measuring label ambiguity. Field-level validation cannot see the interaction.
+
+**Guarded by.** `test_the_cap_is_checked_against_what_the_schedule_does`.
+
+### ✅ D21. Per-node drift multipliers top out at 1, not at $1+\text{spread}$
+
+**Decision.** Under `drift_scope: per_node`, rates are spread over
+$[1-\text{spread},\,1]$ — the spread slows the laggards rather than
+accelerating the leaders.
+
+**Why.** The symmetric choice, $[1-s, 1+s]$, has a mean rate equal to the global
+rate and is the obvious construction. But it puts the fastest agent at
+$1.5 \times 45° = 67.5°$, past the cap the schedule was validated against — so
+enabling per-node drift would silently invalidate the well-posedness guarantee
+for some agents while every configured field still read as legal. Anchoring the
+top at 1 keeps the cap true for every agent by construction.
+
+**Related.** `Drift.state_at(t)` raises under per-node scope unless given a
+node: there is no single network-wide state, and returning agent 0's would be a
+silent lie.
+
+### ✅ D22. `data/transforms.py` is the single implementation, and it is fitted once
+
+**Decision.** One `ImageTransform` instance, frozen, with its normalization
+constants baked in as values. Training, all three evaluation sets, and the
+offline reference classifier call the same object. Constants are computed on the
+**canonical** (unrotated, downsampled) training images.
+
+**Why.** Under drift the evaluation set must carry the *same* rotation as the
+training data at step $t$. One shared object is what makes that checkable rather
+than hoped-for — `transform.at(images, state)` is the only call either path
+makes, so neither can pass a rotation the other did not.
+
+Fitting on canonical data matters twice over. The published 28×28 constants no
+longer apply after pooling (average pooling preserves the mean but shrinks the
+standard deviation — measured 0.3081 → 0.279 on MNIST, so the normalization
+offset is 0.47σ rather than 0.42σ). And statistics recomputed per step would
+drift with the rotation, confounding the very thing being measured.
+
+**Guarded by.** `test_train_and_eval_paths_produce_identical_pixels`,
+`test_exposed_corners_match_the_interior_background`,
+`test_normalizing_before_rotating_brands_every_rotated_image`, and
+`test_mnist_corners_are_clean_under_rotation` on the real data. Figure 06 of the
+preliminary work now calls the shipped transform, so it fails visibly if the
+ordering ever changes.
+
+**Also decided.** Rotation is **bilinear**, not nearest-neighbour: at a few
+degrees, nearest-neighbour quantises the digit into staircase artefacts that
+vary with the angle — another signal correlated with the drift state. And
+`rotate(images, 0.0)` returns the input object unchanged, so an $\alpha=0$ run
+is bit-identical to a stationary one rather than merely close.
+
+### ✅ D23. The stream is a pure function of (agent, step), not a cursor
+
+**Decision.** Label-availability draws are made once up front as an $(N, T)$
+Bernoulli block, and the offset into a shard at step $t$ is a prefix sum over
+them. `indices_at(v, t)` can be answered directly for any $(v, t)$.
+
+**Alternative rejected.** A per-agent pointer advanced each step, which is the
+obvious implementation.
+
+**Why.** A cursor works until something needs step 900 without having walked
+0..899 — an evaluation set, a test, a restarted runner, a sweep resuming — and
+then the answer depends on how you got there. It also makes the realised label
+rate something you infer *after* a run rather than check before one. The prefix
+sum costs an $(N,T)$ int tensor, which at the defaults is 15 000 entries.
+
+**Guarded by.** `test_a_step_gives_the_same_answer_however_it_is_reached`,
+`test_querying_out_of_order_is_stable`,
+`test_repeated_queries_do_not_advance_anything`.
+
+### ✅ D24. An unlabelled step consumes nothing from the shard
+
+**Decision.** With $\pi_{\text{lab}} < 1$ an agent idles: no samples served, no
+shard entries consumed, and its offset does not advance.
+
+**Alternative rejected.** Serving the samples but withholding the labels.
+
+**Why.** Three reasons, in order of weight.
+
+*No learner here can use an unlabelled sample.* Every method in the project is
+fully supervised, and the Diff-EKF adapt step needs an innovation
+$\bm\nu = \bm y - \bm\mu$; with no $\bm y$ there is no measurement, and
+Algorithm 1 line 8 passes the prediction through unchanged. So the sample is
+discarded on arrival — and since shards are disjoint and finite, consuming it
+destroys it permanently. At $\pi_{\text{lab}} = 0.25$ that is 4 500 of each
+agent's 6 000 samples thrown away to no purpose.
+
+*It would cap the horizon at the dense-label value.* Under consumption the
+shard drains at $n$ per step regardless of $\pi_{\text{lab}}$, so the maximum
+horizon is the same for every label rate:
+
+| $n$ | $\pi_{\text{lab}}$ | max $T$, consuming | max $T$, not consuming |
+|---|---|---|---|
+| 2 | 1.0 | 3000 | 3000 |
+| 2 | 0.5 | 3000 | 6000 |
+| 2 | 0.25 | 3000 | 12000 |
+
+Q4 asks where the online signal becomes too weak to learn from. Answering it may
+well require running the sparse-label regime *longer* to see whether it
+eventually catches up — and under consumption that experiment is simply not
+available, because the data runs out at the same step either way.
+
+*Forward compatibility.* A semi-supervised variant would want those samples, and
+a design that has already destroyed them cannot be extended to use them.
+
+**Correction.** An earlier version of this entry said unlabelled consumption
+"would silently also be a shorter run". That is wrong: consumption makes the run
+length *independent* of $\pi_{\text{lab}}$, not shorter than the dense case. The
+table above is the accurate statement.
+
+Measured at the defaults: $\pi_{\text{lab}}=0.25$ consumes 7 380 samples against
+30 000, leaving 5 228 of each 6 000-sample shard available.
+
+**Guarded by.** `test_an_idle_step_consumes_nothing_from_the_shard`,
+`test_sparser_labels_consume_less_of_the_shard`,
+`test_sparse_labels_let_a_longer_horizon_fit`.
+
+**Also decided.** A batch is full or empty, never partially filled, so every
+agent active at a step receives the same count — which is what the X0 identity
+requires. And $\pi_{\text{lab}} = 1.0$ is handled exactly rather than as
+`rand() < 1.0`, because "1.0 minus a rounding accident" is not a guarantee X0
+can rest on.
+
+### ✅ D25. Shared observations are guarded by a positive check, not by convention
+
+**Decision.** `Observation` is a frozen dataclass, and
+`Environment.assert_unmodified(observations, step)` recomputes the step and
+compares fingerprints. The runner calls it on evaluation steps.
+
+**Why.** D4 has one environment feeding every learner, which is what makes X0
+exact by construction. The cost is that a learner mutating its input in place —
+normalising, augmenting, casting — corrupts the data every *subsequent* learner
+in that iteration sees. Freezing the dataclass stops `obs.x = ...` but not
+`obs.x.add_(1)`, and torch has no read-only tensor flag.
+
+The failure would be near-invisible: the run completes, the curves look like
+curves, and X0 fails with a small residual that reads as a numerical issue
+rather than as data corruption. Since the environment is positional (D23), the
+check is cheap — recompute and compare two floats per agent — so it is a real
+guard rather than a comment asking learners to behave.
+
+**Guarded by.** `test_in_place_mutation_of_a_shared_observation_is_caught`,
+`test_label_mutation_is_caught_too`, `test_labels_are_copied_not_aliased`.
+
+**Also decided.** `pool()` lives in the environment rather than in the
+centralized learner. The exactness identity requires the pooled batch to be
+*exactly* the union of the per-agent ones; putting that in one place means the
+learner and the test that checks it call the same code.
+
+**Deviation from the spec.** `IMPLEMENTATION.md` §4.1 sketches
+`Environment.reset(seed) -> None`. Here `reset` returns a *new* environment
+instead. Everything else in the environment is frozen and positional; a mutating
+reset would be the single place where a stale reference could hand back data
+from a previous seed.
+
+---
+
 ## Open questions
 
 ### ❓ Q1. Network size $N$

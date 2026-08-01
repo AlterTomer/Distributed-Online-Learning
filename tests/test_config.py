@@ -48,19 +48,6 @@ def test_defaults_match_the_agreed_phase_1_values() -> None:
     assert config.eval.backward_offset == 500
 
 
-def test_backward_probe_sees_a_distinguishable_rotation() -> None:
-    """The forgetting probe must differ enough from `current` to mean anything.
-
-    At the capped drift rate the separation is backward_offset * alpha. A
-    200-step offset gives 6 degrees, which is not a distribution shift a
-    classifier will visibly forget; 500 gives 15.
-    """
-    config = load_config("x2_rotating")
-    t = config.run.horizon - 1
-    separation = config.rotation_at(t) - config.rotation_at(t - config.eval.backward_offset)
-    assert separation >= 10.0, f"backward probe only {separation:.1f} degrees behind current"
-
-
 def test_small_mlp_hits_the_phase_5_parameter_budget() -> None:
     """196-14-10 must land under 3e3, or a dense covariance is not affordable."""
     config = load_config("x1_stationary")
@@ -204,20 +191,6 @@ def test_configuring_alpha_directly_is_rejected() -> None:
         load_config("x2_rotating", overrides={"env": {"drift": {"alpha": 0.2}}})
 
 
-def test_alpha_is_derived_from_total_degrees_and_horizon() -> None:
-    config = load_config("x2_rotating")
-    assert config.alpha_per_step == pytest.approx(45.0 / 1500)
-    assert config.rotation_at(config.run.horizon) == pytest.approx(45.0)
-
-
-def test_shortening_the_horizon_does_not_change_the_total_rotation() -> None:
-    """The whole point of deriving alpha: total travel is horizon-invariant."""
-    long_run = load_config("x2_rotating", overrides={"run": {"horizon": 1500}})
-    short_run = load_config("x2_rotating", overrides={"run": {"horizon": 500}})
-    assert long_run.rotation_at(1500) == pytest.approx(short_run.rotation_at(500))
-    assert short_run.alpha_per_step > long_run.alpha_per_step
-
-
 def test_rotation_beyond_the_well_posed_cap_is_rejected() -> None:
     with pytest.raises(ConfigError, match="above the 45.0 degree cap"):
         load_config("x2_rotating", overrides={"env": {"drift": {"total_degrees": 300.0}}})
@@ -320,31 +293,6 @@ def test_backward_evalset_needs_an_offset_inside_the_horizon() -> None:
 # --------------------------------------------------------------------------- #
 # drift schedules
 # --------------------------------------------------------------------------- #
-
-
-def test_stationary_drift_never_rotates() -> None:
-    config = load_config("x1_stationary")
-    assert all(config.rotation_at(t) == 0.0 for t in (0, 1, 500, 1500))
-
-
-def test_zero_total_degrees_is_identical_to_stationary() -> None:
-    stationary = load_config("x1_stationary")
-    zero_drift = load_config("x2_rotating", overrides={"env": {"drift": {"total_degrees": 0.0}}})
-    assert all(stationary.rotation_at(t) == zero_drift.rotation_at(t) for t in (0, 250, 1500))
-
-
-def test_piecewise_drift_jumps_at_the_change_points() -> None:
-    config = load_config("x5_abrupt_shift")
-    assert config.rotation_at(499) == 0.0
-    assert config.rotation_at(500) == pytest.approx(15.0)
-    assert config.rotation_at(1499) == pytest.approx(15.0)
-
-
-def test_sinusoidal_drift_returns_to_previously_seen_states() -> None:
-    drift = DriftConfig(schedule="sinusoidal", amplitude_degrees=30.0, period=500)
-    assert drift.rotation_at(0, 1500) == pytest.approx(0.0, abs=1e-9)
-    assert drift.rotation_at(125, 1500) == pytest.approx(30.0)
-    assert drift.rotation_at(500, 1500) == pytest.approx(0.0, abs=1e-9)
 
 
 def test_change_points_must_be_sorted() -> None:

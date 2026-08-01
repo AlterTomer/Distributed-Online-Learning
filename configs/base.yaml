@@ -32,6 +32,7 @@ env:
     jump_degrees: 15.0
     amplitude_degrees: 30.0
     period: 500
+    per_node_spread: 0.5        # only under drift_scope: per_node
   drift_scope: global
   allow_epochs: false
 
