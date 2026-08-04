@@ -1,8 +1,22 @@
 # Phase 5 placeholder. Interface only; raises NotImplementedError in phase 1.
-# lambda and process_noise_q are two parameterisations of the same forgetting
-# effect and are jointly unidentifiable -- exactly one may be active.
+#
+# The state model has TWO independent axes (design note D26):
+#
+#   transition   F_t = I  or  F_t = gamma*I    -- acts on the MEAN
+#   forgetting   P *= 1/lambda  or  P += Q     -- acts on the COVARIANCE
+#
+# gamma is often called a "forgetting factor" but is not one: its covariance
+# effect is gamma^2 <= 1, which *contracts*. What it actually does is pull the
+# estimate geometrically toward the origin -- L2 weight decay in state-space
+# form. All four combinations are selectable so the comparison can be measured.
 name: diffusion_ekf
-adapt_scope: local        # Prop. 1 exactness needs one_hop, not local
-lambda_forget: 0.9999
-process_noise_q: null
-prior_scale: 1.0          # P_0 = prior_scale * I; the most sensitive hyperparameter
+adapt_scope: local          # Prop. 1 exactness needs one_hop, not local
+
+transition: identity        # identity | scalar
+gamma: 1.0                  # F_t = gamma*I; only under transition: scalar
+
+forgetting: lambda          # lambda | process_noise
+lambda_forget: 0.997        # memory ~ 1/(1-lambda) = 333 steps ~ 10 deg of drift
+process_noise_q: 1.0e-6     # only under forgetting: process_noise
+
+prior_scale: 1.0            # P_0 = prior_scale * I; the most sensitive hyperparameter

@@ -1,0 +1,13 @@
+# Plain-SGD ATC: no optimizer state, so the combine step broadcasts psi alone.
+#
+# Exists so the phase-5 comparison can be stated at *genuinely* equal
+# communication. Diff-EKF sends one p-vector per link; the primary baseline
+# (diffusion_sgd_atc, momentum mixed) sends two. This variant sends one.
+# Weaker than the momentum baseline, and that is the point: it isolates the
+# payload difference from the performance difference. See design note D29.
+name: diffusion_sgd_atc_plain
+optimizer: sgd
+lr: 0.05
+momentum: 0.0
+mix_optimizer_state: none
+adapt_scope: local

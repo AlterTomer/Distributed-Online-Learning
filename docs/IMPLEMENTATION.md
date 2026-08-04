@@ -182,8 +182,10 @@ DistributedOnlineLearning/          # repo root; .venv313/ and .venv/ live here 
 ├── results/                      # gitignored; run outputs
 ├── figures/
 └── docs/
-    ├── workplan.md
-    ├── implementation.md         # this document
+    ├── WORKPLAN.md               # research plan
+    ├── IMPLEMENTATION.md         # this document
+    ├── configs.md                # every config file and field
+    ├── environment.md            # the environment's guarantees and what enforces them
     ├── design_notes.md           # decisions log, updated as they are made
     └── diffekf_integration.md    # §13, kept live
 ```
@@ -260,8 +262,10 @@ Described at signature level. No implementation here.
 
 ### 4.1 Environment
 
-- `Environment.reset(seed) -> None`
+- `Environment.reset(seed) -> Environment` — **returns a new environment** rather than mutating in place. The gym-style `-> None` sketched originally fits environments that carry episode state; this one is a pure function of (config, seed, data), and a mutating reset would be the single place where a captured component (an evaluation set, a learner's cached `graph.weights`) could silently belong to the previous seed. See design note D25.
 - `Environment.step(t) -> dict[int, Observation]`
+- `Environment.observe(node, t) -> Observation` — one agent, for tests and evaluation
+- `Environment.assert_unmodified(observations, t) -> None` — the positive check that no learner mutated the shared observations in place
 - `Observation` fields: `x` (tensor), `y` (tensor or `None`), `has_label` (bool), `n_samples` (int). **Frozen dataclass, tensors never mutated in place** — several learners share one instance per step (§3).
 - `Environment.graph -> Graph`, `Environment.drift_state(t) -> DriftState`
 - `Environment.horizon -> int`
@@ -510,11 +514,11 @@ Everything fits on a laptop CPU. Parallelize sweeps across seeds with a process 
 
 ## 12. Build order
 
-| Phase | Modules to write | Gate |
-|---|---|---|
-| **0** | `utils/config.py`, `utils/determinism.py`, `runner/seeding.py`, `data/mnist.py`, repo scaffolding, CI | `make test` green; MNIST loads |
-| **1** | `env/graph.py`, `env/partition.py`, `env/drift.py`, `env/stream.py`, `env/environment.py`, `data/transforms.py`, `scripts/check_environment.py` | `test_graph`, `test_partition`, `test_stream`, `test_drift`, `test_transforms` pass; stream visualisation renders |
-| **2** | `models/*`, `likelihoods/*`, `metrics/*`, `evaluation/*`, `scripts/train_reference.py` | `test_models` passes; all 10 rotation-level $e^\star$ cached, each at expected MNIST accuracy for a $196$–$14$–$10$ MLP |
+| Phase | Modules to write | Gate | Status |
+|---|---|---|---|
+| **0** | `utils/config.py`, `utils/determinism.py`, `runner/seeding.py`, `data/mnist.py`, repo scaffolding, CI | `make test` green; MNIST loads | ✅ done |
+| **1** | `env/graph.py`, `env/partition.py`, `env/drift.py`, `env/stream.py`, `env/environment.py`, `data/transforms.py`, `scripts/check_environment.py` | `test_graph`, `test_partition`, `test_stream`, `test_drift`, `test_transforms` pass; stream visualisation renders | ✅ done |
+| **2** | `models/*`, `likelihoods/*`, `metrics/*`, `evaluation/*`, `scripts/train_reference.py` | `test_models` passes; all 10 rotation-level $e^\star$ cached, each at expected MNIST accuracy for a $196$–$14$–$10$ MLP | in progress |
 | **3** | `learners/*`, `learners/optim_state.py`, `runner/simulate.py`, `recording/*`, `scripts/run_experiment.py` | **`test_exactness` passes**; `test_simulate` passes; X0, X1, X1b, X2 produce F1, F2, F5, F8 |
 | **4** | `runner/sweep.py`, `scripts/run_sweep.py`, `scripts/make_figures.py` | X3–X6 produce F3, F4, F6, F7, F9 |
 | **5** | `learners/diffusion_ekf.py`, `utils/linalg.py`, structured covariance | Filter reproduces the centralized EKF on a complete graph |

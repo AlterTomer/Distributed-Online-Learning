@@ -45,7 +45,7 @@ def test_defaults_match_the_agreed_phase_1_values() -> None:
     assert config.env.samples_per_node_per_step == 2
     assert config.run.horizon == 1500
     assert config.model.input_size == 14
-    assert config.eval.backward_offset == 500
+    assert config.eval.backward_separation_degrees == 15.0
 
 
 def test_small_mlp_hits_the_phase_5_parameter_budget() -> None:
@@ -256,9 +256,46 @@ def test_plain_sgd_may_leave_state_unmixed() -> None:
     assert learner.mix_optimizer_state == "none"
 
 
-def test_lambda_and_process_noise_cannot_both_be_active() -> None:
-    with pytest.raises(ConfigError, match="unidentifiable"):
-        LearnerConfig(name="ekf", lambda_forget=0.99, process_noise_q=1e-4)
+def test_the_state_model_has_two_independent_axes() -> None:
+    """F_t acts on the mean, the forgetting rule on the covariance. All four
+    combinations are legal so the comparison can be measured (design note D26)."""
+    for transition, gamma in (("identity", 1.0), ("scalar", 0.999)):
+        for forgetting in ("lambda", "process_noise"):
+            learner = LearnerConfig(
+                name="ekf", transition=transition, gamma=gamma, forgetting=forgetting
+            )
+            assert learner.transition == transition
+            assert learner.forgetting == forgetting
+
+
+def test_gamma_under_identity_transition_is_rejected() -> None:
+    """Rather than silently ignored: F_t = I means gamma does nothing, and a
+    config that sets it is asking for behaviour it will not get."""
+    with pytest.raises(ConfigError, match="has no effect under"):
+        LearnerConfig(name="ekf", transition="identity", gamma=0.99)
+
+
+def test_forgetting_default_is_multiplicative_inflation() -> None:
+    """Exactly structure-preserving in the information domain, unlike +Q."""
+    assert LearnerConfig(name="ekf").forgetting == "lambda"
+
+
+def test_the_lambda_default_has_a_memory_shorter_than_the_horizon() -> None:
+    """Effective memory is ~1/(1-lambda). A default whose memory exceeds the
+    horizon means no forgetting at all, and the tracking claim could not be
+    tested."""
+    memory = 1.0 / (1.0 - LearnerConfig(name="ekf").lambda_forget)
+    assert memory < load_config("x1_stationary").run.horizon
+
+
+def test_out_of_range_gamma_is_rejected() -> None:
+    with pytest.raises(ConfigError, match=r"gamma must lie in \(0, 1\]"):
+        LearnerConfig(name="ekf", transition="scalar", gamma=1.5)
+
+
+def test_non_positive_process_noise_is_rejected() -> None:
+    with pytest.raises(ConfigError, match="process_noise_q must be > 0"):
+        LearnerConfig(name="ekf", process_noise_q=0.0)
 
 
 def test_grid_dimensions_must_match_the_node_count() -> None:
@@ -279,20 +316,29 @@ def test_duplicate_seeds_are_rejected() -> None:
         load_config("x1_stationary", overrides={"run": {"seeds": [0, 0, 1]}})
 
 
-def test_backward_evalset_needs_an_offset_inside_the_horizon() -> None:
-    with pytest.raises(ConfigError, match="backward evaluation set never exists"):
+def test_a_backward_separation_the_schedule_cannot_reach_is_rejected() -> None:
+    """Checked against what the schedule *does*: a separation larger than the
+    run's total travel leaves the probe undefined at every step, and reporting
+    that as "no forgetting" would be a silent lie."""
+    with pytest.raises(ConfigError, match="only travels"):
         load_config(
-            "x1_stationary",
-            overrides={
-                "run": {"horizon": 100},
-                "eval": {"evalsets": ["backward"], "backward_offset": 200},
-            },
+            "x2_rotating",
+            overrides={"eval": {"evalsets": ["backward"], "backward_separation_degrees": 90.0}},
         )
 
 
-# --------------------------------------------------------------------------- #
-# drift schedules
-# --------------------------------------------------------------------------- #
+def test_a_reachable_backward_separation_is_accepted() -> None:
+    config = load_config(
+        "x2_rotating",
+        overrides={"eval": {"evalsets": ["backward"], "backward_separation_degrees": 20.0}},
+    )
+    assert config.eval.backward_separation_degrees == 20.0
+
+
+def test_a_stationary_run_cannot_ask_for_the_backward_probe() -> None:
+    """It travels zero degrees, so the probe is undefined everywhere."""
+    with pytest.raises(ConfigError, match="only travels 0.0 degrees"):
+        load_config("x1_stationary", overrides={"eval": {"evalsets": ["backward"]}})
 
 
 def test_change_points_must_be_sorted() -> None:
@@ -322,7 +368,7 @@ def test_dumped_config_names_every_field() -> None:
     """Nothing may rely on a default that is not written down."""
     config = load_config("x1_stationary")
     dumped = config.to_dict()
-    assert set(dumped) == {"run", "graph", "env", "model", "learners", "eval"}
+    assert set(dumped) == {"run", "graph", "env", "model", "reference", "learners", "eval"}
     assert "total_degrees" in dumped["env"]["drift"]
     assert all("adapt_scope" in learner for learner in dumped["learners"])
 

@@ -41,11 +41,24 @@ model:
   input_size: 14         # 14x14 downsampled input; see WORKPLAN.md section 4.6
   hidden: [14]
   output_dim: 10
+  activation: gelu       # smooth; ReLU breaks the phase-5 remainder bound
+
+reference:
+  epochs: 100          # raised from 20: at 20, 9 of 16 levels stopped at the budget
+  batch_size: 128
+  lr: 0.003
+  init_strategy: shared_seed   # shared_seed | independent_seeds | warm_start
+  selection: validation        # validation | fixed_budget
+  validation_size: 5000        # held out from train; 0 under fixed_budget
+  rotation_min_degrees: -30.0  # the union of every schedule's range
+  rotation_max_degrees: 45.0
+  rotation_step_degrees: 5.0
+  seed: 0
 
 learners:
   - name: diffusion_sgd_atc
 
 eval:
   evalsets: [prequential, current, canonical]
-  backward_offset: 500   # 15 deg of separation at the capped drift rate; 200 gave only 6
+  backward_separation_degrees: 15.0   # anchored by rotation, not by a step count
   batch_size: 1000

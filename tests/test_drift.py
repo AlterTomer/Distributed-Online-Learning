@@ -328,13 +328,22 @@ def test_x5_jumps_fifteen_degrees_at_five_hundred() -> None:
 
 
 def test_the_backward_probe_sees_a_distinguishable_rotation() -> None:
-    """Moved here from the config tests: the separation is a property of the
-    schedule, not of the config schema."""
+    """The separation is a property of the schedule, so it lives here rather
+    than in the config tests. Anchored by rotation now, not by a step count:
+    a fixed offset gave identically zero separation under the sinusoidal
+    schedule, whose whole purpose is to expose forgetting (design note D32).
+    """
     config = load_config("x2_rotating")
     drift = build_drift(config)
-    t = config.run.horizon - 1
-    separation = drift.rotation_at(t) - drift.rotation_at(t - config.eval.backward_offset)
-    assert separation >= 10.0, f"backward probe only {separation:.1f} degrees behind current"
+    separation = config.eval.backward_separation_degrees
+    current = drift.rotation_at(config.run.horizon - 1)
+
+    source = next(
+        step
+        for step in range(config.run.horizon - 2, -1, -1)
+        if abs(drift.rotation_at(step) - current) >= separation
+    )
+    assert abs(current - drift.rotation_at(source)) >= separation
 
 
 def test_sinusoidal_config_builds() -> None:

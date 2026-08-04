@@ -6,11 +6,17 @@ one shared classifier online without a fusion centre. Establishes centralized an
 diffusion-SGD baselines, and lays the groundwork for a diffusion extended Kalman
 filter (Diff-EKF).
 
-The research plan lives in `WORKPLAN.md`; the repository specification in
-`IMPLEMENTATION.md`. Both are currently kept outside the repository and will be
-moved into `docs/` once phase 0 results are in.
+## Documentation
 
-**Status:** phase 0, scaffolding.
+| File | What it answers |
+|---|---|
+| [`docs/WORKPLAN.md`](docs/WORKPLAN.md) | The research plan: questions, methods, experiments, validity checks |
+| [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md) | The repository specification: layout, interfaces, build order |
+| [`docs/environment.md`](docs/environment.md) | What each agent observes, and the guarantees the benchmark rests on |
+| [`docs/configs.md`](docs/configs.md) | Every config file and field, with legal values |
+| [`docs/design_notes.md`](docs/design_notes.md) | Decisions log: what was chosen, over what, and why |
+
+**Status:** phases 0 and 1 complete; phase 2 (models, metrics, evaluation) in progress.
 
 ## Setup
 

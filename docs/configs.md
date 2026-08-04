@@ -141,7 +141,7 @@ also keeps the online claim honest, since "no replay buffer" is one of the
 method's stated properties. Setting it `true` waives both the guarantee and the
 shard-budget check, and is a real trade rather than a convenience.
 
-*Consumed by:* `env/stream.py`, `env/partition.py`, `env/environment.py` (phase 1).
+*Consumed by:* `env/stream.py`, `env/partition.py`, `env/environment.py` (now).
 
 ### `env.drift`
 
@@ -176,9 +176,10 @@ much rotation MNIST accuracy degrades for reasons unrelated to decentralization,
 and near 180° a 6 *is* a 9 — the reference error $e^\star$ would then be
 measuring label ambiguity and the headline gap would be uninterpretable.
 
-*Consumed by:* `env/drift.py`, `data/transforms.py`, `evaluation/evalsets.py`
-(phases 1–2). The rotation at a step is already computable today:
-`config.rotation_at(t)`.
+*Consumed by:* `env/drift.py` and `data/transforms.py` (now);
+`evaluation/evalsets.py` (phase 2). The rotation at a step comes from
+`build_drift(config).rotation_at(t)` -- the schedule lives in `env/drift.py`,
+not on the config object (design note D19).
 
 ### `model`
 
@@ -201,34 +202,60 @@ A list. See §5 for the per-learner fields.
 
 | Field | Type | Default | Legal values | Notes |
 |---|---|---|---|---|
-| `evalsets` | list[str] | `[prequential, current, canonical]` | `prequential`, `current`, `backward`, `canonical` | No duplicates |
-| `backward_offset` | int | `500` | ≥ 0, and < `run.horizon` if `backward` is requested | How far back the forgetting probe looks |
+| `evalsets` | list[str] | `[prequential, current, canonical]` | `prequential`, `current`, `current_mean`, `backward`, `canonical` | No duplicates |
+| `backward_separation_degrees` | float | `15.0` | > 0, and reachable by the schedule | How far back the forgetting probe looks, **in degrees** |
 | `batch_size` | int | `1000` | ≥ 1 | Evaluation batching only |
 
-The four evaluation sets: **`prequential`** is test-then-train on the incoming
-batch, the per-step signal. **`current`** is the held-out test set rotated by the
-same amount as the training data at step $t$ — the headline metric, and the one
-that is easy to get wrong. **`backward`** is rotated as of $t -$ `backward_offset`
-and measures forgetting. **`canonical`** is unrotated and stays comparable to
-published MNIST numbers across every run.
+The evaluation sets: **`prequential`** is test-then-train on the incoming batch,
+the per-step signal. **`current`** is the held-out test set rotated by the same
+amount as the training data at step $t$ — the headline metric, and the one that
+is easy to get wrong. **`backward`** measures forgetting. **`canonical`** is
+unrotated and stays comparable to published MNIST numbers. **`current_mean`** is
+added automatically under `per_node` drift, scoring every agent at the
+network-mean rotation so the per-agent spread can be separated from the rotation
+spread.
 
-`backward_offset` has to be read together with the drift rate, because what
-matters is the *rotation* between the two sets, not the number of steps. At the
-capped rate of $45°/1500 = 0.03°$/step the separation is
-`backward_offset` $\times\ 0.03°$:
+**The backward probe is anchored by rotation, not by a step count.** It
+evaluates at the *most recent* earlier step whose rotation differs from the
+current one by at least `backward_separation_degrees`. A fixed step offset
+degenerates: at an offset equal to the sinusoidal period the separation is
+identically zero, so the schedule chosen to expose forgetting could not measure
+it. Where no qualifying earlier step exists — early in a run, or a stationary one
+— the probe is **undefined and logs nothing**, rather than logging a zero that
+would read as "no forgetting".
 
-| `backward_offset` | Separation | Verdict |
-|---|---|---|
-| 200 | 6° | Too small — indistinguishable from `current` |
-| **500** | **15°** | Default. A third of the total range |
-| 1000 | 30° | Large, but leaves only 500 steps where the probe exists |
+Config validation rejects a separation the schedule cannot reach, so asking for
+`backward` on a stationary run fails at load rather than silently producing
+nothing.
 
-`tests/test_config.py` asserts the separation stays above 10°, so lowering the
-drift rate without revisiting the offset fails loudly rather than producing a
-forgetting curve that is really a noise curve.
+## The reference classifier
 
-The last three sets score 10 000 images per agent every $K$ steps, which is the
-expensive part of a run and the reason $K = 25$ rather than 1.
+| Field | Type | Default | Legal values | Notes |
+|---|---|---|---|---|
+| `epochs` | int | `100` | ≥ 1 | At 20, 9 of 16 levels stopped at the budget |
+| `batch_size` | int | `128` | ≥ 1 | |
+| `lr` | float | `0.003` | > 0 | AdamW |
+| `init_strategy` | str | `shared_seed` | `shared_seed`, `independent_seeds`, `warm_start` | How the per-rotation models relate |
+| `selection` | str | `validation` | `validation`, `fixed_budget` | Which epoch is reported |
+| `validation_size` | int | `5000` | $(0, 60000)$, or 0 under `fixed_budget` | Held out of **train** |
+| `rotation_min_degrees` | float | `-30.0` | | Grid start |
+| `rotation_max_degrees` | float | `45.0` | | Grid end |
+| `rotation_step_degrees` | float | `5.0` | > 0 | 16 levels at the defaults |
+| `seed` | int | `0` | | Separate from `run.seeds` |
+
+$e^\star$ is a **fixed asset**: trained once by `scripts/train_reference.py`,
+cached per `(init_strategy, selection)` so variants never overwrite each other,
+and never rebuilt by an experiment run. Its own seed means re-running an
+experiment cannot silently retrain the thing it is measured against.
+
+The grid covers every rotation the configured schedules visit — linear
+$[0°,45°]$, piecewise $[0°,15°]$, sinusoidal $[-30°,+30°]$ — so nothing
+extrapolates. Lookup between grid points interpolates linearly; outside the grid
+it raises.
+
+Measured at the defaults: $e^\star$ ranges over roughly 4.6–5.5% for the
+$196$–$14$–$10$ MLP, and the symmetry $e^\star(-arphi) = e^\star(+arphi)$
+holds to within 0.004 — checked rather than assumed.
 
 *Consumed by:* `evaluation/` (phase 2).
 
@@ -415,14 +442,51 @@ Shared fields:
 | `momentum` | float | `0.9` | $[0,1)$ | Must be 0 for X0 |
 | `mix_optimizer_state` | str | `momentum` | `none`, `momentum`, `all` | Whether the combine step mixes optimizer moments as well as parameters |
 | `adapt_scope` | str | `local` | `local`, `one_hop` | Phase 5; `one_hop` raises today |
-| `lambda_forget` | float or null | `null` | $(0,1]$ | Phase 5 only |
-| `process_noise_q` | float or null | `null` | > 0 | Phase 5 only |
-| `prior_scale` | float | `1.0` | > 0 | Phase 5 only; $P_0 = \text{prior\_scale} \cdot I$ |
+| `transition` | str | `identity` | `identity`, `scalar` | Phase 5; $\bm F_t$ |
+| `gamma` | float | `1.0` | $(0,1]$ | Phase 5; $\bm F_t = \gamma\bm I$ under `scalar` |
+| `forgetting` | str | `lambda` | `lambda`, `process_noise` | Phase 5; how $\bm P$ is loosened |
+| `lambda_forget` | float | `0.997` | $(0,1]$ | Phase 5; memory $\approx 1/(1-\lambda)$ |
+| `process_noise_q` | float | `1e-6` | > 0 | Phase 5; used under `forgetting: process_noise` |
+| `prior_scale` | float | `1.0` | > 0 | Phase 5; $P_0 = \text{prior\_scale}\cdot I$ |
 
-Two validation rules worth knowing before you hit them:
+### The state model has two independent axes
+
+`transition` acts on the **mean**, `forgetting` on the **covariance**. All four
+combinations are legal, so which state model performs better is measured rather
+than assumed.
+
+$\gamma$ is commonly called a "forgetting factor" and **is not one**. Propagating
+the moments gives $\bm P_{t|t-1} = \gamma^2\bm P_{t-1|t-1} + \bm Q_t$, and
+$\gamma^2 \le 1$ *contracts* the covariance — the opposite of forgetting, which
+requires loosening the prior so a new sample counts for relatively more. What
+$\gamma$ actually does is $\bm m_{t|t-1} = \gamma\bm m_{t-1|t-1}$: $L_2$ weight
+decay written in state-space form.
+
+Defaults are `identity` + `lambda`, because a single $\gamma$ ties two things you
+would want to tune separately, and because multiplicative inflation is exactly
+structure-preserving in the information domain while $(\bm\Omega^{-1}+\bm Q)^{-1}$
+is dense. `process_noise` is offered anyway: while $\bm P$ is carried densely —
+all of phase 5 at $p = 2908$ — both rules cost the same, and $\bm Q$ buys
+anisotropy a scalar cannot express.
+
+**`lambda_forget` should be read as a memory length.** Effective memory is
+$\approx 1/(1-\lambda)$ steps, over which the data rotates $\alpha W$ degrees:
+
+| $\lambda$ | memory | drift over it | inflation over $T$ |
+|---|---|---|---|
+| 0.9999 | 10 000 | 300° | 1.2 |
+| **0.997** | **333** | **10°** | **91** |
+| 0.994 | 167 | 5° | 8 300 |
+
+A memory longer than the horizon means no forgetting at all, and the tracking
+claim could not be tested. Shorter memory tracks better but inflates unexcited
+directions harder — the value is a phase-5 pilot item, not a settled constant.
+
+Three validation rules worth knowing before you hit them:
 
 - **An optimizer that carries per-node state cannot have `mix_optimizer_state: none`.** Local momentum drifts apart across agents and the run diverges; that is a known failure mode, not an open question. Use plain `sgd` if you want no mixing.
-- **`lambda_forget` and `process_noise_q` cannot both be set.** They are two parameterisations of the same forgetting effect and are jointly unidentifiable.
+- **`gamma` under `transition: identity` is rejected**, rather than silently ignored: $\bm F_t = \bm I$ means it does nothing, and a config setting it is asking for behaviour it will not get.
+- **`lambda_forget` and `process_noise_q` are both always present**, but only the one `forgetting` names is used. They are two parameterisations of the same effect and are jointly unidentifiable, so the selector makes the choice explicit rather than inferred from which field is non-null.
 
 | File | Role |
 |---|---|

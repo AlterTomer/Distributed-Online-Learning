@@ -582,6 +582,298 @@ from a previous seed.
 
 ---
 
+## 2026-08-02 — Phase 2, the state model
+
+### ✅ D26. $\bm F$ and the forgetting rule are two axes, and both are selectable
+
+**Decision.** The phase-5 state model exposes two independent choices:
+
+| Field | Values | Acts on |
+|---|---|---|
+| `transition` | `identity`, `scalar` ($\bm F_t = \gamma\bm I$) | the **mean** |
+| `forgetting` | `lambda` ($\bm P \mathbin{{*}{=}} \lambda^{-1}$), `process_noise` ($\bm P \mathbin{{+}{=}} \bm Q$) | the **covariance** |
+
+Defaults `identity` + `lambda`. All four combinations are legal, so which state
+model performs better is measured rather than assumed.
+
+**The conflation this exists to prevent.** $\gamma$ is routinely called a
+"forgetting factor", but propagating the moments gives
+$\bm P_{t|t-1} = \gamma^2\bm P_{t-1|t-1} + \bm Q_t$ — and $\gamma^2 \le 1$
+**contracts** the covariance. Forgetting means *loosening* the prior so a new
+sample counts for relatively more, so $\gamma$ works against it. What $\gamma$
+actually does is $\bm m_{t|t-1} = \gamma\bm m_{t-1|t-1}$: it pulls the estimate
+toward the origin, which is $L_2$ weight decay written in state space. The two
+knobs are orthogonal and were treated as one in the first config draft.
+
+**Why `identity` is the default.** A single $\gamma$ ties "how fast may the model
+change" to "how hard is it pulled to zero". And the origin is not a neutral point
+for a network — it is where the model computes approximately the constant-zero
+map, so shrinking toward it is a *bad* prior rather than a weak one. (The note
+also argues from ReLU positive-rescaling and LayerNorm scale invariance; that
+argument is weak *here*, since we use GELU and no normalization layers, and it is
+recorded as not load-bearing for us.) `scalar` remains available because $\gamma$
+does buy something real: it makes the state a mean-reverting AR(1) with a proper
+stationary prior $\tfrac{q}{1-\gamma^2}\bm I$, where a random walk's prior
+variance grows without bound.
+
+**Why `lambda` is the default.** With $\bm F=\bm I$, multiplicative inflation in
+the information domain is $\bm\Omega_{t|t-1} = \lambda\bm\Omega_{t-1|t-1}$ —
+*exactly* structure-preserving, where $(\bm\Omega^{-1}+\bm Q)^{-1}$ is dense even
+for diagonal $\bm Q$. That is decisive once the covariance is structured.
+
+**Why `process_noise` is nonetheless offered.** The objection above is stated in
+the *information* domain. While the covariance is carried as a dense $\bm P$ —
+which is the whole of phase 5 at $p = 2908$ — both rules are one line and the
+same cost, since the measurement update goes through Woodbury either way. $\bm Q$
+also buys anisotropy a scalar $\lambda$ cannot express ("the read-out drifts, the
+feature extractor does not"). The cost only appears if the project later adopts
+the (S4) diagonal-plus-low-rank structure, which is defined on $\bm P^{-1}$.
+
+### 🔄 D27. `lambda_forget` default 0.9999 → 0.997
+
+**Decision.** Default $\lambda = 0.997$.
+
+**Why.** Effective memory is $\approx 1/(1-\lambda)$ steps. The original 0.9999
+gives **10 000 steps against a horizon of 1 500** — the filter would average over
+the whole run and then some, which is *no forgetting at all*. X2 and X5 test the
+tracking claim (M5); with that default the filter would have failed to track for
+a reason having nothing to do with the method.
+
+$\lambda$ should be set from the drift timescale, not chosen for looking close to
+1. The model averages over $W$ steps during which the data rotates $\alpha W$
+degrees:
+
+| $\lambda$ | memory $W$ | drift over $W$ | inflation $\lambda^{-T}$ |
+|---|---|---|---|
+| 0.9999 | 10 000 | 300° | 1.2 |
+| 0.999 | 1 000 | 30° | 4.5 |
+| **0.997** | **333** | **10°** | **91** |
+| 0.994 | 167 | 5° | 8 300 |
+
+**The tension, which is why this stays a pilot item.** Shorter memory tracks
+better but inflates *unexcited* directions harder — in an unexcited direction
+nothing balances $\lambda^{-t}$. There is such a direction here: adding a
+constant to every output bias shifts all logits equally, which softmax cannot
+see. It is the $\bm\Lambda\mathbf 1 = \bm 0$ null direction reappearing in
+parameter space, and its variance grows ~90× over a run at $\lambda = 0.997$.
+
+The right *scaling* is $W \propto T$, since $\alpha = \text{total}/T$ — the same
+argument as D3. That derivation is **not** built: phase 5 should sweep $\lambda$
+against tracking error in X2 first (WORKPLAN §9 calibrates $\alpha$ the same
+way), and building the machinery before knowing whether it matters would be
+speculative.
+
+**Diagnostics this obliges.** Record $\operatorname{cond}(\bm P)$ and
+$\lambda_{\min}(\bm\Omega)$ from the first filter run: null-direction growth is
+the failure mode this choice risks, and it is invisible to the innovation-based
+checks, which only probe directions the data excites.
+
+### ✅ D29. The ledger counts real payload, and X1 runs a payload-matched baseline
+
+**Decision.** The communication ledger charges what a learner actually
+transmits, including optimizer state. X1 runs **two** ATC variants:
+`diffusion_sgd_atc` (momentum mixed, $2p$ per link) and
+`diffusion_sgd_atc_plain` (no state, $p$ per link).
+
+**The problem this fixes.** `WORKPLAN.md` §3.2 says diffusion SGD exchanges "one
+$p$-vector per link per step". That is true of plain ATC. But §3.4 makes the
+primary configuration for X1–X6 *SGD with momentum, momentum also mixed* — and a
+neighbour cannot mix a momentum buffer it was never sent. The primary baseline
+therefore broadcasts $(\bm\psi, \bm m) = 2p$, while Diff-EKF broadcasts
+$\bm\psi$ alone.
+
+Measured at $N{=}10$, ring, $p{=}2908$:
+
+| learner | per link | scalars/step | relative |
+|---|---|---|---|
+| `diffusion_sgd_atc_plain` | $p$ | 58 160 | 1.0× |
+| `diffusion_sgd_atc` (momentum) | $2p$ | 116 320 | 2.0× |
+| `diffusion_sgd_atc` (AdamW, `all`) | $3p$ | 174 480 | 3.0× |
+| `diffusion_ekf` local | $p$ | 58 160 | 1.0× |
+| `diffusion_ekf` one_hop | $p(q'{+}1)$ | 581 600 | 10.0× |
+
+So **"at identical communication" is a claim about a particular pairing**, not
+about the methods in general. Left unnoticed, phase 5 would have compared a
+filter sending $p$ against a baseline sending $2p$ and reported the result as
+equal-cost. F2 plots error against cumulative scalars, so the curves would have
+separated on the *x*-axis for a reason the caption did not mention.
+
+**Cost of the fix.** One extra learner per X1 run, which is nearly free since
+learners share the environment (D4).
+
+**Guarded by.** `test_the_ekf_and_plain_atc_send_exactly_the_same`,
+`test_the_primary_sgd_baseline_sends_twice_what_the_filter_does`.
+
+### ✅ D30. Centralized is a reference line on F2, not a point on the axis
+
+**Decision.** `centralized_sgd` is recorded with `diffuses=False` and appears on
+F2 as a horizontal line, like $e^\star$. Its notional pooling cost is stored in
+the ledger but not plotted.
+
+**Why.** It is an upper reference *for the online setting*, not a deployable
+competitor — nothing in the paradigm proposes running it. Placing it at $x=0$
+would read as "free", and placing it on the axis would invite a comparison it
+was never meant to enter.
+
+**The number is kept anyway, and it is uncomfortable.** Shipping raw samples to
+a centre costs $N n (d{+}1) = 3\,940$ scalars per step, against $58\,160$ for
+ring diffusion — **15× less**. Bandwidth is not the argument for
+decentralization at this scale; latency, privacy, and the absence of a reliable
+fusion centre are. Better to have that in the ledger than to be asked about it.
+
+**Guarded by.** `test_pooling_is_cheaper_than_ring_diffusion`,
+`test_centralized_is_not_on_the_communication_axis`.
+
+### ✅ D31. $E_{\text{cent}}$ shares $\bm\theta_0$ and runs its own trajectory
+
+**Decision.** The centralized reference for $E_{\text{cent}}$ starts from the
+*same* $\bm\theta_0$ as the agents and runs its own trajectory from $t=0$.
+
+**Why.** The research note asks for an "independently initialised" centralized
+run. Read literally — a different $\bm\theta_0$ — the metric acquires an
+irreducible floor that never vanishes even for a perfect method, and there is no
+value of $E_{\text{cent}}$ meaning "these coincide". Reading it as *runs its own
+trajectory rather than being re-anchored to the agents each step* gives
+$E_{\text{cent}}(0) = 0$ exactly, so the metric measures algorithmic divergence
+alone. It is also what `WORKPLAN.md` §4.5 mandates for every learner in a run.
+
+**Also decided.** $E_{\text{agree}}$ and $E_{\text{cent}}$ are logged
+**unnormalised**, with $\lVert\bar{\bm\theta}_t\rVert^2$ alongside, so any
+normalisation — per-parameter, or relative to the mean's own size — is derivable
+at plot time without a re-run. `max_pairwise_distance` is logged too, since
+$E_{\text{agree}}$ is a mean and can stay small while one agent drifts far off.
+
+### 🔄 D32. The backward probe is anchored by rotation, not by a step offset
+
+**Decision.** `eval.backward_separation_degrees` (default 15°) replaces
+`eval.backward_offset`. The backward set is built at
+
+$$t' = \max\{\,s < t : |\varphi(s)-\varphi(t)| \ge \Delta\varphi\,\}$$
+
+— the *most recent* earlier step far enough away in rotation. Where no such step
+exists the probe is **undefined and logged as absent**, never as zero.
+
+**Why.** A fixed step offset degenerates, and did:
+
+| schedule | old (500-step offset) | new (15°) |
+|---|---|---|
+| linear | 15.0° ✓ | 15.0° ✓ |
+| piecewise | **0.0° after $t{=}1000$** | 15.0°, anchored to step 499 |
+| sinusoidal | **0.0° at every step** | 15.1° throughout |
+| stationary | 0.0°, silently | undefined, reported |
+
+The sinusoidal case is the one that matters: `backward_offset` was 500 and the
+period is 500, so $\varphi(t-500) \equiv \varphi(t)$. **The schedule chosen
+specifically to expose forgetting had a forgetting probe that measured nothing**,
+and would have reported "no forgetting" for the whole run. Piecewise collapsed
+once $t$ passed the last change point plus the offset.
+
+Anchoring by rotation also guarantees the probe evaluates a state the model
+**actually visited** — a fixed *rotation* offset ($\varphi(t) - 15°$) would not,
+asking for $-45°$ at the trough of a $\pm30°$ sine, and forgetting of a
+distribution never seen is not forgetting.
+
+This is D3's move applied again: state the physically meaningful quantity and
+derive the mechanical one. Config validation now rejects a separation the
+schedule cannot reach, so `x1_stationary` asking for the backward set fails at
+load with *"the stationary schedule only travels 0.0 degrees"*.
+
+**Guarded by.** `test_the_backward_probe_survives_a_sinusoidal_schedule`,
+`test_the_backward_probe_survives_a_piecewise_schedule`,
+`test_a_stationary_run_has_no_backward_probe`,
+`test_the_backward_state_is_one_the_model_actually_visited`.
+
+**Also decided.** Under `per_node` drift, `current` is built **per agent** at
+that agent's own rotation, and `current_mean` is scored alongside. Scoring
+everyone at the mean alone would make the per-agent spread conflate "this agent
+learned worse" with "this agent is further from the mean rotation"; logging both
+separates them.
+
+### ✅ D33. The reference offers three init strategies and two selection rules
+
+**Decision.** `reference.init_strategy` ∈ {`shared_seed` (default),
+`independent_seeds`, `warm_start`} and `reference.selection` ∈ {`validation`
+(default), `fixed_budget`}, with `epochs` and `validation_size` configurable.
+Each combination caches to its own file.
+
+**Why all three.** They differ in what $e^\star(\varphi)$ *means*.
+`shared_seed` trains each level independently from a common $\bm\theta_0$, so
+$e^\star$ is genuinely "best achievable at this rotation" while the curve stays
+smooth in $\varphi$. `independent_seeds` is honest about run-to-run variance but
+puts jitter into the subtrahend of the headline gap. `warm_start` is ~3× cheaper
+but makes $e^\star(45°)$ depend on having passed through $40°$ — contaminated by
+exactly the history the reference exists to be free of. Making the choice
+measurable costs a config field.
+
+**Selection never touches the test split.** Under `validation` a slice is held
+out of *train*, the best epoch is chosen on it, and test is scored once at the
+end. Test error is still recorded per epoch, for inspection only — the code says
+so at the point where it would be tempting to use.
+
+**Convergence is reported, not assumed.** At the original 20-epoch budget, **9
+of 16 levels selected the final epoch** — the budget, not convergence, decided
+where training stopped. The budget is now 100 and `all_converged` states the
+outcome. The direction matters: an under-trained $e^\star$ is too high, so every
+gap comes out too small, flattering the online methods.
+
+**Two smaller choices.** `Reference.at()` **interpolates** between grid points
+(nearest-neighbour on a 5° grid would put a sawtooth into the gap curve at the
+scale of the effect being measured) and **raises** outside the grid rather than
+extrapolating.
+
+**Measured, not assumed.** The full $[-30°, +45°]$ union is trained rather than
+mirroring negatives, and the symmetry $e^\star(-\varphi) = e^\star(+\varphi)$ is
+then checked: the largest mismatch is **0.0037**. The cheaper ten-level grid
+would have been defensible — but that is now a measurement rather than a hope.
+
+### 🔄 D34. $e^\star$'s run-to-run noise is measured, and the rotation trend is not established
+
+**Decision.** `reference.repeat_seeds()` retrains one rotation several times,
+varying only the seed, and `seed_spread()` reports the result against the
+binomial floor. Figure 11 carries a $\pm1\sigma$ band from that measurement.
+
+**Why.** The grid has **one draw per point** and, as first built, no stated
+uncertainty. A reader looking at the curve cannot tell a rotation effect from
+run-to-run noise — and neither could I. `WORKPLAN.md` §5.4 already requires five
+seeds and a band for every *experiment*; the quantity all of those experiments
+are measured against had one run and no band.
+
+**Measured at $0°$, five runs, identical but for the seed:**
+
+| | |
+|---|---|
+| mean $e^\star$ | 0.0455 |
+| std across seeds | 0.00163 |
+| range | 0.0043 |
+| binomial floor $\sqrt{e(1-e)/n}$ on 10k | 0.00208 |
+| std across the 16 rotations | 0.00222 |
+
+**What this shows, and what it does not.** The seed noise alone is nearly the
+size of the whole grid's variation, so most of the curve's shape is not a
+rotation effect. A $\chi^2$ test on whether the grid's variance exceeds the seed
+variance gives $27.8$ on 15 df against a $0.05$ threshold of $25.0$ — marginally
+over. But $\sigma_{\text{seed}}$ comes from five runs, and its own 95% interval
+is $[0.00106, 0.00469]$, which contains the grid's std. **The test is not
+conclusive either way.**
+
+The honest statement is therefore: *most of the variation across the rotation
+grid is run-to-run noise; whether a small genuine rotation effect remains cannot
+be settled from one run per grid point.*
+
+**Correction.** An earlier reading of this data — that the difference between
+$e^\star(-30°)$ and $e^\star(+5°)$ "is not real" — was stated too strongly, on a
+back-of-envelope range argument before the noise was measured. The measurement
+is more ambiguous than that claim. Recorded here rather than quietly softened,
+because the direction of the error matters: overstating "this is noise" is how a
+real effect gets dismissed.
+
+**What would settle it.** Five seeds per grid point: 80 trainings, ~100 minutes.
+Worth doing before any figure asserts a rotation trend, and not needed for the
+gap itself — which uses $e^\star$ pointwise, where a $\pm0.0016$ uncertainty is
+small against the gaps phase 3 will measure.
+
+---
+
 ## Open questions
 
 ### ❓ Q1. Network size $N$

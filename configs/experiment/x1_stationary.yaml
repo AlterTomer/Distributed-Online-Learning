@@ -4,7 +4,10 @@ include:
   graph: ring
   model: mlp_small
 
-learners: [centralized_sgd, diffusion_sgd_atc, local_only]
+# Two ATC variants: the momentum-mixed primary (2p per link) and the plain
+# one (p per link), so phase 5 can compare against a payload-matched
+# baseline as well as the stronger one. See design note D29.
+learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
 
 run:
   name: x1_stationary

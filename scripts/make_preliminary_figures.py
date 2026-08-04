@@ -43,6 +43,10 @@ SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]  # blue, orange, aqua -- fixed order
 SEQUENTIAL = "Blues"
 CRITICAL = "#d03b3b"
 
+# Run-to-run noise in e*, in percentage points: five retrainings at 0 degrees,
+# identical except for the seed, gave std 0.00163. See design note D34.
+SEED_STD_PERCENT = 0.163
+
 
 def style() -> None:
     """Recessive chrome: hairline grid, no top/right spines, muted axis ink."""
@@ -171,7 +175,7 @@ def fig02_price_of_connectivity() -> None:
     positions = range(len(rows))
 
     axis.barh(list(positions), gaps, height=0.62, color=SERIES[0], zorder=3)
-    for y, (name, gap, diameter) in enumerate(rows):
+    for y, (_name, gap, diameter) in enumerate(rows):
         label = f"{gap:.3f}" + (f"   (diameter {diameter})" if diameter else "   (disconnected)")
         axis.text(gap + 0.012, y, label, va="center", fontsize=8.5, color=INK_SECONDARY)
 
@@ -621,6 +625,109 @@ def fig10_received_digits(train) -> None:
     save(figure, "10_received_digits.png")
 
 
+def fig11_reference(train) -> None:
+    """e* against rotation: the curve every gap is measured against.
+
+    Two panels rather than one. The schedule coverage was originally drawn as
+    bars inside the e* axes, where they read as data lying below the curve; a
+    separate strip below says the same thing without pretending to be an error
+    rate.
+    """
+    from dekf_bench.evaluation import reference as ref
+
+    path = ref.cache_path(Path(__file__).resolve().parents[1] / "data", "shared_seed", "validation")
+    if not path.is_file():
+        print("  (no cached reference; skipping figure 11)")
+        return
+
+    reference = ref.load(path)
+    rotations = list(reference.rotations)
+    errors = [result.error_rate * 100 for result in reference.results]
+
+    figure, (axis, strip) = plt.subplots(
+        2, 1, figsize=(7.6, 4.6), sharex=True, height_ratios=[4, 1]
+    )
+
+    # A +/-1 sigma band from the seed-repeat diagnostic: five runs at 0 degrees,
+    # identical except for the seed, gave std 0.00163. Drawn around every point
+    # because it is the run-to-run noise each single draw carries.
+    seed_std = SEED_STD_PERCENT
+    axis.fill_between(
+        rotations,
+        [error - seed_std for error in errors],
+        [error + seed_std for error in errors],
+        color=SERIES[0],
+        alpha=0.15,
+        linewidth=0,
+        zorder=2,
+    )
+    axis.plot(rotations, errors, color=SERIES[0], marker="o", markersize=5, zorder=3)
+
+    # Each point is its own model, trained and tested at that rotation. Labelling
+    # them makes that explicit -- the x-axis alone reads as one curve sampled.
+    for index, (rotation, error) in enumerate(zip(rotations, errors, strict=True)):
+        axis.annotate(
+            f"{rotation:+.0f}°",
+            (rotation, error),
+            textcoords="offset points",
+            xytext=(0, 10 if index % 2 == 0 else -16),
+            ha="center",
+            fontsize=7,
+            color=INK_SECONDARY,
+        )
+
+    axis.set_ylabel("$e^*$   test error rate (%)")
+    axis.set_title("The offline reference: one model per rotation, trained and tested there")
+    axis.margins(y=0.18)
+    despine(axis)
+
+    for index, ((low, high), label) in enumerate(
+        (((0.0, 45.0), "linear"), ((-30.0, 30.0), "sinusoidal"), ((0.0, 15.0), "piecewise"))
+    ):
+        y = -index
+        strip.plot([low, high], [y, y], color=SERIES[1], linewidth=5, solid_capstyle="butt")
+        strip.text(high + 1.6, y, label, fontsize=8, color=INK_SECONDARY, va="center")
+    strip.set_ylim(-2.7, 0.7)
+    strip.set_yticks([])
+    strip.set_xticks(rotations[::2])
+    strip.set_xlabel("rotation applied to the data (degrees)")
+    strip.set_ylabel(
+        "visited by", fontsize=8, color=MUTED, rotation=0, ha="right", va="center", labelpad=6
+    )
+    strip.grid(False)
+    despine(strip, keep_left=False)
+
+    symmetry = reference.summary()["symmetry_error"]
+    caption = (
+        "Each point is a SEPARATE offline model: the same 196-14-10 MLP the online methods use, "
+        "trained on all 55k "
+        + chr(10)
+        + "training images rotated by that angle, then scored on the 10k test images rotated by "
+        "the same angle. "
+        + chr(10)
+        + "It is the best this architecture can do with full access to the data, so every online "
+        "result is reported "
+        + chr(10)
+        + "as the gap above this line rather than as a raw error rate."
+        + chr(10)
+        + chr(10)
+        + "Band: +/-1 sigma of run-to-run noise, measured by retraining 0 degrees five times with "
+        "different seeds (sigma = 0.16 pts)."
+        + chr(10)
+        + "The grid spread is "
+        + f"{max(errors) - min(errors):.2f}"
+        + " pts, about the size that "
+        "noise alone would produce -- so most of the wiggle is not a rotation effect,"
+        + chr(10)
+        + "and whether any of it is cannot be settled from one run per point. Symmetry holds to "
+        + f"{symmetry:.4f}"
+        + "."
+    )
+    figure.text(0.5, -0.30, caption, ha="center", fontsize=8.5, color=MUTED)
+    figure.tight_layout()
+    save(figure, "11_reference.png")
+
+
 def write_summary(labels) -> None:
     """A one-page factual companion to the figures."""
     config = load_config("x1_stationary")
@@ -743,6 +850,7 @@ than confounding it with data volume.
 | `08_partition_skew.png` | What each agent actually sees, IID vs Dirichlet |
 | `09_shard_sizes.png` | Why shard sizes are balanced |
 | `10_received_digits.png` | The phase-1 milestone: what each agent receives, over time |
+| `11_reference.png` | $e^\star$ per rotation: the curve every gap is measured against |
 """
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     path = OUT_DIR / "SUMMARY.md"
@@ -771,6 +879,7 @@ def main() -> int:
         8: lambda: fig08_partition_skew(labels),
         9: lambda: fig09_shard_sizes(labels),
         10: lambda: fig10_received_digits(train),
+        11: lambda: fig11_reference(train),
     }
     for number, build in figures.items():
         if ONLY is None or number == ONLY:

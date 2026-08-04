@@ -123,6 +123,8 @@ Two independent knobs:
 - **$n$ — samples per node per step**, small (1–8), **default 2**. This is the "not a huge amount of data" requirement.
 - **$\pi_{\text{lab}}$ — label availability**, the probability that a given agent has a labelled sample at a given step. With $\pi_{\text{lab}}<1$ some agents idle on some steps. This matters because both diffusion SGD and Diff-EKF handle it gracefully — an agent with no label still benefits from the combine step — and because it is a realistic feature of the target applications. Default 1.0 in phase 1; a sweep axis in phase 4.
 
+  **An idle step consumes no data.** The agent receives nothing and its shard is untouched, so $\pi_{\text{lab}}$ controls only how often an update happens, never how fast the data runs out. The alternative — delivering the samples unlabelled — destroys them, since no method here is semi-supervised and shards are finite. It would also make the maximum horizon independent of $\pi_{\text{lab}}$, foreclosing the natural follow-up to Q4: whether a sparse-label regime merely learns *slower* or genuinely *cannot* learn, which can only be answered by running it longer. See `design_notes.md` D24.
+
 Each agent draws from its own **disjoint** shard of the MNIST training set, assigned once at setup. No sample is seen by two agents, and no sample is reused across time steps unless explicitly enabled.
 
 **The shard budget binds the horizon, and it is easy to violate by accident.** With 60k images and $N$ agents, each shard holds $60000/N$ samples, which at $n$ per step lasts $60000/(Nn)$ steps. The defaults $N=10$, $n=2$ give a 6000-sample shard and a 3000-step ceiling; the default horizon is $T=1500$, comfortably inside it. Two consequences worth stating, because both have already caught us once:
@@ -179,11 +181,26 @@ The full-size $784$–$128$–$10$ MLP ($p\approx1.0\times10^{5}$) is kept as a 
 
 ### 5.1 The offline reference classifier
 
-A one-time, standard offline training run on the full MNIST training set to convergence, same architecture. This yields the reference error rate $e^\star$ against which every online method is measured. It is a fixed asset, computed once and cached, not part of any experiment run.
+A one-time, standard offline training run on the full MNIST training set to convergence, same architecture. This yields the reference error rate $e^\star$ against which every online method is measured. It is a fixed asset, computed once and cached, not part of any experiment run — it carries its own seed, so re-running an experiment can never silently retrain the thing it is measured against.
+
+**Convergence is verified, not assumed.** "To convergence" is an assertion until something checks it. By default a `validation_size` slice (5000) is held out of the *training* split, the best epoch is selected on it, and the test set is scored exactly once at the end. Early-stopping on the test set would leak into the very quantity every gap is measured against — invisibly, and always in the direction that flatters the online methods. The test error is still recorded per epoch, for inspection only.
+
+Each run reports whether the selected epoch was inside the budget. At a 20-epoch budget, 9 of 16 rotation levels selected the *final* epoch, meaning the budget rather than convergence decided where training stopped; the budget is now 100 and `all_converged` reports the outcome rather than assuming it. This matters directionally: an under-trained $e^\star$ is too high, so every gap $\bar e_t - e^\star$ comes out too small.
+
+Two further choices are configurable rather than fixed, so the comparison can be measured (`design_notes.md` D33):
+
+- **How the per-rotation models relate.** `shared_seed` (default) trains each level independently from a common $\bm\theta_0$; `independent_seeds` uses a different $\bm\theta_0$ per level; `warm_start` initialises each level from the previous, which is ~3× cheaper but makes $e^\star(45°)$ depend on having passed through $40°$.
+- **The train/validation split**, via `reference.validation_size`, and the epoch budget via `reference.epochs`.
 
 Under drift it must be recomputed per rotation level, otherwise the measured gap conflates *decentralization cost* with *drift cost*.
 
-"Per rotation level" needs a grid, since the rotation is continuous in $t$. With the $45°$ cap of §4.3 the grid is **every $5°$ over $[0°,45°]$, giving ten cached references**, plus the $\pm30°$ range for the sinusoidal schedule (which reuses the same grid by symmetry, since rotation by $-\phi$ and $+\phi$ are statistically equivalent over the full training set). $e^\star$ at an intermediate rotation is linearly interpolated between the two nearest grid points; the residual error is far below the between-seed spread of the online methods, and is checked once rather than assumed. Ten offline trainings of a small MLP is a few minutes total, which is what makes the cap of §4.3 a budget decision as well as a validity one — the uncapped $300°$ range would have needed sixty.
+"Per rotation level" needs a grid, since the rotation is continuous in $t$. The grid is **every $5°$ over $[-30°, +45°]$ — 16 levels**, which is the union of every rotation the configured schedules actually visit: linear reaches $[0°,45°]$, piecewise $[0°,15°]$, sinusoidal $[-30°,+30°]$. Nothing extrapolates.
+
+An earlier version of this plan proposed ten levels over $[0°,45°]$ and mirrored the negatives, on the assumption that $e^\star(-\varphi) = e^\star(+\varphi)$ by symmetry. That is plausible but not free — $+15°$ and $-15°$ are genuinely different image distributions — so the full union is trained instead and the symmetry is **measured**: the largest mismatch across the grid is reported by `Reference.symmetry_error()`. The assumption turned out to hold to within 0.004 in error rate, so the cheaper grid would have been defensible; it is now a measured fact rather than a hope, at a cost of six extra trainings.
+
+$e^\star$ at an intermediate rotation is **linearly interpolated** between the two nearest grid points rather than rounded to the nearest — a $5°$ grid with nearest-neighbour lookup would put a sawtooth into the gap curve at the same scale as the effect being measured. A rotation outside the grid raises rather than extrapolating: a gap against an extrapolated reference is not a measurement.
+
+Sixteen offline trainings of a small MLP is a few minutes total, which is what makes the cap of §4.3 a budget decision as well as a validity one — the uncapped $300°$ range would have needed sixty.
 
 ### 5.2 Metrics
 

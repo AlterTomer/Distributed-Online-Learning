@@ -55,6 +55,17 @@ OPTIMIZERS = ("sgd", "sgd_momentum", "adamw")
 MIX_POLICIES = ("none", "momentum", "all")
 ADAPT_SCOPES = ("local", "one_hop")
 EVALSETS = ("prequential", "current", "backward", "canonical")
+# Smooth activations satisfy the research note's bounded-remainder assumption
+# (As. 3); ReLU does not, at its kink set. See models/mlp.py.
+ACTIVATIONS = ("gelu", "tanh", "silu", "relu")
+# Phase-5 state model. TRANSITIONS picks F_t; FORGETTING_RULES picks how the
+# covariance is loosened. They are independent axes -- see design note D26.
+#: How the per-rotation reference classifiers relate to one another.
+INIT_STRATEGIES = ("shared_seed", "independent_seeds", "warm_start")
+#: How the reference picks the epoch to report.
+SELECTION_RULES = ("validation", "fixed_budget")
+TRANSITIONS = ("identity", "scalar")
+FORGETTING_RULES = ("lambda", "process_noise")
 
 
 class ConfigError(ValueError):
@@ -207,8 +218,13 @@ class ModelConfig:
     input_size: int = 14
     hidden: list[int] = field(default_factory=lambda: [14])
     output_dim: int = 10
+    #: GELU rather than ReLU by default: the research note's smoothness
+    #: assumption bounds the linearisation remainder, and that bound fails for
+    #: ReLU at its kink set. See models/mlp.py.
+    activation: str = "gelu"
 
     def __post_init__(self) -> None:
+        _one_of(self.activation, ACTIVATIONS, "model.activation")
         if self.input_size < 1:
             raise ConfigError(f"model.input_size must be >= 1, got {self.input_size}")
         if any(h < 1 for h in self.hidden):
@@ -231,9 +247,22 @@ class LearnerConfig:
     momentum: float = 0.9
     mix_optimizer_state: str = "momentum"
     adapt_scope: str = "local"
-    # Phase 5 only; inert for the SGD learners.
-    lambda_forget: float | None = None
-    process_noise_q: float | None = None
+
+    # --- phase 5 state model; inert for the SGD learners ------------------- #
+    #: F_t. "identity" is a driftless random walk; "scalar" makes F_t = gamma*I,
+    #: an AR(1) that also pulls the mean toward the origin -- which is L2 weight
+    #: decay in state-space form, not forgetting. See design note D26.
+    transition: str = "identity"
+    gamma: float = 1.0
+    #: How the covariance is loosened. Multiplicative inflation is exactly
+    #: structure-preserving in the information domain; additive process noise is
+    #: not, but is anisotropic and cheap while the covariance stays dense.
+    forgetting: str = "lambda"
+    #: Effective memory is about 1/(1 - lambda) steps. The default gives ~333
+    #: steps, over which the data rotates ~10 degrees at the capped drift rate.
+    #: Pilot-calibrate this in phase 5 (WORKPLAN section 9).
+    lambda_forget: float = 0.997
+    process_noise_q: float = 1.0e-6
     prior_scale: float = 1.0
 
     def __post_init__(self) -> None:
@@ -253,27 +282,108 @@ class LearnerConfig:
                 "a known failure mode, not an open question (WORKPLAN.md section 3.4). Use plain "
                 "'sgd' if you want no mixing."
             )
-        if self.lambda_forget is not None and self.process_noise_q is not None:
+        _one_of(self.transition, TRANSITIONS, f"learner[{self.name}].transition")
+        _one_of(self.forgetting, FORGETTING_RULES, f"learner[{self.name}].forgetting")
+        if not 0.0 < self.gamma <= 1.0:
+            raise ConfigError(f"learner[{self.name}].gamma must lie in (0, 1], got {self.gamma}")
+        if self.transition == "identity" and self.gamma != 1.0:
             raise ConfigError(
-                f"learner[{self.name}]: lambda_forget and process_noise_q are two "
-                "parameterisations of the same forgetting effect and are jointly "
-                "unidentifiable. Set exactly one."
+                f"learner[{self.name}]: gamma={self.gamma} has no effect under "
+                "transition='identity', where F_t = I. Set transition='scalar' to use it, "
+                "rather than leaving a value that silently does nothing."
             )
-        if self.lambda_forget is not None and not 0.0 < self.lambda_forget <= 1.0:
+        if not 0.0 < self.lambda_forget <= 1.0:
             raise ConfigError(
                 f"learner[{self.name}].lambda_forget must lie in (0, 1], got {self.lambda_forget}"
             )
+        if self.process_noise_q <= 0.0:
+            raise ConfigError(
+                f"learner[{self.name}].process_noise_q must be > 0, got {self.process_noise_q}"
+            )
+
+
+@dataclass
+class ReferenceConfig:
+    r"""The offline reference classifier, $e^\star$.
+
+    A fixed asset computed once and cached, not part of any experiment run. It
+    is recomputed per rotation level, because a single reference would conflate
+    decentralization cost with drift cost.
+    """
+
+    #: 100, not 20. At 20 epochs 9 of 16 rotation levels selected the final
+    #: epoch, meaning the budget rather than convergence decided where training
+    #: stopped -- and an under-trained e* is too high, which flatters every gap.
+    epochs: int = 100
+    batch_size: int = 128
+    lr: float = 0.003
+    #: shared_seed   - independent runs, all from the same theta_0 (default).
+    #: independent_seeds - independent runs, each from its own theta_0.
+    #: warm_start    - each level initialised from the previous one; cheaper,
+    #:                 but e*(45) then depends on having passed through 40.
+    init_strategy: str = "shared_seed"
+    #: validation    - hold out `validation_size`, early-stop on it (default).
+    #: fixed_budget  - train on everything for `epochs`; the test curve is
+    #:                 recorded for inspection only, never for selection.
+    selection: str = "validation"
+    validation_size: int = 5000
+    #: The grid covers every rotation the configured schedules actually visit:
+    #: linear [0, 45], piecewise [0, 15], sinusoidal [-30, +30].
+    rotation_min_degrees: float = -30.0
+    rotation_max_degrees: float = 45.0
+    rotation_step_degrees: float = 5.0
+    seed: int = 0
+
+    def __post_init__(self) -> None:
+        _one_of(self.init_strategy, INIT_STRATEGIES, "reference.init_strategy")
+        _one_of(self.selection, SELECTION_RULES, "reference.selection")
+        if self.epochs < 1:
+            raise ConfigError(f"reference.epochs must be >= 1, got {self.epochs}")
+        if self.batch_size < 1:
+            raise ConfigError(f"reference.batch_size must be >= 1, got {self.batch_size}")
+        if self.lr <= 0:
+            raise ConfigError(f"reference.lr must be > 0, got {self.lr}")
+        if self.rotation_step_degrees <= 0:
+            raise ConfigError(
+                f"reference.rotation_step_degrees must be > 0, got {self.rotation_step_degrees}"
+            )
+        if self.rotation_max_degrees < self.rotation_min_degrees:
+            raise ConfigError(
+                f"reference rotation range is empty: [{self.rotation_min_degrees}, "
+                f"{self.rotation_max_degrees}]"
+            )
+        if self.selection == "validation" and not 0 < self.validation_size < MNIST_TRAIN_SIZE:
+            raise ConfigError(
+                f"reference.validation_size must lie in (0, {MNIST_TRAIN_SIZE}), got "
+                f"{self.validation_size}"
+            )
+        if self.selection == "fixed_budget" and self.validation_size:
+            raise ConfigError(
+                "reference.selection='fixed_budget' trains on the whole split, so "
+                f"validation_size={self.validation_size} would be silently ignored. "
+                "Set it to 0 to be explicit."
+            )
+
+    @property
+    def rotations(self) -> list[float]:
+        """Every grid point, inclusive of both ends."""
+        span = self.rotation_max_degrees - self.rotation_min_degrees
+        count = int(round(span / self.rotation_step_degrees)) + 1
+        return [
+            round(self.rotation_min_degrees + index * self.rotation_step_degrees, 6)
+            for index in range(count)
+        ]
 
 
 @dataclass
 class EvalConfig:
     evalsets: list[str] = field(default_factory=lambda: ["prequential", "current", "canonical"])
-    # 500 steps, not 200. At the capped drift rate of 45 deg / 1500 steps, a
-    # 200-step lookback separates the backward set from the current one by only
-    # 6 degrees -- too little to distinguish forgetting from noise. 500 steps
-    # gives 15 degrees, a third of the total range, while still leaving 1000
-    # steps of the run over which the probe is defined.
-    backward_offset: int = 500
+    #: The backward set is anchored by *rotation*, not by a step count. A fixed
+    #: step offset degenerates: at offset == period the sinusoidal probe has
+    #: identically zero separation, and the piecewise one collapses once t
+    #: passes the last change point plus the offset. Specifying the separation
+    #: and deriving the step is the same move D3 makes for alpha.
+    backward_separation_degrees: float = 15.0
     batch_size: int = 1000
 
     def __post_init__(self) -> None:
@@ -281,8 +391,11 @@ class EvalConfig:
             _one_of(name, EVALSETS, "eval.evalsets")
         if len(set(self.evalsets)) != len(self.evalsets):
             raise ConfigError(f"eval.evalsets contains duplicates: {self.evalsets}")
-        if self.backward_offset < 0:
-            raise ConfigError(f"eval.backward_offset must be >= 0, got {self.backward_offset}")
+        if self.backward_separation_degrees <= 0:
+            raise ConfigError(
+                "eval.backward_separation_degrees must be > 0, got "
+                f"{self.backward_separation_degrees}"
+            )
         if self.batch_size < 1:
             raise ConfigError(f"eval.batch_size must be >= 1, got {self.batch_size}")
 
@@ -295,6 +408,7 @@ class Config:
     graph: GraphConfig = field(default_factory=GraphConfig)
     env: EnvConfig = field(default_factory=EnvConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
+    reference: ReferenceConfig = field(default_factory=ReferenceConfig)
     learners: list[LearnerConfig] = field(default_factory=lambda: [LearnerConfig()])
     eval: EvalConfig = field(default_factory=EvalConfig)
 
@@ -330,11 +444,39 @@ class Config:
             )
 
     def _check_backward_evalset(self) -> None:
-        if "backward" in self.eval.evalsets and self.eval.backward_offset >= self.run.horizon:
+        """The backward probe needs a separation the schedule can actually reach.
+
+        Checked against what the schedule *does*, not against its fields: a
+        separation larger than the run's total travel means the probe is
+        undefined at every step, and reporting that as "no forgetting" would be
+        a silent lie.
+        """
+        if "backward" not in self.eval.evalsets:
+            return
+        separation = self.eval.backward_separation_degrees
+        if separation <= 0:
+            raise ConfigError(f"eval.backward_separation_degrees must be > 0, got {separation}")
+        reachable = self._schedule_travel()
+        if separation > reachable + 1e-9:
             raise ConfigError(
-                f"eval.backward_offset ({self.eval.backward_offset}) must be smaller than "
-                f"run.horizon ({self.run.horizon}) or the backward evaluation set never exists"
+                f"eval.backward_separation_degrees is {separation} but the "
+                f"{self.env.drift.schedule} schedule only travels {reachable:.1f} degrees "
+                "over the run, so the backward probe would be undefined at every step. "
+                "Lower the separation, or drop 'backward' from eval.evalsets."
             )
+
+    def _schedule_travel(self) -> float:
+        """How far the configured schedule moves. Kept crude deliberately: the
+        authoritative version lives in env/drift.py, and importing it here would
+        invert the dependency (design note D19)."""
+        drift = self.env.drift
+        if drift.schedule == "stationary":
+            return 0.0
+        if drift.schedule == "linear":
+            return drift.total_degrees
+        if drift.schedule == "piecewise":
+            return drift.jump_degrees * max(len(drift.change_points), 1)
+        return 2.0 * abs(drift.amplitude_degrees)
 
     def learner(self, name: str) -> LearnerConfig:
         for entry in self.learners:
