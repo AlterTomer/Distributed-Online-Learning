@@ -676,7 +676,7 @@ transmits, including optimizer state. X1 runs **two** ATC variants:
 `diffusion_sgd_atc_plain` (no state, $p$ per link).
 
 **The problem this fixes.** `WORKPLAN.md` §3.2 says diffusion SGD exchanges "one
-$p$-vector per link per step". That is true of plain ATC. But §3.4 makes the
+$p$-vector per link per step". That is true of the payload-matched variant. But §3.4 makes the
 primary configuration for X1–X6 *SGD with momentum, momentum also mixed* — and a
 neighbour cannot mix a momentum buffer it was never sent. The primary baseline
 therefore broadcasts $(\bm\psi, \bm m) = 2p$, while Diff-EKF broadcasts

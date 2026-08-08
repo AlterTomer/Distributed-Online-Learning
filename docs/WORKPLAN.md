@@ -2,9 +2,11 @@
 
 **Project.** Build a benchmark for distributed online learning over a graph, establish first-order baselines on it, and prepare the ground for the diffusion EKF (Diff-EKF).
 
-**Status.** Phases 0-2 complete; phase 3 (learners, runner, recording) built and tested, experiments being re-run at tuned settings. The open questions of §10 were resolved on 2026-07-30 and 2026-08-05; §10 records the decisions and the reasoning.
+**Status.** Phases 0-4 complete: the environment, the learners, the runner, the full experiment grid X0-X7, and figures F1-F10. Phase 5 (Diff-EKF) is next. The open questions of §10 were resolved on 2026-07-30 and 2026-08-05; §10 records the decisions and the reasoning.
 
 **Amended 2026-08-05** after the first full X1 run: §3.6 (hyperparameters are measured, not assumed), §3.7 ($n$ is an axis), §4.2 (why $n=4$, $T=1500$), §10.1b.
+
+**Amended 2026-08-08:** X7 added — the sinusoidal schedule revisits states, which is what makes forgetting measurable at all.
 
 **Companion documents.**
 - `IMPLEMENTATION.md` — repository layout, module responsibilities, interfaces, test suite, figure specifications, tooling. This document says *what* and *why*; that one says *how it is built*.
@@ -327,8 +329,17 @@ The reference classifier gets the same treatment.
 | **X4** | Sparsity sweep | $n\in\{1,2,4,8\}$, $\pi_{\text{lab}}\in\{0.25,0.5,1.0\}$, $T=750$ | Q4 — where does the sparse regime hurt? |
 | **X5** | Abrupt shift | piecewise rotation, $15^\circ$ jump at $t=500$ | Q3 — adaptation transient, the cleanest tracking test |
 | **X6** | Non-IID | Dirichlet label skew, $\beta\in\{0.1,1,\infty\}$ | Q2 — does cooperation still work when agents see different classes? |
+| **X7** | Forgetting | sinusoidal rotation, amplitude $30^\circ$, period 500, `backward` evalset enabled | Q3 — does a method lose what it learned at a rotation it has left? |
 
-X0, X1, X1b, X2 are the phase-3 deliverable. X3–X6 are phase 4.
+X0, X1, X1b, X2 are the phase-3 deliverable. X3-X7 are phase 4.
+
+**X7 is the only experiment whose schedule revisits states**, and therefore the only one
+where forgetting is a meaningful question. Under `linear` the rotation never returns, so a
+backward probe would ask about a state the model will never face again; under `stationary`
+there is no earlier state at all. Measured coverage: the probe is defined for 97% of
+evaluation steps under sinusoidal, 67% under linear and 0% under stationary. X7 also enables
+the `backward` evalset explicitly -- it is not in the default set, and without it the
+experiment measures nothing it exists for.
 
 **Every experiment runs at the per-method tuned settings** from
 `scripts/sweep_hyperparameters.py` (§3.6), never at a shared assumed default.

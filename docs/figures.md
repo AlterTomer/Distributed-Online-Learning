@@ -28,6 +28,7 @@ python scripts/make_figures.py --dpi 300      # publication resolution
 | F7 | `20_f7_adaptation_transient.png` | X5 |
 | F8 | `15_f8_atc_vs_cta.png` | X1b |
 | F9 | `21_f9_non_iid.png` | X6 |
+| F10 | `22_f10_forgetting.png` | X7 |
 
 ### Two stages, and why
 
@@ -140,9 +141,9 @@ never speaks. Plotting either at $x=0$ would read as "free and this good"
 (design note D30). Both are labelled in place, because three different things use
 dashed horizontals across F1 and F2.
 
-**What to look for: whether the curves cross.** They do — plain ATC leads for
+**What to look for: whether the curves cross.** They do — ATC (payload-matched) leads for
 most of the run and meets the momentum variant only around $2\times10^7$ scalars.
-At equal *time* momentum ATC wins by 0.013; at equal *bandwidth* plain ATC wins
+At equal *time* momentum ATC wins by 0.013; at equal *bandwidth* the payload-matched variant wins
 until quite late. This is the axis on which phase 5's claim is actually stated.
 
 ---
@@ -333,8 +334,32 @@ Otherwise skew and shard starvation would be confounded.
 
 ---
 
-## 13. Still to come
+## 13. F10 — forgetting
 
-**F10** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is
+Two panels: current versus backward error over time, and their paired gap.
+
+The `backward` evalset scores the model at a rotation it visited *earlier* and
+has since left, so its gap to `current` is forgetting. It is only meaningful
+under a schedule that revisits states — 97 % of steps here against 67 % under
+linear and 0 % under stationary.
+
+**⚠ The instantaneous gap is dominated by phase, not by forgetting.** It swings
+±0.05 with the drift cycle, and the sign of any average depends on how much of a
+period the window covers: $+0.016$ over a fifth of a period, $-0.0035$ over a
+whole one. **A scalar summary is only meaningful over a whole number of
+periods**, which is why the figure draws the cycle mean as a dashed line — the
+peaks would otherwise read as forgetting.
+
+**What to look for.** The dashed lines, not the peaks. All three cooperative
+methods sit at 1.1–1.6 σ from zero: no measurable forgetting. `local_only` is
+significantly *negative* at 10 σ — better on a state it has left than on the
+current one, which is **lag**, not retention: a slow learner's parameters trail
+the world.
+
+---
+
+## 14. Still to come
+
+**F11** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is
 `diffusion_sgd_atc_plain`, not the momentum variant, because the filter sends one
 $p$-vector per link.

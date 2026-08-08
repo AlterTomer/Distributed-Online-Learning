@@ -1,0 +1,34 @@
+# X7 -- forgetting. Does a method lose what it learned at a rotation it has left?
+#
+# The other drift schedules cannot answer this. Under `linear` the rotation never
+# returns, so "forgetting" would mean forgetting a state the model will never see
+# again; under `stationary` there is no earlier state at all. Sinusoidal
+# oscillates, so every rotation is revisited every period -- which is what makes
+# the backward probe meaningful (WORKPLAN.md section 5.3).
+#
+# The probe is anchored by ROTATION, not by a step offset:
+#
+#     t' = max{ s < t : |phi(s) - phi(t)| >= 15 degrees }
+#
+# That matters here specifically. An earlier step-anchored version used an offset
+# of 500 steps, which is exactly the sinusoidal period -- giving 0 degrees of
+# separation at every step, so the probe could not measure the thing this
+# experiment exists for. See design_notes.md D27.
+#
+# Measured coverage under this schedule: the probe is defined from t = 42 and for
+# 97% of evaluation steps, against 67% under linear and 0% under stationary.
+include:
+  env: mnist_rotating_sinusoidal
+  graph: ring
+  model: mlp_small
+
+learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
+
+run:
+  name: x7_sinusoidal
+  horizon: 1500          # three full periods, so each state is revisited twice
+
+eval:
+  # `backward` is NOT in the default set -- without it this experiment measures
+  # nothing it was built for.
+  evalsets: [prequential, current, canonical, backward]

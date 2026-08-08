@@ -50,11 +50,40 @@ ATC is primary because Diff-EKF is ATC. With both ATC, phase 5 differs in the
 adapt step alone, so any advantage is attributable to the second-order update
 rather than to the ordering.
 
-### `diffusion_sgd_atc_plain` — the payload-matched variant
+### `diffusion_sgd_atc_plain` — ATC (payload-matched)
 
-The same implementation with no optimizer state, so it broadcasts $\bm\psi$
-alone at $p$ per link. It exists because the plan's "identical communication"
-claim holds for *this* configuration and not for the momentum one — see §4.
+**Not a second algorithm.** The registry maps this name and `diffusion_sgd_atc`
+to the *same class*, `DiffusionSGDATC`. Given the same optimizer the two are
+bit-identical — measured at exactly 0.0 divergence over 40 steps. Both run
+
+$$\bm\psi_v = \bm\theta_v - \eta\,\bm d_v, \qquad \bm\theta_v \leftarrow \sum_u a_{vu}\bm\psi_u$$
+
+and differ only in what $\bm d_v$ is:
+
+| | $\bm d_v$ | mixed | per link |
+|---|---|---|---|
+| `diffusion_sgd_atc` | $\bm m_v \leftarrow \beta\bm m_v + \bm g_v$ | $\bm\theta$ and $\bm m$ | $2p$ |
+| **ATC (payload-matched)** | $\bm g_v$ | $\bm\theta$ only | $p$ |
+
+So the payload-matched variant is **exactly the $\beta = 0$ case**. At
+$\beta = 0$ the mixing choice also becomes vacuous: $\bm m_v = \bm g_v$, so
+averaging the buffers cannot influence any later step. The two config knobs
+collapse into one.
+
+**Halving the message and dropping momentum are therefore the same decision,
+not two.** `comm_scalars_per_step` computes $(1 + |\text{mixed}|)\,p$ per link —
+you cannot mix a buffer you never transmitted (design note D29).
+
+**Why it is carried at all.** It is one method at two points on a
+communication/performance trade-off, and phase 5 needs the cheaper point:
+Diff-EKF sends one $p$-vector per link, so its honest competitor is this variant
+at 0.0902, not the momentum one at 0.0768. Comparing the filter against the $2p$
+configuration would compare across different bandwidths.
+
+The one thing that genuinely differs is the *tuned* learning rate — 0.20 here
+against 0.01 for momentum — and that is empirical, not structural: momentum
+multiplies the effective step by $1/(1-\beta) = 10$, so $0.01 \times 10 = 0.1$
+sits on the same order as 0.20.
 
 ### `diffusion_sgd_cta` — the ordering comparison
 
@@ -175,7 +204,7 @@ experiments actually run.
 ## 4. Communication, and the pairing the phase-5 claim rests on
 
 `WORKPLAN.md` §3.2 says diffusion SGD exchanges "one $p$-vector per link per
-step". True of plain ATC. But §3.4 makes the X1–X6 primary *SGD with momentum,
+step". True of the payload-matched variant. But §3.4 makes the X1–X6 primary *SGD with momentum,
 momentum mixed* — which sends $2p$, while Diff-EKF sends $\bm\psi$ alone.
 
 At $N{=}10$ on a ring, $p = 2908$:

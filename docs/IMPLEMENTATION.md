@@ -427,7 +427,8 @@ All produced by `scripts/make_figures.py` from logged results, with no manual st
 | **F7** | Adaptation transient around the abrupt shift, zoomed on $[t^\ast-50, t^\ast+300]$ | x: $t$, y: error rate | X5 |
 | **F8** | ATC vs CTA: error rate and disagreement, two panels | x: $t$ | X1b |
 | **F9** | Non-IID: gap vs Dirichlet $\beta$ | x: $\beta$ (log), y: gap | X6 |
-| **F10** | *(phase 5)* Diff-EKF added to F1 and F2 | — | — |
+| **F10** | Forgetting: current vs backward error, and their paired gap | x: $t$, y: error rate and gap | X7 |
+| **F11** | *(phase 5)* Diff-EKF added to F1 and F2 | — | — |
 
 Follow one style across all figures — same palette per method (centralized / distributed / local-only / reference), same axis conventions, colour-blind-safe, legible in greyscale.
 

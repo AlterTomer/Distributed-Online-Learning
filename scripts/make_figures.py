@@ -89,7 +89,7 @@ COLOURS = {
 LABELS = {
     "centralized_sgd": "centralized",
     "diffusion_sgd_atc": "ATC",
-    "diffusion_sgd_atc_plain": "ATC (plain)",
+    "diffusion_sgd_atc_plain": "ATC (payload-matched)",
     "diffusion_sgd_cta": "CTA",
     "local_only": "local only",
     "reference": "$e^\\star$ offline",
@@ -1333,6 +1333,139 @@ def draw_f9(collected: Collected) -> None:
     save(figure, "21_f9_non_iid.png")
 
 
+# =========================================================================== #
+# F10 -- forgetting
+# =========================================================================== #
+
+
+def collect_f10() -> Collected | None:
+    """Current vs backward error under the sinusoidal schedule.
+
+    The `backward` evalset scores the model at a rotation it visited *earlier*
+    and has since left. Its gap to `current` is forgetting: how much worse the
+    model is on a state it used to handle than on the one in front of it.
+
+    Only meaningful where the schedule revisits states. Under `linear` the
+    rotation never returns, so the probe would be asking about a state the model
+    will never face again; under `stationary` there is no earlier state at all.
+    The probe is defined for 97% of steps here against 67% and 0%.
+    """
+    if not available("x7_sinusoidal"):
+        return None
+    frame = load("x7_sinusoidal")
+    pieces = []
+    for evalset in ("current", "backward"):
+        rates = error_rate(frame, evalset)
+        if rates.empty:
+            continue
+        for name in learners_of(frame):
+            subset = rates[rates.learner == name]
+            mean, spread = band(subset, "error")
+            piece = rows_for(evalset, name, "line", mean.index, mean, mean - spread, mean + spread)
+            piece["cost"] = float("nan")
+            pieces.append(piece)
+
+    # The forgetting gap, paired within seed so common noise cancels.
+    cur = error_rate(frame, "current").set_index(["learner", "seed", "t"]).error
+    back = error_rate(frame, "backward").set_index(["learner", "seed", "t"]).error
+    gap = (back - cur).dropna().reset_index()
+    for name in learners_of(frame):
+        subset = gap[gap.learner == name]
+        if subset.empty:
+            continue
+        mean, spread = band(subset, "error")
+        piece = rows_for("gap", name, "line", mean.index, mean, mean - spread, mean + spread)
+        piece["cost"] = float("nan")
+        pieces.append(piece)
+
+    if not pieces:
+        return None
+    return Collected(
+        pd.concat(pieces, ignore_index=True),
+        {"seeds": int(frame.seed.nunique()), "smooth": 0},
+    )
+
+
+def draw_f10(collected: Collected) -> None:
+    frame, meta = collected.frame, collected.meta
+    figure, axes = plt.subplots(1, 2, figsize=(11.6, 4.0))
+
+    axis = axes[0]
+    for name in series_present(frame[frame.panel == "current"]):
+        for evalset, style_ in (("current", "-"), ("backward", "--")):
+            line = frame[(frame.panel == evalset) & (frame.series == name)].sort_values("x")
+            if line.empty:
+                continue
+            axis.plot(
+                line.x,
+                line.y,
+                color=COLOURS[name],
+                linestyle=style_,
+                linewidth=1.9 if evalset == "current" else 1.3,
+                alpha=1.0 if evalset == "current" else 0.75,
+            )
+    axis.set_xlabel("step $t$")
+    axis.set_ylabel("held-out error rate")
+    axis.set_title("solid = current rotation,  dashed = a rotation left behind")
+    despine(axis)
+
+    axis = axes[1]
+    endpoints = []
+    block = frame[frame.panel == "gap"]
+    for name in series_present(block):
+        line = block[block.series == name].sort_values("x")
+        axis.fill_between(line.x, line.lo, line.hi, color=COLOURS[name], alpha=0.13, linewidth=0)
+        axis.plot(line.x, line.y, color=COLOURS[name])
+        endpoints.append((float(line.y.iloc[-1]), LABELS[name], COLOURS[name]))
+    axis.axhline(0.0, color=BASELINE, linewidth=1.0, zorder=0)
+
+    # The cycle average, drawn because the instantaneous gap is dominated by
+    # *phase*, not by forgetting: it swings +/-0.05 while the whole-period mean
+    # is near zero. Averaged over a fifth of a period the sign even flips
+    # (+0.016 against -0.0035), so a scalar summary here is only meaningful over
+    # a whole number of periods. Without this line the peaks read as forgetting.
+    period = 500
+    for name in series_present(block):
+        line = block[block.series == name].sort_values("x")
+        cycles = line[line.x >= line.x.max() - 2 * period]
+        if cycles.empty:
+            continue
+        level = float(cycles.y.mean())
+        axis.plot(
+            [cycles.x.min(), cycles.x.max()],
+            [level, level],
+            color=COLOURS[name],
+            linestyle="--",
+            linewidth=1.1,
+            alpha=0.85,
+            zorder=3,
+        )
+    axis.annotate(
+        "dashed: mean over the last two full periods",
+        xy=(0.03, 0.04),
+        xycoords="axes fraction",
+        fontsize=8,
+        color=INK_SECONDARY,
+    )
+    axis.set_xlabel("step $t$")
+    axis.set_ylabel("forgetting  (backward $-$ current)")
+    axis.set_title("Forgetting, paired within seed")
+    despine(axis)
+    direct_labels(axis, endpoints)
+
+    figure.subplots_adjust(right=0.86, wspace=0.26)
+    shared_legend(figure, series_present(block))
+    figure.suptitle(
+        f"F10  Forgetting under a revisiting schedule  ({meta.get('seeds', '?')} seeds, "
+        "sinusoidal, amplitude 30 degrees)",
+        y=1.03,
+        fontsize=11,
+        color=INK,
+        weight="bold",
+    )
+    save(figure, "22_f10_forgetting.png")
+
+
 FIGURES = {
     "f1": (collect_f1, draw_f1),
     "f2": (collect_f2, draw_f2),
@@ -1344,6 +1477,7 @@ FIGURES = {
     "f6b": (collect_f6b, draw_f6b),
     "f7": (collect_f7, draw_f7),
     "f9": (collect_f9, draw_f9),
+    "f10": (collect_f10, draw_f10),
 }
 
 

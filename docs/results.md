@@ -211,7 +211,7 @@ around $2	imes10^7$ scalars.
 
 That is the whole argument for the payload-matched variant, and it is a genuine
 crossing rather than a restatement: **at equal time momentum ATC wins by 0.013,
-at equal bandwidth plain ATC wins until quite late.** Which one is "better"
+at equal bandwidth ATC (payload-matched) wins until quite late.** Which one is "better"
 depends on whether the clock or the network is the binding constraint.
 
 It is also the shape phase 5 needs. Diff-EKF's claim is stated at identical
@@ -672,7 +672,72 @@ into the data path.
 
 ---
 
-## 11. What is not yet measured
+## 11. X7 — forgetting under a revisiting schedule (Q3)
+
+Sinusoidal rotation, amplitude 30°, period 500, $T = 1500$ (three full periods),
+five seeds. The `backward` evalset is enabled explicitly — it is not in the
+default set, and without it this experiment measures nothing it exists for.
+
+**The only schedule where forgetting is a well-posed question.** Under `linear`
+the rotation never returns, so a backward probe asks about a state the model will
+never face again; under `stationary` there is no earlier state at all. Measured
+coverage of the probe: **97 %** of evaluation steps here, 67 % under linear, 0 %
+under stationary.
+
+### 11.1 The instantaneous gap is dominated by phase, not by forgetting
+
+The raw backward-minus-current gap **oscillates with the drift phase**, swinging
+roughly ±0.05, and the answer you get depends entirely on how much of a period
+the averaging window covers:
+
+| window | periods covered | centralized | ATC | local only |
+|---|---|---|---|---|
+| $[1400,1500)$ | 0.2 | **+0.0161** | +0.0160 | +0.0056 |
+| $[1250,1500)$ | 0.5 | −0.0029 | −0.0033 | −0.0164 |
+| $[1000,1500)$ | 1.0 | **−0.0035** | −0.0038 | −0.0194 |
+| $[500,1500)$ | 2.0 | −0.0033 | −0.0036 | −0.0197 |
+
+**The sign flips.** A fifth of a period gives $+0.016$; a whole period gives
+$-0.0035$. At one and two periods the estimate is stable, so **any scalar summary
+of forgetting must average over a whole number of periods** — a constraint that
+did not arise for any other experiment, because no other schedule is periodic.
+F10 draws the cycle mean as a dashed line for exactly this reason: without it the
+peaks read as forgetting.
+
+*Not a difficulty artefact.* $e^\star$ varies only 0.0075 across the whole
+$\pm30°$ range, far too little to explain a 0.02 swing.
+
+### 11.2 Nobody forgets; the lone agent lags
+
+Over one full period, paired within seed:
+
+| learner | gap | ±1 s.d. | $\sigma$ |
+|---|---|---|---|
+| `centralized_sgd` | −0.0035 | 0.0025 | 1.4 |
+| `diffusion_sgd_atc` | −0.0038 | 0.0024 | 1.6 |
+| ATC (payload-matched) | −0.0020 | 0.0019 | 1.1 |
+| `local_only` | **−0.0194** | 0.0019 | **10.3** |
+
+**No method shows measurable forgetting.** The three cooperative learners sit at
+1.1–1.6 σ from zero — consistent with none.
+
+**`local_only` is significantly *negative* at 10 σ**, which is the interesting
+result. It is **better on a rotation it has left than on the one in front of it**.
+That is not forgetting; it is **lag**. A slow learner's parameters trail the
+world, so they fit where the world *was*. Its absolute error is far worse
+everywhere (0.181 against 0.105), so this is not an advantage — it is the
+signature of a method that cannot keep up.
+
+**What this means for phase 5.** Forgetting is *not* currently a problem any
+method has, so a filter that manages plasticity well cannot win by fixing one.
+What X7 does provide is a clean instrument and a baseline of "no forgetting, and
+lag at 10 σ for the uncooperative method" — so if the Diff-EKF's forgetting
+factor λ trades tracking against retention, this is where that trade becomes
+visible.
+
+---
+
+## 12. What is not yet measured
 
 | | |
 |---|---|
