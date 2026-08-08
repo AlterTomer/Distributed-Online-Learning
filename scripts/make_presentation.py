@@ -113,7 +113,7 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                     claim="Four regimes: stationary, linear, piecewise, sinusoidal.",
                     shows="Rotation angle against step for each schedule.",
                     setup="Total rotation is capped at 45°, and the per-step rate α = 45/T is "
-                    "*derived* rather than chosen.",
+                    "**derived** rather than chosen.",
                     data="Constructed.",
                     why="Deriving α from T means the task stays equally hard regardless of "
                     "horizon — but it also means changing T changes the data at step t, which "
@@ -124,7 +124,7 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                     title="Non-IID data partitions",
                     claim="Dirichlet β controls how differently agents see the world.",
                     shows="Class composition per agent at several β.",
-                    setup="Shard *sizes* are held equal; only the label composition varies.",
+                    setup="Shard **sizes** are held equal; only the label composition varies.",
                     data="Training-split labels, partitioned at setup.",
                     why="Holding sizes fixed is what stops skew being confounded with shard "
                     "starvation. At β = 0.1 an agent sees three or four digits — the regime "
@@ -272,8 +272,12 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                     file="15_f8_atc_vs_cta.png",
                     title="F8 — ATC vs CTA",
                     claim="Indistinguishable at tuned settings; ATC's advantage is robustness.",
-                    shows="Error rate and disagreement for the two orderings, at identical "
-                    "communication cost.",
+                    shows="Prequential error and disagreement for the two orderings, at "
+                    "identical communication cost.  **Prequential = test-then-train**: each "
+                    "agent predicts on its batch **before** learning from it. Chosen because "
+                    "it is honest online performance needing no held-out split, and because "
+                    "scoring **after** the update leaks the label — by an amount growing with "
+                    "the learning rate, so it would look like a result.",
                     setup="Both select the same optimum (momentum, lr 0.01), so matched "
                     "settings are also each one's best — checked, not assumed.",
                     data="X1b, five seeds, plus a 50-cell tuning grid.",
@@ -335,14 +339,22 @@ def textbox(slide, left, top, width, height):
 
 
 def write(frame, text, size, colour=INK, bold=False, space_after=4, first=False):
+    """One paragraph. `**spans**` are set bold, so a note can emphasise a term.
+
+    Without this the markers render as literal asterisks -- which is what
+    happened the first time a note tried to emphasise something.
+    """
     paragraph = frame.paragraphs[0] if first else frame.add_paragraph()
     paragraph.space_after = Pt(space_after)
-    run = paragraph.add_run()
-    run.text = text
-    run.font.size = Pt(size)
-    run.font.bold = bold
-    run.font.color.rgb = colour
-    run.font.name = "Calibri"
+    for index, chunk in enumerate(text.split("**")):
+        if not chunk:
+            continue
+        run = paragraph.add_run()
+        run.text = chunk
+        run.font.size = Pt(size)
+        run.font.bold = bold or index % 2 == 1
+        run.font.color.rgb = colour
+        run.font.name = "Calibri"
     return paragraph
 
 
@@ -394,8 +406,21 @@ def figure_slide(presentation, spec: Slide, index: int, total: int) -> None:
         # other one, and in a meeting the figure is the thing people need to be
         # able to read from the back of the room.
         column_in = (WIDE - 2 * MARGIN - Inches(0.4)) / 2 / 914400
-        worst = max(len(spec["shows"]) + len(spec["setup"]), len(spec["data"]) + len(spec["why"]))
-        note_lines = worst / (column_in * 9.0) + 4  # +4 for the two labels and gaps
+
+        # Split the four notes across the two columns to *balance* them, rather
+        # than 2 + 2. One long note (a slide that explains a term as well as a
+        # result) otherwise makes its column tall while the other sits half
+        # empty, and since the image gets whatever height the notes leave, the
+        # figure pays for the imbalance.
+        best_split, best_cost = 2, None
+        for cut in (1, 2, 3):
+            left = sum(len(text) for _, text in notes[:cut]) + 60 * cut
+            right = sum(len(text) for _, text in notes[cut:]) + 60 * (len(notes) - cut)
+            cost = max(left, right)
+            if best_cost is None or cost < best_cost:
+                best_split, best_cost = cut, cost
+
+        note_lines = best_cost / (column_in * 9.0) + 2
         notes_in = min(2.6, max(1.4, note_lines * 0.19))
         available = 7.5 - 1.5 - notes_in - 0.22 - 0.30
         box_w, box_h = int(WIDE - 2 * MARGIN), Inches(max(2.8, available))
@@ -405,7 +430,10 @@ def figure_slide(presentation, spec: Slide, index: int, total: int) -> None:
         )
         notes_top = top + height + Inches(0.22)
         column = int((WIDE - 2 * MARGIN - Inches(0.4)) / 2)
-        for offset, chunk in ((0, notes[:2]), (column + Inches(0.4), notes[2:])):
+        for offset, chunk in (
+            (0, notes[:best_split]),
+            (column + Inches(0.4), notes[best_split:]),
+        ):
             frame = textbox(
                 slide, MARGIN + offset, notes_top, column, TALL - notes_top - Inches(0.3)
             )
