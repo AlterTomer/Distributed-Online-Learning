@@ -648,9 +648,13 @@ def build() -> Path:
                 "open",
                 "The EKF gain comes from the covariance rather than a chosen learning rate. "
                 f"Mis-tuning costs centralized up to {penalty_worst['centralized_sgd']:.3f} "
-                f"and ATC {penalty_worst['diffusion_sgd_atc']:.3f} (F6b); a "
-                "filter has no step size to get wrong — though it does have a prior scale and a "
-                "forgetting factor, so this is a change of failure mode, not its removal.",
+                f"and ATC only {penalty_worst['diffusion_sgd_atc']:.3f} (F6b) — because "
+                "diffusion already re-scales itself: with a fraction of agents active, its "
+                "effective step is η·n_active/N automatically, which is the reduction a "
+                "smaller batch needs. A filter would take that further, deriving the step from "
+                "curvature rather than from the active fraction — though it gains a prior "
+                "scale and a forgetting factor in exchange, so this is a change of failure "
+                "mode, not its removal.",
             ],
             [
                 "Drift detection",

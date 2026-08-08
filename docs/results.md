@@ -645,10 +645,38 @@ computable only because X4 was run both ways.
 exceeds 0.027 anywhere on the plane while centralized reaches 0.217 and
 `local_only` 0.144.
 
-This is a practical argument for diffusion with nothing to do with accuracy: the
-combine step damps an oversized update, so the method tolerates a learning rate
-chosen for a different regime. Centralized has no such damping — one trajectory,
-one step, whatever the batch turns out to be.
+**The mechanism is automatic step-size scaling, not damping.** An earlier draft
+here said "the combine step damps an oversized update"; testing separated three
+candidates and that was not the one that survived.
+
+| candidate | verdict |
+|---|---|
+| ATC's error-vs-lr curve is flatter | **no** — one grid step off costs 0.035 for ATC against 0.037 for centralized, and `local_only` is flattest at 0.023 yet second-worst |
+| ATC's optimum moves less across the plane | **yes** — 1.0 decades against 1.3 and 1.7 |
+
+Why its optimum barely moves is visible in the full profile at
+$n{=}1,\ \pi_\text{lab}{=}0.25$:
+
+| lr | centralized | ATC |
+|---|---|---|
+| 0.0025 | **0.208** ← optimum | 0.321 |
+| 0.005 | 0.259 | 0.207 |
+| **0.01** ← headline | 0.374 | **0.170** ← optimum |
+| 0.02 | 0.726 | 0.199 |
+
+ATC's optimum is *still the headline value*; centralized's has moved by 4x. With
+~2.5 of 10 agents active, an idle agent contributes its unchanged $\bm\theta$ to
+the combine, so ATC's effective step is $\eta \cdot n_\text{active}/N \approx
+\eta/4$ **automatically** — exactly the reduction a smaller batch calls for.
+Centralized applies the full $\eta$ however many agents held labels, so its
+nominal optimum must move to compensate.
+
+*A caveat on the per-cell argmin.* The x4 grid picks plain SGD at lr 0.02 (0.191)
+for centralized in that cell while a finer sweep picked momentum at lr 0.0025
+(0.193) — two optimizer arms within 0.002 of each other, inside the ±0.023 seed
+spread. The *identity* of the best lr in a single cell is barely determined and
+should not be quoted; the penalties (0.217 against 0.027) are an order of
+magnitude clear of it.
 
 The two baselines fail in different places, which is itself informative.
 Centralized is worst in the sparse corner, where its pooled batch shrinks and its

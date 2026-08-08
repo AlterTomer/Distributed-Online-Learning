@@ -319,11 +319,46 @@ practitioner's question: **"what does it cost me that I tuned for the nominal
 regime and deployment turned out sparser?"** Nobody re-tunes when a sensor's
 label rate drops, so this is the more operational of the two.
 
-**What to look for.** Whether one method is systematically flatter. From the
-hand-tuned cell at $n{=}1, \pi{=}0.25$, centralized pays 0.184 while ATC pays 0 —
-its headline lr *was* the local optimum. If that holds across the plane, F6b makes
-a sharp claim with nothing to do with accuracy: diffusion is far more forgiving of
-a mis-specified step size, because the combine step damps an oversized update.
+**What it shows.** Worst penalty across the plane: centralized **0.217**,
+local-only **0.144**, ATC **0.027**. Diffusion is roughly eight times more
+forgiving of a step size chosen for a different regime.
+
+### Why — three candidate mechanisms, only one of which survives
+
+An earlier version of this text said "the combine step damps an oversized
+update". That is loose, and testing it showed it is not the mechanism.
+
+| candidate | verdict |
+|---|---|
+| ATC's error-vs-lr curve is *flatter* | **no** — one grid step off the optimum costs 0.035 for ATC against 0.037 for centralized. `local_only` is the *flattest* at 0.023 and still has the second-largest penalty |
+| ATC's optimum *moves less* across the plane | **yes** — its chosen lr spans 1.0 decades against 1.3 for centralized and 1.7 for local-only |
+| the combine *damps* a too-large update | superseded by the sharper statement below |
+
+**The actual mechanism is automatic step-size scaling.** At
+$n{=}1,\ \pi_\text{lab}{=}0.25$ the full profiles are:
+
+| lr | centralized | ATC |
+|---|---|---|
+| 0.0025 | **0.208** ← its optimum | 0.321 |
+| 0.005 | 0.259 | 0.207 |
+| **0.01** ← headline | 0.374 | **0.170** ← its optimum |
+| 0.02 | 0.726 | 0.199 |
+
+ATC's optimum is *still the headline value*; centralized's has moved by a factor
+of four. With ~2.5 of 10 agents active, an idle agent contributes its unchanged
+$\bm\theta$ to the combine, so ATC's effective step is
+$\eta \cdot n_\text{active}/N \approx \eta/4$ **automatically**. A smaller batch
+needs a ~4× smaller step, and diffusion supplies that reduction by itself, so its
+*nominal* rate need not move. Centralized applies the full $\eta$ however many
+agents happened to hold labels, so its nominal optimum has to move to compensate.
+
+**A caveat about the per-cell "best".** The x4 grid reports centralized's optimum
+in that cell as plain SGD at lr 0.02 (0.191), while a finer sweep found momentum
+at lr 0.0025 (0.193) — two different optimizer arms landing within 0.002 of each
+other, inside the ±0.023 seed spread. **The argmin over a flat basin with two
+seeds is barely determined**, so the *identity* of the best lr in any single cell
+should not be quoted as a finding. The penalties themselves (0.217 against 0.027)
+are an order of magnitude above that ambiguity and are safe.
 
 Sequential colour on a shared scale across the three panels, so the panels can be
 compared to each other rather than only read individually.

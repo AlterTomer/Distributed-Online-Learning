@@ -240,13 +240,20 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                 dict(
                     file="19_f6b_cost_of_not_retuning.png",
                     title="F6b — the cost of a wrong learning rate",
-                    claim="Diffusion is eight times more forgiving of mis-tuning.",
-                    shows="error(headline rate) − error(best rate for that cell), per method.",
-                    setup="Only computable because X4 was run at both tunings.",
+                    claim="Diffusion needs less re-tuning, because it re-tunes itself.",
+                    shows="error(headline rate) − error(best rate for that cell), per method. "
+                    "Worst penalty: centralized 0.217, local-only 0.144, ATC 0.027.",
+                    setup="Only computable because X4 was run at both tunings — the fixed one "
+                    "and the per-cell one.",
                     data="X4, both variants, three seeds.",
-                    why="Worst penalty: centralized 0.217, local-only 0.144, ATC 0.027. The "
-                    "combine step damps an oversized update. A practical argument for "
-                    "diffusion with nothing to do with accuracy.",
+                    why="Not because ATC's error-vs-lr curve is flatter (it is not — 0.035 "
+                    "against centralized's 0.037, and local_only is flattest of all yet "
+                    "second-worst). It is that ATC's optimum barely moves: with ~2.5 of 10 "
+                    "agents active, idle agents contribute unchanged θ to the combine, so its "
+                    "effective step is η·n_active/N ≈ η/4 automatically — exactly the "
+                    "reduction a smaller batch needs. Centralized applies the full η whatever "
+                    "the batch, so its optimum has to move by 4× and the headline rate costs "
+                    "it 0.18.",
                 ),
                 dict(
                     file="20_f7_adaptation_transient.png",
