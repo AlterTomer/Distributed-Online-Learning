@@ -467,14 +467,18 @@ def mnist_labels() -> torch.Tensor:
 
 
 @pytest.mark.needs_data
-def test_a_default_run_consumes_exactly_half_the_training_set(mnist_labels) -> None:
+def test_a_default_run_consumes_the_whole_training_set(mnist_labels) -> None:
+    """At n=4 the default run sits exactly on the shard budget: 10*4*1500 =
+    60000, the entire MNIST training split with nothing spare. That is
+    deliberate (WORKPLAN 4.2) and this test is what would catch a change that
+    silently pushed it over into reuse."""
     config = load_config("x1_stationary")
     partition = build_partition(
         mnist_labels, config.graph.n_nodes, generator=torch.Generator().manual_seed(0)
     )
     stream = build_stream_from_config(config, partition, torch.Generator().manual_seed(0))
-    assert stream.summary()["total_consumed"] == 30_000
-    assert stream.summary()["min_required"] == 3_000
+    assert stream.summary()["total_consumed"] == 60_000
+    assert stream.summary()["min_required"] == 6_000
 
 
 @pytest.mark.needs_data
@@ -485,7 +489,7 @@ def test_exactly_once_holds_over_a_full_length_run(mnist_labels) -> None:
     )
     stream = build_stream_from_config(config, partition, torch.Generator().manual_seed(0))
     everything = torch.cat([stream.consumed_by(node) for node in range(stream.n_nodes)])
-    assert everything.numel() == 30_000 == len(torch.unique(everything))
+    assert everything.numel() == 60_000 == len(torch.unique(everything))
 
 
 @pytest.mark.needs_data

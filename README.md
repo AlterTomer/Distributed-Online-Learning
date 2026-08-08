@@ -13,10 +13,15 @@ filter (Diff-EKF).
 | [`docs/WORKPLAN.md`](docs/WORKPLAN.md) | The research plan: questions, methods, experiments, validity checks |
 | [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md) | The repository specification: layout, interfaces, build order |
 | [`docs/environment.md`](docs/environment.md) | What each agent observes, and the guarantees the benchmark rests on |
+| [`docs/learners.md`](docs/learners.md) | The four methods, the exactness check, and what each transmits |
+| [`docs/results.md`](docs/results.md) | Measured numbers, the settings behind them, and what they support |
+| [`docs/figures.md`](docs/figures.md) | What each figure shows, how to read it, and the cached figure data |
 | [`docs/configs.md`](docs/configs.md) | Every config file and field, with legal values |
 | [`docs/design_notes.md`](docs/design_notes.md) | Decisions log: what was chosen, over what, and why |
 
-**Status:** phases 0 and 1 complete; phase 2 (models, metrics, evaluation) in progress.
+**Status:** phases 0-3 complete. The exactness check X0 passes at 1.7e-15. Every
+method is tuned on a held-out grid before comparison (`docs/results.md` §2);
+X1, X1b, X2 and X5 run at those settings.
 
 ## Setup
 

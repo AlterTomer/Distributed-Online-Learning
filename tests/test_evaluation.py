@@ -33,6 +33,17 @@ def split(n: int = 300, seed: int = 0) -> MnistSplit:
     )
 
 
+def train_split_for(config) -> MnistSplit:
+    """A synthetic train split big enough for the run to consume.
+
+    Sized from the config as N*n*T rather than a literal: the shard budget is
+    what these tests trip over when a default changes, and a hardcoded 4000
+    silently became too small when n went from 2 to 4.
+    """
+    needed = config.graph.n_nodes * config.env.samples_per_node_per_step * config.run.horizon
+    return split(needed + config.graph.n_nodes)  # a little slack for rounding
+
+
 def builder_for(experiment: str = "x2_rotating", **overrides) -> EvalSetBuilder:
     from dekf_bench.utils.config import deep_merge
 
@@ -236,7 +247,7 @@ def scored():
     from dekf_bench.models.registry import build_model_from_config
 
     config = load_config("x2_rotating", overrides={"run": {"horizon": HORIZON}})
-    train, test = split(4000), split(300, seed=1)
+    train, test = train_split_for(config), split(300, seed=1)
     environment = build_environment(config, 0, train)
     model = build_model_from_config(config)
     params = model.init_params(environment.seeds.torch_generator("init"))
@@ -264,7 +275,7 @@ def test_prequential_skips_idle_agents_rather_than_scoring_them(scored) -> None:
         "x2_rotating",
         overrides={"run": {"horizon": HORIZON}, "env": {"label_availability": 0.5}},
     )
-    environment = build_environment(config, 0, split(4000))
+    environment = build_environment(config, 0, train_split_for(config))
     result = protocol.prequential(
         environment.step(5), scored["predict"], scored["likelihood"], step=5
     )
@@ -373,7 +384,7 @@ def test_per_node_drift_adds_the_mean_view(scored) -> None:
         "x2_rotating",
         overrides={"run": {"horizon": HORIZON}, "env": {"drift_scope": "per_node"}},
     )
-    environment = build_environment(config, 0, split(4000))
+    environment = build_environment(config, 0, train_split_for(config))
     builder = build_evalsets(config, environment, split(300, seed=1))
 
     result = protocol.full_evaluate(

@@ -6,8 +6,13 @@
 # Weaker than the momentum baseline, and that is the point: it isolates the
 # payload difference from the performance difference. See design note D29.
 name: diffusion_sgd_atc_plain
+#
+# Tuned 2026-08-05: plain SGD wants a much larger step than the momentum
+# variants -- lr 0.2 (held-out 0.1133 at n=4). Costs ~0.017 against momentum ATC;
+# that is the measured price of the p-per-link payload, and it is the number
+# Diff-EKF must beat.
 optimizer: sgd
-lr: 0.05
+lr: 0.2
 momentum: 0.0
 mix_optimizer_state: none
 adapt_scope: local

@@ -42,7 +42,7 @@ def test_shipped_experiments_load(name: str) -> None:
 def test_defaults_match_the_agreed_phase_1_values() -> None:
     config = load_config("x1_stationary")
     assert config.graph.n_nodes == 10
-    assert config.env.samples_per_node_per_step == 2
+    assert config.env.samples_per_node_per_step == 4  # raised from 2, WORKPLAN 3.7
     assert config.run.horizon == 1500
     assert config.model.input_size == 14
     assert config.eval.backward_separation_degrees == 15.0
@@ -396,3 +396,26 @@ def write_experiment(root: Path, body: dict) -> Path:
     with path.open("w", encoding="utf-8") as handle:
         yaml.safe_dump(body, handle)
     return path
+
+
+def test_a_cuda_device_is_refused_while_it_would_be_ignored() -> None:
+    """`run.device` is validated but nothing in phases 1-4 acts on it, so
+    accepting `cuda` would silently run on CPU while the config claimed
+    otherwise.
+
+    Refusing is not a limitation being papered over: CUDA is *measurably slower*
+    for this workload (design note D43). The guard comes off in phase 5, where a
+    dense covariance makes it a 14x win.
+    """
+    with pytest.raises(ConfigError, match="silently ignored"):
+        load_config("x1_stationary", overrides={"run": {"device": "cuda"}})
+
+
+def test_the_refusal_explains_where_cuda_does_pay() -> None:
+    """A rejection that only says 'no' invites working around it."""
+    with pytest.raises(ConfigError, match="Phase 5"):
+        load_config("x1_stationary", overrides={"run": {"device": "auto"}})
+
+
+def test_cpu_is_accepted() -> None:
+    assert load_config("x1_stationary", overrides={"run": {"device": "cpu"}}).run.device == "cpu"

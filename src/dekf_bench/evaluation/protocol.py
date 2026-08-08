@@ -66,22 +66,31 @@ class NodeScore:
         return 1.0 - self.accuracy
 
     def as_rows(self) -> list[dict[str, Any]]:
+        base = {
+            "node_id": self.node,
+            "evalset": self.evalset,
+            "t": self.step,
+            "drift_state": self.rotation_degrees,
+        }
+        # Counts travel with the rate: averaging rates over unequal batch sizes
+        # mis-weights, and batch sizes vary as soon as pi_lab < 1. n_correct is
+        # the number CORRECT, so an aggregated error rate is
+        # 1 - sum(n_correct)/sum(n_samples) -- see recording/schema.py.
         rows: list[dict[str, Any]] = [
             {
-                "node_id": self.node,
-                "evalset": self.evalset,
-                "t": self.step,
-                "drift_state": self.rotation_degrees,
+                **base,
                 "metric": "error_rate",
                 "value": self.error_rate,
+                "n_correct": self.n_correct,
+                "n_samples": self.n_samples,
             }
         ]
         if self.nll is not None:
-            rows.append({**rows[0], "metric": "nll", "value": self.nll})
+            rows.append({**base, "metric": "nll", "value": self.nll})
         if self.calibration is not None:
             for entry in self.calibration.as_rows():
                 if entry["metric"] != "nll":  # already recorded above
-                    rows.append({**rows[0], **entry})
+                    rows.append({**base, **entry})
         return rows
 
 

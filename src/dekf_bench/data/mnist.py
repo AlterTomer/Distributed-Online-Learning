@@ -28,6 +28,8 @@ from typing import Literal
 
 import torch
 
+from dekf_bench.utils.atomic import replace_with_retry
+
 logger = logging.getLogger(__name__)
 
 Split = Literal["train", "test"]
@@ -180,7 +182,10 @@ def _write_cache(cache: Path, data: MnistSplit) -> None:
     # a truncated cache that looks valid.
     staging = cache.with_suffix(".tmp")
     torch.save({"images": data.images, "labels": data.labels}, staging)
-    staging.replace(cache)
+    # Same Windows hazard as the recorder: os.replace fails outright while any
+    # process holds the target open (design note D42). Lower stakes here -- a
+    # failed cache write only costs a re-download -- but the fix is one call.
+    replace_with_retry(staging, cache)
     logger.info("cached %s split (%d samples) to %s", data.split, len(data), cache)
 
 

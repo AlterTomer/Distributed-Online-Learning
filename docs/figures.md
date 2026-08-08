@@ -1,0 +1,340 @@
+# The figures
+
+What each one is for, how to read it, and what would count as a surprise.
+Produced by `scripts/make_figures.py` from logged results, with no manual steps.
+
+If this document and the code disagree, the code is right and this is stale.
+
+---
+
+## 1. How to run them
+
+```
+python scripts/make_figures.py                # collect, cache, and draw all
+python scripts/make_figures.py f3             # just one
+python scripts/make_figures.py --from-cache   # redraw without re-reading results/
+python scripts/make_figures.py --dpi 300      # publication resolution
+```
+
+| id | file | source |
+|---|---|---|
+| F1 | `12_f1_error_vs_time.png` | X1, X2 |
+| F2 | `13_f2_error_vs_communication.png` | X1, X2 |
+| F3 | `16_f3_price_of_connectivity.png` | X3 |
+| F4 | `17_f4_per_agent_spread.png` | X1, X2 |
+| F5 | `14_f5_disagreement.png` | X1, X2 |
+| F6a | `18_f6a_sparsity_tuned.png` | X4 + per-cell tuning sweep |
+| F6b | `19_f6b_cost_of_not_retuning.png` | X4 (both tunings) |
+| F7 | `20_f7_adaptation_transient.png` | X5 |
+| F8 | `15_f8_atc_vs_cta.png` | X1b |
+| F9 | `21_f9_non_iid.png` | X6 |
+
+### Two stages, and why
+
+**Collect** reduces ~775 000 raw rows per experiment to the few hundred points a
+figure actually draws, and writes them to `preliminary work/figure_data/`.
+**Draw** renders from that.
+
+So changing a label, a colour, or the resolution is a second of work against a
+small tidy table — `--from-cache` never touches `results/`. That matters for two
+reasons: the raw parquet is large and slow to re-aggregate, and the figure data
+is what survives into a talk or a paper long after a run has been superseded by
+a re-tuned one.
+
+One parquet and one JSON per figure:
+
+| column | meaning |
+|---|---|
+| `figure` | `f1`, `f2`, `f3`, … |
+| `panel` | which subplot — e.g. `Stationary`, or `Stationary\|e_agree` for F5 |
+| `series` | the learner, or `reference`, or a topology name for F3 |
+| `role` | `line`, `reference`, `point` or `cell` |
+| `x`, `y` | the plotted point |
+| `lo`, `hi` | the ±1 s.d. band, or `NaN` where there is none |
+| `cost` | cumulative scalars transmitted, for F2's x-axis |
+
+The `.meta.json` beside it carries what the caption states — the seed count and
+the smoothing window — so a redrawn figure cannot claim a seed count it does not
+have.
+
+---
+
+## 2. Reading conventions
+
+These hold across every figure.
+
+**Aggregation is counts-then-divide, never a mean of rates.** Every error rate
+is $1 - \sum n_\text{correct} / \sum n_\text{samples}$ over the rows being
+pooled. Averaging per-agent *rates* would weight an agent that saw two samples
+the same as one that saw eight, quietly reweighting the result toward whichever
+agents held the least data.
+
+**Bands are ±1 s.d. across seeds**, computed on the per-seed aggregate — so a
+band means "how far would a rerun move this curve", not "how much do the agents
+differ". Per-agent spread is F4's job.
+
+**Differences between two learners are paired within seed.** Both run on the
+same environment at the same seed, so most run-to-run variation is common and
+cancels. Measured on X3: individual error rates carry a seed s.d. of 0.0035
+while the paired gap carries 0.0012. Unpaired, the connectivity axis of F3 would
+be mostly noise.
+
+**Colour follows the method, never its rank.** A figure that drops a learner
+does not repaint the survivors, so two figures can be compared directly.
+
+**Every line is labelled twice** — a legend below the figure and a direct label
+at its right edge. Below rather than inside because the convergence tail is the
+part worth reading and a legend box lands exactly on it. Direct labels are nudged
+apart in typographic points where curves converge, with a leader back to the true
+endpoint.
+
+**Log axes drop zeros rather than clipping them.** $E_\text{agree}$ is
+identically zero for `centralized_sgd`; clipping to a floor would draw a line
+that looks like a small positive disagreement.
+
+**Smoothing is applied only to per-step series.** ⚠ The `prequential` evalset is
+scored every step; `current` and `canonical` are scored every `eval_every` (25)
+steps. A rolling window of $w$ points therefore spans $25w$ steps on the latter.
+The first version of F7 used a 9-point window on `current` — 225 steps — and
+**erased the entire transient it exists to show**, producing a plausible smooth
+curve with no sign anything was wrong. F1 may smooth; F4, F7 and F9 must not.
+
+---
+
+## 3. F1 — error rate over time
+
+**The headline.** Prequential error against $t$, one panel per drift regime, with
+the offline reference $e^\star$ as a dashed line.
+
+*Prequential* means test-then-train: each agent predicts on its incoming batch
+**before** learning from it, so the curve is honest online performance and needs
+no held-out split. Scoring after the update would leak the label and pull every
+method's error down by an amount that grows with the learning rate — which would
+look like a result.
+
+**$e^\star$ is a curve, not a constant.** Under rotation the offline reference is
+retrained per rotation, so one horizontal line would quote $e^\star$ at a state
+most of the run never visits. Under a stationary schedule it flattens by itself.
+
+**What to look for.** The ordering, and the size of the gap to $e^\star$. The
+reference is trained offline on the full shard over many epochs, so no online
+method should reach it; the gap is the price of one pass, in a stream, with no
+fusion centre.
+
+**What would be a surprise.** Any distributed method beating `centralized_sgd`.
+That is an upper reference — this exact signal is what exposed the tuning
+confound of `results.md` §6.
+
+---
+
+## 4. F2 — the same, against communication
+
+F1 replotted with **cumulative scalars transmitted** on a log x-axis. A different
+question: not "best after 1500 steps" but "best per unit of bandwidth" — what
+matters when the network, not the clock, binds.
+
+**Two methods are horizontal dashed references, for opposite reasons.**
+`centralized_sgd` communicates heavily but *off this axis*: it ships raw samples
+to a centre, which is what the paradigm exists to avoid. `local_only` genuinely
+never speaks. Plotting either at $x=0$ would read as "free and this good"
+(design note D30). Both are labelled in place, because three different things use
+dashed horizontals across F1 and F2.
+
+**What to look for: whether the curves cross.** They do — plain ATC leads for
+most of the run and meets the momentum variant only around $2\times10^7$ scalars.
+At equal *time* momentum ATC wins by 0.013; at equal *bandwidth* plain ATC wins
+until quite late. This is the axis on which phase 5's claim is actually stated.
+
+---
+
+## 5. F3 — the price of connectivity
+
+$$\text{gap} = e(\texttt{diffusion\_sgd\_atc}) - e(\texttt{centralized\_sgd})$$
+
+one point per topology, in two windows (`transient` $t\in[150,300)$ and `settled`
+$t\in[1400,1500)$), against two **different** predictors.
+
+**Why two predictors rather than one.** The spec asks for gap vs spectral gap.
+Measured on seven topologies, $1-\rho$ does predict ($\rho_s = -0.786$, exact
+$p = 0.048$) but the **mean self-weight $\bar a_{vv}$** predicts better
+($+0.964$, $p = 0.0028$) and is the one that ranks `star` correctly — 7th of 7
+rather than 3rd. Showing both makes the comparison the figure's content instead
+of a claim in the caption.
+
+**The signs are opposite and both expected.** Larger spectral gap = better
+connected = smaller price (negative). Larger self-weight = each agent keeps more
+of its own estimate = mixes less = larger price (positive).
+
+**Why $\bar a_{vv}$ works.** It is the average fraction of its own estimate an
+agent keeps, so $1 - \bar a_{vv}$ is literally mixing-per-round. Star follows
+immediately: Metropolis gives each leaf a hub-weight of $1/(1+9) = 0.1$, so every
+leaf retains **90%** of its own estimate and the network barely mixes despite a
+diameter of 2. The spectral gap describes the *asymptotic* rate of consensus;
+over 1500 online steps what matters is mixing per step.
+
+**A caveat that belongs with the figure.** $\bar a_{vv}$ was chosen after seeing
+five of the seven topologies. It faced one genuine out-of-sample test
+(`erdos_renyi`) and **failed it**. Report it as the better of two descriptive
+correlations on seven graphs, not as a law. See `results.md` §7.3.
+
+---
+
+## 6. F4 — per-agent spread
+
+Mean over agents with a **min–max band**, for each method. This is disagreement
+in *performance*, which is a different quantity from F5's disagreement in
+*parameters* — agents can hold different weights and still score alike.
+
+**What to look for.** `centralized_sgd` has no band at all: every agent holds the
+same $\bm\theta$ by construction, so a visible band there would mean the runner is
+reading the wrong state. `local_only` has a wide one. ATC sits between, and how
+narrow it is measures how well the combine step is holding the network together.
+
+Not smoothed — the `current` evalset is already sparse (§2).
+
+---
+
+## 7. F5 — disagreement and deviation from centralized
+
+$$E_\text{agree} = \tfrac1N\sum_v \lVert\bm\theta_v - \bar{\bm\theta}\rVert^2
+\qquad
+E_\text{cent} = \lVert\bar{\bm\theta} - \bm\theta^\text{cent}\rVert^2$$
+
+**$E_\text{agree}$ is consensus** — how far the agents are from each other.
+Identically zero for `centralized_sgd` by construction, which is why that series
+is absent from the top row rather than drawn along the floor.
+
+**$E_\text{cent}$ is fidelity** — how far the network average is from what a
+fusion centre would have computed. The two are independent: a network can agree
+perfectly on the wrong answer.
+
+**What to look for.** `local_only` climbs without bound in both. The diffusion
+methods plateau in $E_\text{agree}$, where the combine step's pull toward
+consensus balances the per-agent gradients pushing apart.
+
+**A useful diagnostic.** $E_\text{cent}$ rising while $E_\text{agree}$ stays flat
+means the agents agree with each other but are drifting away from the centralized
+solution *together* — a mixing problem, not a consensus problem.
+
+---
+
+## 8. F6a — the sparsity plane, tuned per cell
+
+Three heatmaps over $(n, \pi_\text{lab})$: ATC's error, the cooperation gap
+(`local_only` − ATC), and the pooling gap (ATC − `centralized_sgd`).
+
+**Every cell uses each method's own best (optimizer, lr) for that cell**, not one
+global setting. This is not fussiness. At $\pi_\text{lab} < 1$ most agents are
+idle, and an idle agent contributes its *unchanged* $\bm\theta$ to the combine
+step — so ATC's effective step is $\eta\, n_\text{active}/N$ while centralized
+takes the full $\eta$. At $\pi_\text{lab} = 0.25$ that is a **4×** difference.
+Comparing the two at one lr compares step sizes, not methods. (Measured: the two
+optima sit at lr 0.0025 and 0.01, exactly the predicted ratio.)
+
+**Colour.** Sequential single-hue for the two magnitudes; **diverging with a
+neutral midpoint** for the pooling gap, which is signed. Values are printed in
+each cell, with ink on light cells and paper on dark ones.
+
+**What to look for.** A negative pooling gap — diffusion beating pooled data —
+confined to the sparse corner and shrinking as $n$ and $\pi_\text{lab}$ rise. That
+pattern is the signature of **implicit iterate averaging**: diffusion maintains
+$N$ trajectories under continuous averaging, a variance-reduction device a single
+centralized trajectory lacks, and it should pay only where the per-step gradient
+is noisiest. If instead the negative region were scattered, the remaining cause
+would be residual mis-tuning rather than a real mechanism.
+
+---
+
+## 9. F6b — the cost of not re-tuning
+
+$$\text{penalty} = e(\text{headline lr}) - e(\text{best lr for this cell})$$
+
+one heatmap per method. Only computable because X4 was run **both** ways, and the
+reason both were kept.
+
+F6a asks "how do the methods compare when each is used properly?". F6b asks the
+practitioner's question: **"what does it cost me that I tuned for the nominal
+regime and deployment turned out sparser?"** Nobody re-tunes when a sensor's
+label rate drops, so this is the more operational of the two.
+
+**What to look for.** Whether one method is systematically flatter. From the
+hand-tuned cell at $n{=}1, \pi{=}0.25$, centralized pays 0.184 while ATC pays 0 —
+its headline lr *was* the local optimum. If that holds across the plane, F6b makes
+a sharp claim with nothing to do with accuracy: diffusion is far more forgiving of
+a mis-specified step size, because the combine step damps an oversized update.
+
+Sequential colour on a shared scale across the three panels, so the panels can be
+compared to each other rather than only read individually.
+
+---
+
+## 10. F7 — the adaptation transient
+
+Held-out error over $[t^\ast - 50,\ t^\ast + 300]$ around the abrupt shift, where
+$t^\ast$ is **read from the recorded drift state** rather than hardcoded — the
+figure finds the step where the rotation actually changes.
+
+**Not smoothed, and that is load-bearing** (§2). The shift appears in a *single*
+evaluation point ($0.097 \to 0.174 \to 0.136$), so any rolling window flattens it.
+
+**What to look for.** The height of the spike, how many steps recovery takes, and
+whether the ordering changes across it. Measured: every method loses ~0.075
+immediately and recovers within ~150 steps, and the ordering never changes — so
+the shift does not advantage any method, it just costs them all the same.
+
+---
+
+## 11. F8 — ATC vs CTA
+
+Two panels — error rate and $E_\text{agree}$ — for the two orderings at
+**identical communication cost**.
+
+$$\text{ATC:}\quad \bm\psi_v = \bm\theta_v - \eta\nabla L_v,\qquad \bm\theta_v \leftarrow \textstyle\sum_u a_{vu}\bm\psi_u$$
+$$\text{CTA:}\quad \bm\theta_v \leftarrow \textstyle\sum_u a_{vu}\bm\theta_u - \eta\nabla L(\bm\theta_v)$$
+
+The gradient is evaluated **before** the averaging in CTA and after it in ATC.
+That is the entire difference; they cost the same.
+
+**Why it matters.** Diff-EKF is ATC, so phase 5 differs from diffusion SGD in the
+adapt step alone. F8 measures what the ordering itself is worth, so the choice is
+*reported* rather than assumed.
+
+**What it actually shows.** At tuned settings the two are **indistinguishable**
+(0.0768 vs 0.0774, seed s.d. 0.0034). ATC wins 47 of 50 grid cells, so the sign is
+real, but it separates only where the step is too large (0.118 vs 0.251 at
+momentum lr 0.2). **ATC's advantage is robustness to step size, not accuracy at
+the right one** — which fits mechanically, since ATC averages after stepping and
+so damps an oversized update.
+
+Both learners select the same optimum (momentum, lr 0.01) at $n \in
+\{2,4,6,8\}$, so matched settings *are* each one's best and the comparison needs
+no caveat. That was checked, not assumed — see design note D40.
+
+---
+
+## 12. F9 — non-IID
+
+Two panels against Dirichlet $\beta$ on a log axis: each method's error, and the
+cooperation gap.
+
+**The clearest result in the benchmark.** `local_only` runs 0.144 → 0.624 as skew
+increases while ATC stays nearly flat (0.083 → 0.106), so the cooperation gap goes
+**0.061 → 0.518**, an 8.5× increase. Under $\beta = 0.1$ an agent sees three or
+four digits and alone lands near chance; the same agent inside a diffusion network
+reaches 0.106.
+
+**A free correctness check.** `centralized_sgd` is flat across $\beta$ (0.080,
+0.078, 0.082) — it pools every agent's samples, so the partition is invisible to
+it. A slope there would mean the skew is leaking into the data path rather than
+the partition.
+
+Shard *sizes* are held equal across $\beta$; only the label composition varies.
+Otherwise skew and shard starvation would be confounded.
+
+---
+
+## 13. Still to come
+
+**F10** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is
+`diffusion_sgd_atc_plain`, not the momentum variant, because the filter sends one
+$p$-vector per link.

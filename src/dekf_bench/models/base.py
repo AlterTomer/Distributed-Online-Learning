@@ -97,5 +97,17 @@ class Model(Protocol):
     def unflatten(self, vector: torch.Tensor) -> ParamDict:
         """The inverse of :meth:`flatten`."""
 
+    def vjp(self, params: ParamDict, x: torch.Tensor, cotangent: torch.Tensor) -> torch.Tensor:
+        r"""$\\bm u^{\\mathsf T}\\bm H$, returned flat.
+
+        Declared on the protocol rather than only on the concrete model because
+        the *shared gradient* uses it -- every learner's update runs through
+        $-\\bm H^{\\mathsf T}\\bm\\nu$ -- and phase 5 needs it for the information
+        increment. It is not an implementation detail of one model.
+        """
+
+    def jvp(self, params: ParamDict, x: torch.Tensor, tangent: torch.Tensor) -> torch.Tensor:
+        r"""$\\bm H\\bm v$ for a flat direction in parameter space."""
+
     def param_groups(self) -> tuple[ParamGroup, ...]:
         """Layer blocks of the flat vector, in order."""

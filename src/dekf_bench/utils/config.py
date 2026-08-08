@@ -103,6 +103,19 @@ class RunConfig:
             raise ConfigError(f"run.seeds contains duplicates: {self.seeds}")
         _one_of(self.dtype, DTYPES, "run.dtype")
         _one_of(self.device, DEVICES, "run.device")
+        if self.device != "cpu":
+            raise ConfigError(
+                f"run.device is {self.device!r}, but nothing in phases 1-4 moves tensors "
+                "to it -- the field would be accepted and silently ignored.\n"
+                "  It is not an oversight: CUDA is measurably SLOWER here (design note "
+                "D43). At p=2908 with batches of 4-40, kernel launch overhead exceeds "
+                "the arithmetic -- 0.69x at batch 4, and even the 20-minute reference "
+                "trainer comes out slower (16 min vs 15).\n"
+                "  Phase 5 is where it pays: a dense p x p covariance matmul is 120 ms "
+                "on CPU against 8.6 ms on CUDA, a 14x win, and that is what makes the "
+                "dense filter feasible at all. This guard comes off when phase 5 wires "
+                "the device through."
+            )
 
 
 @dataclass

@@ -1,5 +1,8 @@
 # Upper reference for the online setting. Sees the pooled batch; combine is a no-op.
 name: centralized_sgd
+#
+# Tuned 2026-08-05: momentum at lr 0.01 (held-out 0.0937 at n=4). The previous
+# lr 0.05 gave an effective step of 0.5, past the stability edge at small n.
 optimizer: sgd_momentum
-lr: 0.05
+lr: 0.01
 momentum: 0.9

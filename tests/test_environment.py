@@ -63,9 +63,10 @@ def test_step_covers_every_agent(train: MnistSplit) -> None:
 def test_observation_shapes_match_the_transform(train: MnistSplit) -> None:
     env = make(train)
     obs = env.step(0)[0]
-    assert obs.x.shape == (2, 1, 14, 14)
-    assert obs.y is not None and obs.y.shape == (2,)
-    assert obs.n_samples == 2
+    n = load_config("x1_stationary").env.samples_per_node_per_step
+    assert obs.x.shape == (n, 1, 14, 14)
+    assert obs.y is not None and obs.y.shape == (n,)
+    assert obs.n_samples == n
     assert obs.has_label
 
 
@@ -100,7 +101,7 @@ def test_every_active_agent_receives_the_same_count(train: MnistSplit) -> None:
     env = make(train)
     for step in range(HORIZON):
         counts = {obs.n_samples for obs in env.step(step).values()}
-        assert counts == {2}
+        assert counts == {load_config("x1_stationary").env.samples_per_node_per_step}
 
 
 # =========================================================================== #
@@ -217,7 +218,9 @@ def test_pooled_batch_is_exactly_the_union(train: MnistSplit) -> None:
     observations = env.step(0)
     xs, ys = pool(observations)
 
-    assert xs.shape[0] == sum(obs.n_samples for obs in observations.values()) == 20
+    config = load_config("x1_stationary")
+    expected = config.graph.n_nodes * config.env.samples_per_node_per_step
+    assert xs.shape[0] == sum(obs.n_samples for obs in observations.values()) == expected
     assert torch.equal(xs, torch.cat([observations[v].x for v in range(N_NODES)]))
     assert torch.equal(ys, torch.cat([observations[v].y for v in range(N_NODES)]))  # type: ignore[misc]
 
@@ -308,7 +311,8 @@ def test_images_are_downsampled_and_normalized(train: MnistSplit) -> None:
 def test_full_resolution_model_gets_full_resolution_input(train: MnistSplit) -> None:
     env = make(train, include={"model": "mlp"})
     assert env.transform.size == 28
-    assert env.step(0)[0].x.shape == (2, 1, 28, 28)
+    n = load_config("x1_stationary").env.samples_per_node_per_step
+    assert env.step(0)[0].x.shape == (n, 1, 28, 28)
     assert env.transform.input_dim == 784
 
 
@@ -437,8 +441,10 @@ def test_a_default_run_builds_and_steps(mnist_train: MnistSplit) -> None:
     env = build_environment(load_config("x1_stationary"), 0, mnist_train)
     assert env.horizon == 1500
     xs, ys = pool(env.step(0))
-    assert xs.shape == (20, 1, 14, 14)
-    assert ys.shape == (20,)
+    config = load_config("x1_stationary")
+    pooled = config.graph.n_nodes * config.env.samples_per_node_per_step
+    assert xs.shape == (pooled, 1, 14, 14)
+    assert ys.shape == (pooled,)
 
 
 @pytest.mark.needs_data
@@ -454,4 +460,6 @@ def test_the_whole_rotating_run_stays_inside_the_cap(mnist_train: MnistSplit) ->
 def test_exactly_once_holds_across_a_full_run(mnist_train: MnistSplit) -> None:
     env = build_environment(load_config("x1_stationary"), 0, mnist_train)
     served = torch.cat([env.stream.consumed_by(node) for node in range(env.n_nodes)])
-    assert served.numel() == 30_000 == len(torch.unique(served))
+    # N*n*T = 10*4*1500: the default run now sits exactly on the shard budget,
+    # so 'exactly once' covers the entire training split with nothing spare.
+    assert served.numel() == 60_000 == len(torch.unique(served))

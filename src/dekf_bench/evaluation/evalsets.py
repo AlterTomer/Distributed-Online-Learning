@@ -262,7 +262,18 @@ class EvalSetBuilder:
 
 def build_evalsets(config: Any, environment: Any, test: MnistSplit) -> EvalSetBuilder:
     """The builder a run's config asks for, wired to the environment's own
-    transform and drift so the two paths cannot diverge."""
+    transform and drift so the two paths cannot diverge.
+
+    The test split is converted to the environment's dtype. The environment
+    already converts *train* -- X0 runs everything in float64 -- and a test split
+    left at float32 makes the first forward pass raise on a dtype mismatch. That
+    is the loud version of the failure; the quiet one would be a silent
+    promotion changing the numbers the exactness check is asserted against.
+    """
+    dtype = environment.train.images.dtype
+    if test.images.dtype != dtype:
+        test = test.to(dtype=dtype)
+
     return EvalSetBuilder(
         test=test,
         transform=environment.transform,

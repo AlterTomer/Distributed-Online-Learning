@@ -874,6 +874,363 @@ small against the gaps phase 3 will measure.
 
 ---
 
+## 2026-08-05 — Phase 3, the learners
+
+### ✅ D35. X0 tests every *linear* update rule, not just plain SGD
+
+**Finding.** The exactness identity survives heavy-ball momentum, mixed or not.
+It breaks for AdamW. Measured, 30 steps, complete graph, float64:
+
+| optimizer | mixing | residual | |
+|---|---|---|---|
+| plain SGD | — | 9.99e-16 | exact |
+| momentum $\beta=0.9$ | mixed | 7.22e-16 | exact |
+| momentum $\beta=0.9$ | **not** mixed | 7.77e-16 | exact |
+| AdamW | all | 5.24 | **breaks** |
+
+**Why.** Averaging commutes with *linear* maps. Heavy-ball is linear in the
+gradients — $\bm m \leftarrow \beta\bm m + \bm g$, $\bm\theta \leftarrow
+\bm\theta - \eta\bm m$ — so
+
+$$\tfrac1N\textstyle\sum_v \bm m_v = \beta\,\tfrac1N\sum_v \bm m_v^{\text{old}} + \tfrac1N\sum_v \bm g_v$$
+
+is exactly the centralized momentum recursion. On a complete graph every agent
+evaluates its gradient at the same point, so the *average* trajectory matches
+centralized whether or not the buffers are exchanged. Adam's second moment
+carries $\bm g^2$, which is not linear, and the identity fails immediately.
+
+**Three consequences.**
+
+*X0 is stronger than advertised.* It certifies the diffusion algebra for the
+whole class of linear update rules, not only for the configuration it runs in.
+
+*A claim in this codebase was wrong.* The precondition check's message said
+optimizer state "makes the two trajectories diverge legitimately". False for
+heavy-ball. Corrected: plain SGD is required as the **canonical** configuration
+so the check leans on nothing but the diffusion algebra — not because momentum
+would break it.
+
+*The check is now known not to be vacuous.* `test_adamw_does_break_the_identity`
+is a positive control: without a case that fails, a test that always passes is
+indistinguishable from one that checks nothing. Three other controls exist —
+float32 exceeds the tolerance, a ring breaks by $>10^{-6}$, and unequal batch
+sizes break it.
+
+**Note the limit of the result.** This holds on a *complete* graph, where every
+agent linearises at the same $\bm\theta$. It says nothing about a ring, where
+the agents differ and $\nabla L_v$ is evaluated at different points — and
+nothing about the D-Adam divergence the plan cites, which is an
+adaptive-optimizer phenomenon over many steps on a sparse graph.
+
+### ✅ D36. Momentum mixing treats the whole learner state as one object
+
+**Decision.** `mix_optimizer_state: momentum` averages $\bm m$ with the *same*
+weights as $\bm\theta$, in one exchange of $(\bm\psi, \bm m)$ costing $2p$ per
+link.
+
+**Why.** Olshevskyi et al. (Fig. 2a): **D-Adam**, which mixes parameters and
+keeps moments local, converges then *diverges*; **D-AMSGrad**, which runs
+consensus on the moments too, is their best distributed method. `WORKPLAN.md`
+§3.4 concludes unmixed adaptive state is a known failure mode rather than an
+open question, and the config rejects it.
+
+Structurally, mixing makes combine a single operator on the whole state:
+
+$$\begin{pmatrix}\bm\theta_v \\ \bm m_v\end{pmatrix} \leftarrow \sum_u a_{vu}\begin{pmatrix}\bm\psi_u \\ \bm m_u\end{pmatrix}$$
+
+so every property established for $\bm A$ covers all of it — row-stochasticity
+keeps the result inside the neighbours' convex hull, double stochasticity
+preserves the network average. Unmixed, $\bm\theta$ gets those guarantees and
+$\bm m$, the part that diverges, gets none.
+
+**What was not a reason.** An earlier draft justified this by analogy to the
+filter, which "treats its state uniformly". That is wrong: Diff-EKF's default
+(eq. 44) mixes the **mean only** and keeps the covariance local; covariance
+combining is explicitly optional at $O(p^2)$ per link. The analogy was dropped.
+
+**Cost, and why it is affordable.** $2p$ per link means the primary baseline
+sends twice what Diff-EKF does. `diffusion_sgd_atc_plain` carries no state and
+therefore sends $p$, so X1 runs both and the phase-5 comparison has a
+payload-matched baseline as well as a stronger one (D29).
+
+### ✅ D37. The combine step reads all messages before writing any
+
+**Decision.** `_combine_states` stacks every $\bm\psi_u$, applies the weight
+matrix once, and only then writes the results back.
+
+**Why.** The obvious loop — update agent 0, then agent 1, … — would let agent 1
+combine agent 0's *already-updated* parameters. The result would depend on node
+ordering, and on a complete graph it would break the X0 identity while still
+producing a plausible curve. Stacking makes the step a genuine matrix product,
+which is also what the algebra says it is.
+
+**Related.** `init()` clones $\bm\theta_0$ per agent rather than sharing one
+tensor. Sharing would make the first in-place update change every agent at once,
+and the run would show perfect consensus for a reason unconnected to the combine
+step.
+
+---
+
+### ✅ D38. Resumption is exact, and guarded by the config fingerprint
+
+**Decision.** Re-running an experiment resumes from the last completed
+evaluation step rather than starting over. The checkpoint stores the learner
+states, the ledger and the last completed step; it is refused if the config
+fingerprint changed.
+
+**Why it is exact and not approximate.** The run loop consumes no randomness.
+The environment is *positional* — agent $v$'s samples at step $t$ are a function
+of $(v, t)$ and the shard, computed by cumulative-sum offsets rather than by
+advancing a cursor — and the stream, partition and graph were all drawn at
+construction time. So there is no RNG state to save and restore, which is the
+usual thing resumption gets wrong. `test_recording.py` asserts a resumed run
+matches an uninterrupted one bit-for-bit rather than assuming it.
+
+This is a payoff from the positional-stream decision (D18) that was not the
+reason for making it.
+
+**Why the fingerprint guard.** A resumed run with a changed config is not the
+run it claims to continue, and the parquet would mix two experiments under one
+name with nothing recording the seam. The failure is silent and permanent — the
+result looks like one clean run.
+
+The guard is sharper than it first appears because $\alpha$ is *derived*
+(`total_degrees / horizon`, D14). Shortening the horizon to simulate an
+interruption does not truncate the run — it changes the drift rate, so step 100
+of the short run carries different data than step 100 of the long one. My first
+version of the resumption test did exactly that and read the refusal as a false
+positive; the guard was right. `simulate.run` therefore takes a `stop_after`
+argument, which interrupts a run **without reconfiguring it**. It is deliberately
+a function parameter and not a config field: a config field would be part of the
+fingerprint and would change the very thing it is meant to hold fixed.
+
+**Cost.** A checkpoint write per evaluation step, and the states must be
+serialisable — which they are, being tensors in a dict. Writes are atomic
+(temp file, then rename) so a crash *during* the checkpoint cannot leave a
+truncated file that fails to load or, worse, loads with partial state.
+
+---
+
+### ✅ D39. Every method is tuned before any comparison is drawn
+
+**Decision.** Learning rate, $n$, and whether momentum is used at all are chosen
+per method on a held-out grid (`scripts/sweep_hyperparameters.py`) rather than
+shared by assumption. X1–X6 then run at the selected values.
+
+**What forced it.** The first full X1 run, at the planned primary (SGD momentum
+0.9, lr 0.05, $n=2$):
+
+| learner | optimizer | held-out error |
+|---|---|---|
+| `diffusion_sgd_atc_plain` | plain SGD | **0.095** |
+| `centralized_sgd` | momentum | 0.117 |
+| `diffusion_sgd_atc` | momentum | 0.146 |
+| `local_only` | momentum | 0.897 |
+
+Two things are wrong here. `local_only` sits at chance for ten classes, and the
+only method *without* momentum finishes ahead of `centralized_sgd` — which pools
+every agent's samples each step and therefore cannot legitimately be beaten by a
+distributed method.
+
+**The cause.** Momentum 0.9 at lr 0.05 gives an effective step
+$\eta/(1-\beta) = 0.5$, which is unstable at a batch of $n=2$. One agent, 1500
+steps, varying only the optimizer:
+
+| lr | momentum | $n$ | held-out error |
+|---|---|---|---|
+| 0.05 | 0.9 | 2 | **0.898** |
+| 0.05 | 0.0 | 2 | 0.194 |
+| 0.01 | 0.9 | 2 | 0.356 |
+| 0.005 | 0.9 | 2 | 0.188 |
+| 0.05 | 0.9 | 20 | 0.188 |
+
+It is not divergence — $\|\bm\theta\|^2$ stays comparable to the other methods —
+but the model settles into a near-uniform output, mean confidence 0.154 against
+a floor of 0.1. Averaging over $N=10$ agents cuts the gradient noise like a
+tenfold batch increase, which is exactly why the diffusion methods survive the
+same setting and `local_only` does not.
+
+**Why this could not be reported as a result.** "Cooperation is essential" would
+have been the headline of F1, and the mechanism is real — averaging *is* variance
+reduction. But at a tuned lr the same lone agent reaches 0.188 against ATC's
+0.18, so nearly the whole gap is an optimizer artefact rather than a learning
+benefit. Reporting it would not survive the first reviewer who asks whether the
+baseline was tuned.
+
+**How the grid is shaped.** The shard budget $NnT \le 60000$ caps $n$ at 4 when
+$T = 1500$, so the sweep runs at $T = 600$, where $n = 10$ lands at exactly
+60 000 and every cell stays epoch-free. Enabling `allow_epochs` for the large-$n$
+cells instead would let them train on repeated data while $n = 2$ did not,
+biasing the sweep toward the axis being measured. $n$ is swept at fixed $T$
+rather than fixed $nT$: $n$ is how fast an agent samples and $T$ is the horizon,
+so the question is "does sampling faster help at a fixed number of rounds?".
+
+Selection is on the **held-out** set, not the prequential stream, because
+prequential error is what the tuning gets reported against and choosing on it
+would select for the noise in that estimate.
+
+**Related.** `diffusion_sgd_atc` under `optimizer: sgd` *is*
+`diffusion_sgd_atc_plain`, so the optimizer axis subsumes that learner and the
+sweep carries three rather than four.
+
+---
+
+### ✅ D40. ATC's advantage over CTA is robustness, not accuracy
+
+**Measured.** A full grid (5 lr $\times$ 5 $n$ $\times$ 2 optimizers $\times$ 2
+seeds) with ATC and CTA in the *same* cells, so every comparison is on identical
+data.
+
+ATC wins **47 of 50** cells — the sign is not chance. But at each ordering's own
+optimum the difference is an order of magnitude below seed noise:
+
+| $n$ | ATC seeds | CTA seeds | difference | ATC seed spread |
+|---|---|---|---|---|
+| 2 | 0.1025, 0.1146 | 0.1045, 0.1162 | +0.0018 | **0.0121** |
+| 4 | 0.0952, 0.0976 | 0.0959, 0.0988 | +0.0010 | **0.0023** |
+| 6 | 0.0905, 0.0946 | 0.0910, 0.0952 | +0.0006 | **0.0041** |
+| 8 | 0.0876, 0.0917 | 0.0877, 0.0919 | +0.0002 | **0.0041** |
+
+Where ATC actually separates is the *unstable* region:
+
+| optimizer | lr | $n$ | ATC | CTA | CTA − ATC |
+|---|---|---|---|---|---|
+| momentum | 0.2 | 10 | 0.118 | 0.251 | **+0.133** |
+| momentum | 0.2 | 8 | 0.169 | 0.295 | +0.127 |
+| sgd | 0.2 | 4 | 0.113 | 0.140 | +0.027 |
+
+**Interpretation.** ATC averages *after* stepping, so the combine step damps a
+too-large update. CTA averages first and steps afterwards, so the damping
+arrives before the step it would have absorbed. That makes ATC tolerant of step
+size rather than better at the right one.
+
+**What this changes.** `WORKPLAN.md` §3.2 justified ATC as primary partly on
+"ATC generally has the better mean-square performance [3], so the baseline would
+be handicapped". For *this* benchmark that is too strong — at tuned settings the
+two are indistinguishable. ATC stays primary because **Diff-EKF is ATC**, so
+matching the ordering removes a confound from the phase-5 comparison. That reason
+stands on its own and does not depend on CTA being worse.
+
+**What it was run to check, and the answer.** Whether CTA's optimum sits
+somewhere ATC's does not — which would make F8 report a tuning difference as an
+ordering difference. It does not: both select momentum at lr 0.01 for
+$n \in \{2,4,6,8\}$, diverging only at $n=10$. So F8 runs both at matched
+settings as designed, and that is now measured rather than assumed.
+
+---
+
+### ✅ D41. Changing $n$ broke eleven tests, and that was the tests working
+
+**What happened.** Raising the default $n$ from 2 to 4 (D39, WORKPLAN §3.7)
+failed 10 tests and errored 10 more. None was a defect in the change; every one
+was a test encoding a *consequence* of $n=2$ as a literal.
+
+| what broke | why |
+|---|---|
+| `obs.x.shape == (2, 1, 14, 14)` | the batch shape is $n$ |
+| pooled union `== 20` | the pooled batch is $Nn$ |
+| "consumes exactly half the training set", `== 30_000` | at $n=4$ it consumes **all** of it |
+| `test_evaluation` fixtures | a hardcoded 4000-sample synthetic split no longer covers $NnT$ |
+| AdamW positive control `residual > 1.0` | see below |
+
+**The fix is not to bump the literals.** Each assertion now derives its expected
+value from the config — `config.env.samples_per_node_per_step`,
+$N \times n$, $N n T$ — so the test states the *invariant* rather than a
+snapshot of one configuration. The evaluation fixture sizes its synthetic split
+from $NnT$ for the same reason.
+
+**The AdamW control deserves its own note.** It asserted `residual > 1.0`, chosen
+when lr was 0.05 and the residual was 5.24. At the tuned lr 0.01 the residual is
+0.76 — AdamW still breaks the identity by fourteen orders of magnitude against
+the 1e-12 tolerance, but the literal bound failed. A threshold tied to a *tuned*
+quantity tracks the tuning rather than the property. It now reads
+`residual > 1e6 * TOLERANCE`, stated relative to what the identity is checked at.
+
+**Worth recording because the same trap is still live.** Any test that encodes a
+default rather than an invariant will break at the next tuning pass, and the
+tempting fix — editing the number until it passes — destroys the test. The
+$n=4$/60 000 coincidence is the sharpest case: `test_stream` now asserts the
+default run consumes the training split *exactly*, with nothing spare, which is
+the assertion that would catch a change silently pushing the run into reuse.
+
+---
+
+### ✅ D42. Atomic rename is retried, because it is not reliably atomic on Windows
+
+**Decision.** `_replace_with_retry` wraps every `staging.replace(target)` in the
+recorder — both the parquet write and the checkpoint — retrying on
+`PermissionError` with a short backoff, about 3 s of total patience.
+
+**What happened.** A re-run of X2 died at its first checkpoint with
+
+```
+PermissionError: [WinError 5] Access is denied:
+  'results\x2_rotating\seed_0.checkpoint.tmp' -> '...\seed_0.checkpoint.pt'
+```
+
+`os.replace` is genuinely atomic on POSIX. On Windows it fails outright when the
+target is held open by **any** process — an antivirus scanner, a search indexer,
+a cloud-sync client, or a handle the OS has not finished reaping from a killed
+run. The write was complete and correct; the rename simply could not land at that
+instant.
+
+**Why it mattered more than it looks.** The atomic-write pattern exists so a
+crash cannot leave a truncated file (D38). Here the safety mechanism *was* the
+crash: a condition that clears in milliseconds killed a 15-minute experiment, and
+because the driver was a shell `for` loop, it carried on to the next experiment
+and left the results out of order — X5 complete while X2 sat at one seed.
+
+**The retry is deliberately narrow.** Only `PermissionError`, only for a few
+seconds, and the original error is re-raised after the last attempt rather than
+swallowed — a genuinely read-only directory raises the same class and must still
+fail. Both branches are tested: `test_a_transient_lock_on_the_target_is_retried`
+injects a lock that clears on the third try,
+`test_a_permanent_permission_error_still_raises` injects one that never clears.
+
+**Related.** This is a Windows-specific hazard the project will keep meeting,
+since the whole benchmark runs there and `results/` sits under a path that sync
+clients watch.
+
+---
+
+### ✅ D43. CUDA is measurably slower for phases 1–4, and essential for phase 5
+
+**Measured**, on an RTX 4070 Laptop against 10 CPU threads:
+
+| workload | batch | CPU | CUDA | |
+|---|---|---|---|---|
+| one agent's gradient | 4 | 1.34 ms | 1.93 ms | **0.69×** |
+| one agent's gradient | 40 | 1.58 ms | 2.04 ms | **0.77×** |
+| one agent's gradient | 400 | 2.16 ms | 1.61 ms | 1.34× |
+| wider model, hidden 512 | 512 | 4.33 ms | 1.68 ms | 2.57× |
+| reference trainer, one epoch | 128 | 0.57 s | 0.62 s | **0.92×** |
+| **dense $p\times p$ matmul** | — | **120 ms** | **8.6 ms** | **14×** |
+
+**Why.** The model is 2 908 parameters on a $14\times14$ input, and the runs use
+$n=4$ per agent, 40 pooled. At that size kernel-launch overhead exceeds the
+arithmetic, and there is nothing for 36 SMs to do. The crossover is around batch
+400 — an order of magnitude above anything phases 1–4 use. Even the longest CPU
+job in the project, the 20-minute reference trainer, comes out slower.
+
+**Phase 5 inverts this completely.** A dense covariance is $2908^2 = 8.5$M
+entries per agent, and the EKF update needs several $p \times p$ products per
+agent per step. Across 10 agents and 1500 steps, 120 ms versus 8.6 ms is the
+difference between a run measured in days and one measured in minutes. CUDA is
+not an optimisation for Diff-EKF — it is the assumption the $p=2908$ budget was
+chosen under (WORKPLAN §4.6).
+
+**What was done about it.** `run.device` was *validated but never used*: no code
+path moved a tensor to it, so `device: cuda` would have been accepted and
+silently ignored. A config field that lies is worse than one that does not exist,
+so it now raises, and the message says where CUDA does pay rather than only
+saying no. **Phase 5 removes the guard when it wires the device through.**
+
+**The general point.** "Use the GPU where it helps" is a measurement, not a
+default. Here the intuition was wrong in both directions — slower where it was
+expected to help, and decisive in a place that had not been benchmarked.
+
+---
+
 ## Open questions
 
 ### ❓ Q1. Network size $N$

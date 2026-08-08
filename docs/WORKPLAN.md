@@ -2,7 +2,9 @@
 
 **Project.** Build a benchmark for distributed online learning over a graph, establish first-order baselines on it, and prepare the ground for the diffusion EKF (Diff-EKF).
 
-**Status.** Planning document. No implementation yet. The open questions of §10 were resolved on 2026-07-30; §10 records the decisions and the reasoning.
+**Status.** Phases 0-2 complete; phase 3 (learners, runner, recording) built and tested, experiments being re-run at tuned settings. The open questions of §10 were resolved on 2026-07-30 and 2026-08-05; §10 records the decisions and the reasoning.
+
+**Amended 2026-08-05** after the first full X1 run: §3.6 (hyperparameters are measured, not assumed), §3.7 ($n$ is an axis), §4.2 (why $n=4$, $T=1500$), §10.1b.
 
 **Companion documents.**
 - `IMPLEMENTATION.md` — repository layout, module responsibilities, interfaces, test suite, figure specifications, tooling. This document says *what* and *why*; that one says *how it is built*.
@@ -74,7 +76,9 @@ $$\bm\theta^i(t+1)=\sum_{j\in\mathcal N^{+}(i)}\bm W_{ij}\,\bm\theta^j(t)\;-\;\a
 
 with Metropolis–Hastings weights, where the gradient is evaluated at the *pre-combine* parameters. This is the Nedić–Ozdaglar consensus-plus-local-gradient form [2].
 
-**Why ATC is primary.** The Diff-EKF is ATC. If the SGD baseline were CTA, the phase-5 comparison would confound *EKF vs SGD* with *ATC vs CTA* — and ATC generally has the better mean-square performance [3], so the baseline would be handicapped in a way a reviewer will notice. With both as ATC, the two methods differ in the adapt step alone, at identical communication, and any Diff-EKF advantage is attributable to the second-order update rather than to a larger payload. Experiment X1b measures the ATC/CTA difference so that the choice is reported rather than assumed.
+**Why ATC is primary.** The Diff-EKF is ATC. If the SGD baseline were CTA, the phase-5 comparison would confound *EKF vs SGD* with *ATC vs CTA*. That reason stands alone and is why the choice holds.
+
+An earlier draft added "and ATC generally has the better mean-square performance [3], so the baseline would be handicapped". **Measured on this benchmark, that is too strong** (design note D40): ATC wins 47 of 50 grid cells, so the sign is real, but at each ordering's own optimum the difference is around 0.001 against a seed spread of 0.002–0.012. ATC's advantage here is *robustness to step size*, not a better optimum — it separates sharply only in the unstable region (0.118 vs 0.251 at momentum lr 0.2). Mechanically that fits: ATC averages after stepping, so the combine step damps a too-large update, while CTA averages first and the damping arrives before the step it would have absorbed. With both as ATC, the two methods differ in the adapt step alone, at identical communication, and any Diff-EKF advantage is attributable to the second-order update rather than to a larger payload. Experiment X1b measures the ATC/CTA difference so that the choice is reported rather than assumed.
 
 **Empirical support for parameter mixing.** [1] compare eq. (17) against a "D-naive" variant that runs $K$ rounds of consensus on *gradients* instead: D-naive needs roughly twice the message-passing rounds to reach the same MSE (their Fig. 2a). Parameter mixing is both cheaper and better behaved.
 
@@ -89,7 +93,7 @@ Adaptive optimizers carry per-node state, and whether the combine step mixes the
 Therefore:
 
 - **plain SGD** for the exactness check X0, where the algebra must come out exact;
-- **SGD with momentum, momentum also mixed**, as the primary configuration for X1–X6;
+- **SGD with momentum, momentum also mixed**, or plain SGD, for X1–X6 — *whichever the tuning sweep selects per method* (see §3.6);
 - **AdamW with its moments mixed**, only as a documented secondary.
 
 Never an adaptive optimizer with unmixed state — that is a known failure mode, not an open question. The centralized reference uses whichever optimizer the distributed runs use, for symmetry.
@@ -99,6 +103,55 @@ Never an adaptive optimizer with unmixed state — that is a known failure mode,
 Same combine step, same communication. The adapt step becomes an EKF measurement update: the correction is scaled by a running posterior covariance instead of a fixed learning rate, and that covariance is carried forward as an uncertainty estimate. The reason to build the benchmark carefully now is that this substitution should require no change to the environment, the metrics, or the evaluation protocol.
 
 ---
+
+### 3.6 Hyperparameters are measured, not assumed (added 2026-08-05)
+
+An earlier draft of this plan fixed **SGD momentum 0.9 at lr 0.05** as the X1–X6
+primary. The first full X1 run showed that configuration is unstable at $n = 2$:
+the effective step $\eta/(1-\beta) = 0.5$ is past the stability edge for a batch
+of two, `local_only` landed at chance (0.897), and — the giveaway —
+`diffusion_sgd_atc_plain` finished *ahead of* `centralized_sgd`, which pools every
+agent's samples and cannot legitimately be beaten by a distributed method.
+
+Nearly the whole "cooperation is essential" gap was therefore an optimizer
+artefact. Averaging over $N=10$ agents cancelled the noise that killed the lone
+agent, so the diffusion methods survived a setting the baseline could not.
+
+**Every method is now tuned on its own grid before any comparison is drawn**
+(`scripts/sweep_hyperparameters.py`, design note D39): lr $\times$ $n$ $\times$
+optimizer, scored on the *held-out* set over the last 100 steps, two seeds. The
+per-method optimum is reported alongside the result. Selection is on held-out
+rather than prequential error because prequential is what the tuning gets
+reported against, and choosing on it would select for that estimate's noise.
+
+At matched optimizer the expected ordering is restored:
+centralized $\le$ ATC $\le$ local-only in every cell of the grid.
+
+### 3.7 $n$ is an axis, not a hyperparameter (added 2026-08-05)
+
+The sweep prefers $n = 8$–$10$ for every method — but $n$ does not move them
+uniformly. Each method at its own optimum:
+
+| $n$ | centralized | ATC | local only | cooperation gap |
+|---|---|---|---|---|
+| 2 | 0.105 | 0.109 | 0.259 | **0.150** |
+| 4 | 0.094 | 0.096 | 0.177 | **0.081** |
+| 6 | 0.090 | 0.093 | 0.147 | 0.054 |
+| 8 | 0.078 | 0.090 | 0.134 | 0.044 |
+| 10 | 0.081 | 0.089 | 0.127 | **0.038** |
+
+Centralized moves 0.010 across the range; `local_only` moves 0.132. **The
+cooperation gap collapses sixfold.** Mechanically this is expected — cooperation
+is variance reduction and so is a larger batch, so they buy the same thing and
+the more each agent sees alone, the less its neighbours add.
+
+So choosing $n$ to minimise error would quietly minimise the effect Q2 exists to
+measure. $n$ belongs on an axis, which is what **X4** already does. The headline
+experiments fix $n = 4$.
+
+The **pooling gap** (ATC vs centralized) is 0.003 at $n \le 6$, widening to 0.011
+at $n = 8$: diffusion recovers almost all of pooling's advantage on a ring, which
+is itself a result worth reporting.
 
 ## 4. Environment specification
 
@@ -120,7 +173,7 @@ A second graph $\mathcal G^{\mathrm d}$ (data coupling, over which a predictor's
 
 Two independent knobs:
 
-- **$n$ — samples per node per step**, small (1–8), **default 2**. This is the "not a huge amount of data" requirement.
+- **$n$ — samples per node per step**, small (1–10), **default 4** (was 2; see §3.7 and the horizon note below). This is the "not a huge amount of data" requirement.
 - **$\pi_{\text{lab}}$ — label availability**, the probability that a given agent has a labelled sample at a given step. With $\pi_{\text{lab}}<1$ some agents idle on some steps. This matters because both diffusion SGD and Diff-EKF handle it gracefully — an agent with no label still benefits from the combine step — and because it is a realistic feature of the target applications. Default 1.0 in phase 1; a sweep axis in phase 4.
 
   **An idle step consumes no data.** The agent receives nothing and its shard is untouched, so $\pi_{\text{lab}}$ controls only how often an update happens, never how fast the data runs out. The alternative — delivering the samples unlabelled — destroys them, since no method here is semi-supervised and shards are finite. It would also make the maximum horizon independent of $\pi_{\text{lab}}$, foreclosing the natural follow-up to Q4: whether a sparse-label regime merely learns *slower* or genuinely *cannot* learn, which can only be answered by running it longer. See `design_notes.md` D24.
@@ -131,6 +184,28 @@ Each agent draws from its own **disjoint** shard of the MNIST training set, assi
 
 - $N=10$, $n=4$, $T=2000$ — the combination that appears in early drafts of the runtime table — needs 8000 samples per agent and does **not** fit. `test_stream` asserts $Nn T\le 60000$ whenever `allow_epochs` is false, and this is the assertion that catches it.
 - Scaling $N$ shortens the run rather than lengthening it. $N=100$ at $n=2$ leaves 600 samples per agent, i.e. 300 steps, which is too short for the drift experiments. Reaching $N=50$–$100$ therefore requires either `allow_epochs`, or $n=1$, or accepting a shorter horizon — a decision to be taken at the time, not assumed now (§10.1).
+
+**Why the headline runs use $n = 4$, $T = 1500$.** At $N = 10$ that is exactly
+60 000 — the largest $n$ that keeps the full horizon. The horizon is not free to
+shrink, for three reasons beyond the data budget:
+
+1. **$\alpha$ is derived** as `total_degrees / T` (§4.3), so $T$ sets the *drift
+   rate*, not just the duration. Shortening $T$ does not truncate a run — it
+   changes what the data looks like at step $t$. Two experiments at different
+   horizons are therefore not comparable, which is why one horizon is used across
+   X1, X1b, X2 and X5.
+2. **X5's change point is at $t = 500$** and F7 plots
+   $[t^\ast-50,\, t^\ast+300]$, so $T \ge 800$ is a floor for the adaptation
+   transient to exist at all. (The change point *is* movable, and moving it costs
+   only a re-run of X5 — no other experiment reads `change_points`. It is held
+   fixed because the alternative buys a larger $n$, which §3.7 argues against on
+   scientific rather than budgetary grounds.)
+3. The methods converge by $t \approx 700$ at $n = 2$; the reported number is the
+   tail after that. A horizon ending near convergence reports a transient.
+
+$n = 10$ at $T = 600$ would fit the budget and lower every method's error by
+about 0.01 — and shrink the cooperation gap from 0.081 to 0.038. That is the
+trade being declined.
 
 ### 4.3 Stationary and non-stationary regimes
 
@@ -245,17 +320,27 @@ The reference classifier gets the same treatment.
 | # | Name | Setup | Question |
 |---|---|---|---|
 | **X0** | Exactness check | complete graph, uniform weights, plain SGD, float64 | Does ATC diffusion reproduce centralized SGD exactly? (§7.1) |
-| **X1** | Stationary baseline | ring, $N=10$, $n=2$, $T=1500$, $196$–$14$–$10$ MLP, no drift | Q1, Q2 — do all methods learn, what is the gap? |
+| **X1** | Stationary baseline | ring, $N=10$, $n=4$, $T=1500$, $196$–$14$–$10$ MLP, no drift | Q1, Q2 — do all methods learn, what is the gap? |
 | **X1b** | ATC vs CTA | ring + grid, stationary | Which diffusion ordering, and how much does it matter? |
 | **X2** | Rotating baseline | as X1, linear rotation to $45^\circ$ total ($\alpha=0.03^\circ$/step) | Q3 — does the gap widen, does local-only collapse? |
-| **X3** | Topology sweep | complete / grid / ring / path, stationary | Q1 — gap vs spectral gap: the price of connectivity |
+| **X3** | Topology sweep | complete / grid / ring / path, stationary, **lr re-tuned per topology** | Q1 — gap vs spectral gap: the price of connectivity |
 | **X4** | Sparsity sweep | $n\in\{1,2,4,8\}$, $\pi_{\text{lab}}\in\{0.25,0.5,1.0\}$, $T=750$ | Q4 — where does the sparse regime hurt? |
 | **X5** | Abrupt shift | piecewise rotation, $15^\circ$ jump at $t=500$ | Q3 — adaptation transient, the cleanest tracking test |
 | **X6** | Non-IID | Dirichlet label skew, $\beta\in\{0.1,1,\infty\}$ | Q2 — does cooperation still work when agents see different classes? |
 
 X0, X1, X1b, X2 are the phase-3 deliverable. X3–X6 are phase 4.
 
+**Every experiment runs at the per-method tuned settings** from
+`scripts/sweep_hyperparameters.py` (§3.6), never at a shared assumed default.
+The tuning is reported with the results.
+
 X1b should report parameter disagreement alongside error rate, since ATC and CTA can reach similar mean accuracy while differing noticeably in how tightly the agents agree.
+
+**X1b is tuned on its own grid**, with ATC and CTA in the same cells. Its
+design is "identical settings, only the ordering differs", so inheriting ATC's
+optimum would report a tuning difference as an ordering difference if CTA's
+optimum sits elsewhere. Both the matched comparison and each-at-its-best are
+reported.
 
 X4 runs at $T=750$ rather than 1500 because its largest cell, $n=8$, consumes $10\times8\times750=60000$ samples — the entire training set, exactly. Holding the horizon fixed across cells is what makes the heatmap comparable; letting each cell run until its shard is exhausted would confound sparsity with run length.
 
@@ -335,6 +420,7 @@ Effort figures assume one person working part-time; treat them as relative sizes
 | Horizon silently exceeds the shard budget | Samples reused without `allow_epochs`; "exactly once" violated | $NnT\le60000$ asserted in `test_stream`; defaults chosen to satisfy it with margin (§4.2) |
 | Evaluation-set mismatch under drift | Silently wrong conclusions | Three-eval-set design (§5.3) plus an explicit test |
 | Adaptive-optimizer state diverges across agents | Distributed runs look worse than they are | Resolved: mix the moments (§3.4). Plain SGD for X0 |
+| **An assumed lr flatters the cooperative methods** | The headline gap is an optimizer artefact, not a learning result — and the baseline looks catastrophic for a tuning reason | **Materialised once (§3.6).** Resolved: per-method tuning before any comparison; the sanity check is that no distributed method may beat `centralized_sgd` at matched settings |
 | ATC/CTA chosen inconsistently between SGD and Diff-EKF | Phase-5 comparison confounded | ATC primary for both; CTA a labelled variant only |
 | Results not reproducible across machines | Wasted debugging | Separable seeds, pinned versions, determinism flags |
 
@@ -346,7 +432,7 @@ Effort figures assume one person working part-time; treat them as relative sizes
 
 | # | Question | Decision | Where it lands |
 |---|---|---|---|
-| 1 | **$N$ and horizon.** Is $N=10$ the target scale, or should the benchmark reach $N=50$–$100$? | Start at $N=10$, $n=2$, $T=1500$. Raise $N$ only if measured runtime allows, and only after re-checking the shard budget — scaling $N$ *shortens* the feasible horizon (§4.2). | §4.2, §6 |
+| 1 | **$N$ and horizon.** Is $N=10$ the target scale, or should the benchmark reach $N=50$–$100$? | Start at $N=10$, $n=4$ (raised from 2 on 2026-08-05, §3.7), $T=1500$. Raise $N$ only if measured runtime allows, and only after re-checking the shard budget — scaling $N$ *shortens* the feasible horizon (§4.2). | §4.2, §6 |
 | 3 | **Parameter budget.** How small may the MLP be for a dense phase-5 covariance? | Downsample inputs to $14\times14$ and use a $196$–$14$–$10$ MLP, $p=2908$. Dense covariance is then affordable and phases 1–4 run on the same architecture phase 5 will use. Shrinking the hidden width alone cannot reach the budget. | §4.6 |
 | 5 | **ATC vs CTA.** | **ATC is primary**, for both diffusion SGD and Diff-EKF, so the phase-5 comparison isolates the adapt step. CTA is a labelled variant measured in X1b and reported, not assumed. | §3.2, X1b |
 
@@ -355,10 +441,37 @@ Two further decisions were taken at the same time that were not previously liste
 - **Total rotation is capped at $45°$**, with $\alpha=45°/T$ derived rather than chosen. Cumulative drift, not per-step drift, is what determines whether the task stays well-posed. (§4.3)
 - **All learners in an experiment share one environment instance** and are stepped in lockstep, rather than being run separately and matched by seed. This makes X0 exact by construction and yields $E_{\text{cent}}$ in phase 1. (§6.1)
 
+### 10.1b Resolved (2026-08-05)
+
+| # | Question | Decision | Where it lands |
+|---|---|---|---|
+| 6 | **How are lr, $n$ and the optimizer chosen?** | Measured per method on a held-out grid, not assumed. Forced by the X1 instability that made `local_only` land at chance and a distributed method beat centralized. | §3.6, D39 |
+| 7 | **What $n$ for the headline runs?** | $n=4$, $T=1500$ — the largest $n$ keeping the full horizon. Larger $n$ lowers every error but collapses the cooperation gap sixfold, so $n$ is an axis (X4), not a value to optimise. | §3.7, §4.2 |
+| 8 | **Is CTA tuned separately?** | Yes — its own grid with ATC in the same cells, so F8 reports an ordering difference rather than a tuning difference. | §6, X1b |
+| 9 | **Is lr re-tuned per topology?** | Yes, and now **measured**: the effect is real but small. Six of seven topologies select the same cell as the ring (momentum, lr 0.01); only `complete` differs, and structurally -- one combine reaches full consensus there, so ATC *is* centralized and inherits its preference for a large plain step. Better mixing buys tolerance to an *oversized* step (spread 0.34-0.59 at lr 0.2) rather than a better optimum (0.093-0.103 at lr 0.01). | §10.2 item 5, X3, `results.md` |
+
+### 10.1c Resolved (2026-08-06)
+
+| # | Question | Decision | Where it lands |
+|---|---|---|---|
+| 10 | **Phase 4 before phase 5, or the filter first?** | **Finish X3, X4 and X6 before Diff-EKF.** The filter is a different mathematics and a different learning paradigm; keeping it out of the backpropagation baselines until those are fully characterised avoids mixing the two. Re-running X4 and X6 later to include the filter is accepted -- there is no deadline. | §6, §8 |
+| 11 | **Where does CUDA help?** | Nowhere in phases 1-4 -- it is 0.69-0.92x, *slower*, because p=2908 with batches of 4-40 is too small to amortise kernel launches. It is a 14x win on the dense p x p covariance, so phase 5 depends on it. `run.device` now refuses anything but `cpu` rather than accepting a value it ignores. | D43 |
+
 ### 10.2 Still open
 
 2. **Non-IID.** Is label skew across agents in scope for the first paper, or is IID sufficient? X6 and the Dirichlet $\beta$ axis are built either way, so this is a question about what gets written up, not about what gets implemented. Decide before phase 4.
 4. **Per-node drift.** Is the interesting story "all agents drift together" (a shared model stays correct) or "agents drift differently" (a shared model becomes wrong, motivating the hierarchical shared/local extension of the research note §L5)? Default remains global drift; `drift_scope` is configurable so the question can be answered empirically rather than settled in advance. Decide before phase 4.
+
+5. **Does the optimal lr depend on topology?** Plausibly yes: a denser graph
+averages over more neighbours per round, which cuts gradient noise further — the
+same mechanism that let ATC survive an lr that killed `local_only` (§3.6). So a
+complete graph may tolerate a higher lr than a ring. Tuning on the ring and
+holding it fixed would make F3 partly measure "how well does the ring's lr suit a
+star" rather than connectivity alone. **Resolved 2026-08-05: re-tune per
+topology.** `local_only` and `centralized_sgd` ignore the graph entirely, so the
+topology axis only needs the diffusion learners — roughly an hour. To be run
+after the tuned X1/X1b/X2/X5 and before phase 5, so Diff-EKF starts knowing which
+topology to use as primary rather than inheriting the ring by default.
 
 ---
 

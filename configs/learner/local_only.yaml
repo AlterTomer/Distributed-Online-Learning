@@ -1,6 +1,11 @@
 # Lower reference. No communication; combine is a no-op.
 # The gap to diffusion_sgd_atc is the value of cooperation (Q2).
 name: local_only
-optimizer: sgd_momentum
+#
+# Tuned 2026-08-05: PLAIN SGD at lr 0.05 (held-out 0.1773 at n=4). The only
+# method that does not want momentum: with no averaging to damp it, the lone
+# agent's gradient noise is what momentum accumulates. Forcing it onto the
+# cooperative methods' setting is what made it look catastrophic (D39).
+optimizer: sgd
 lr: 0.05
-momentum: 0.9
+momentum: 0.0

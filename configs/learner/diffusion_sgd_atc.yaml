@@ -1,8 +1,11 @@
 # PRIMARY distributed method: adapt-then-combine.
 # Diff-EKF is also ATC, so phase 5 differs in the adapt step alone.
 name: diffusion_sgd_atc
+#
+# Tuned 2026-08-05: momentum at lr 0.01 (held-out 0.0964 at n=4), the same cell
+# centralized and CTA select -- so X1b compares orderings at each one's optimum.
 optimizer: sgd_momentum
-lr: 0.05
+lr: 0.01
 momentum: 0.9
 mix_optimizer_state: momentum   # unmixed adaptive state is a known failure mode
 adapt_scope: local

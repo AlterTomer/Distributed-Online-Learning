@@ -20,7 +20,11 @@ graph:
   params: {}
 
 env:
-  samples_per_node_per_step: 2   # n
+  samples_per_node_per_step: 4   # n; raised from 2 -- see WORKPLAN.md 3.7.
+                                 # N*n*T = 10*4*1500 = 60000, exactly the shard budget.
+                                 # Larger n lowers every method's error but collapses
+                                 # the cooperation gap, so n is an axis (X4), not a
+                                 # value to optimise.
   label_availability: 1.0        # pi_lab
   partition:
     kind: iid

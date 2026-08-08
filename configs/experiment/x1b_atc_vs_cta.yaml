@@ -5,7 +5,10 @@ include:
   graph: ring
   model: mlp_small
 
-learners: [diffusion_sgd_atc, diffusion_sgd_cta, centralized_sgd]
+# atc_plain is here for the same reason as in X1: it is the payload-matched
+# variant (p per link, against 2p for the momentum-mixed ones), so the
+# ordering comparison is not confounded with a payload difference.
+learners: [diffusion_sgd_atc, diffusion_sgd_cta, diffusion_sgd_atc_plain, centralized_sgd]
 
 run:
   name: x1b_atc_vs_cta

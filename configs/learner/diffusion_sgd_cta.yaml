@@ -1,7 +1,10 @@
 # Secondary: combine-then-adapt, eq. (17) of Olshevskyi et al. Measured in X1b.
 name: diffusion_sgd_cta
+#
+# Tuned 2026-08-05: momentum at lr 0.01 (held-out 0.0974 at n=4) -- the same cell
+# ATC selects at n=2,4,6,8, which is what lets F8 hold settings fixed.
 optimizer: sgd_momentum
-lr: 0.05
+lr: 0.01
 momentum: 0.9
 mix_optimizer_state: momentum
 adapt_scope: local

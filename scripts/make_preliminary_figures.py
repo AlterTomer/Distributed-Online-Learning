@@ -677,7 +677,7 @@ def fig11_reference(train) -> None:
         )
 
     axis.set_ylabel("$e^*$   test error rate (%)")
-    axis.set_title("The offline reference: one model per rotation, trained and tested there")
+    axis.set_title("The offline reference: 16 stationary models, one per rotation")
     axis.margins(y=0.18)
     despine(axis)
 
@@ -692,38 +692,49 @@ def fig11_reference(train) -> None:
     strip.set_xticks(rotations[::2])
     strip.set_xlabel("rotation applied to the data (degrees)")
     strip.set_ylabel(
-        "visited by", fontsize=8, color=MUTED, rotation=0, ha="right", va="center", labelpad=6
+        "which $e^*$ each\nonline schedule\nwill ask for",
+        fontsize=7.5,
+        color=MUTED,
+        rotation=0,
+        ha="right",
+        va="center",
+        labelpad=8,
     )
     strip.grid(False)
     despine(strip, keep_left=False)
 
     symmetry = reference.summary()["symmetry_error"]
     caption = (
-        "Each point is a SEPARATE offline model: the same 196-14-10 MLP the online methods use, "
-        "trained on all 55k "
+        "TOP: 16 SEPARATE, STATIONARY offline models. Each is the same 196-14-10 MLP the online "
+        "methods use, trained on"
         + chr(10)
-        + "training images rotated by that angle, then scored on the 10k test images rotated by "
-        "the same angle. "
-        + chr(10)
-        + "It is the best this architecture can do with full access to the data, so every online "
-        "result is reported "
-        + chr(10)
-        + "as the gap above this line rather than as a raw error rate."
+        + "55k images at ONE fixed angle and scored on the 10k test images at that same angle. "
+        "Nothing drifts here."
         + chr(10)
         + chr(10)
-        + "Band: +/-1 sigma of run-to-run noise, measured by retraining 0 degrees five times with "
-        "different seeds (sigma = 0.16 pts)."
+        + "BOTTOM: the ONLINE runs are the non-stationary ones. There a single run's angle moves "
+        "with t, and at each step the"
         + chr(10)
-        + "The grid spread is "
+        + "gap needs e* at whatever angle the data has reached -- a linear run walks left to "
+        "right along the curve above,"
+        + chr(10)
+        + "a sinusoidal run oscillates across it. The grid spans their union, so nothing "
+        "extrapolates."
+        + chr(10)
+        + chr(10)
+        + "Band: +/-1 sigma of run-to-run noise, from retraining 0 degrees five times with "
+        "different seeds (sigma = 0.16 pts). The"
+        + chr(10)
+        + "grid spread is "
         + f"{max(errors) - min(errors):.2f}"
-        + " pts, about the size that "
-        "noise alone would produce -- so most of the wiggle is not a rotation effect,"
+        + " pts, about what noise alone would produce -- so most of the wiggle is not a rotation "
+        "effect, and whether"
         + chr(10)
-        + "and whether any of it is cannot be settled from one run per point. Symmetry holds to "
+        + "any of it is cannot be settled from one run per point. Symmetry holds to "
         + f"{symmetry:.4f}"
         + "."
     )
-    figure.text(0.5, -0.30, caption, ha="center", fontsize=8.5, color=MUTED)
+    figure.text(0.5, -0.40, caption, ha="center", fontsize=8.5, color=MUTED)
     figure.tight_layout()
     save(figure, "11_reference.png")
 

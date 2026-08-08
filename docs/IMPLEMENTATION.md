@@ -185,6 +185,7 @@ DistributedOnlineLearning/          # repo root; .venv313/ and .venv/ live here 
     ├── WORKPLAN.md               # research plan
     ├── IMPLEMENTATION.md         # this document
     ├── configs.md                # every config file and field
+    ├── learners.md               # the methods, X0, the communication ledger
     ├── environment.md            # the environment's guarantees and what enforces them
     ├── design_notes.md           # decisions log, updated as they are made
     └── diffekf_integration.md    # §13, kept live
@@ -413,7 +414,7 @@ A small table emitted once per experiment, in the style of Table I of [1]: one r
 
 ### 8.3 Figure specifications
 
-All produced by `scripts/make_figures.py` from logged results, with no manual steps. Bands are ±1 s.d. over seeds unless stated.
+All produced by `scripts/make_figures.py` from logged results, with no manual steps. It caches the plotted series to `figure_data/` so a redraw at a different resolution or with different labels never re-reads `results/` — see `docs/figures.md`. Bands are ±1 s.d. over seeds unless stated.
 
 | ID | Content | Axes | Source |
 |---|---|---|---|
@@ -518,9 +519,9 @@ Everything fits on a laptop CPU. Parallelize sweeps across seeds with a process 
 |---|---|---|---|
 | **0** | `utils/config.py`, `utils/determinism.py`, `runner/seeding.py`, `data/mnist.py`, repo scaffolding, CI | `make test` green; MNIST loads | ✅ done |
 | **1** | `env/graph.py`, `env/partition.py`, `env/drift.py`, `env/stream.py`, `env/environment.py`, `data/transforms.py`, `scripts/check_environment.py` | `test_graph`, `test_partition`, `test_stream`, `test_drift`, `test_transforms` pass; stream visualisation renders | ✅ done |
-| **2** | `models/*`, `likelihoods/*`, `metrics/*`, `evaluation/*`, `scripts/train_reference.py` | `test_models` passes; all 10 rotation-level $e^\star$ cached, each at expected MNIST accuracy for a $196$–$14$–$10$ MLP | in progress |
-| **3** | `learners/*`, `learners/optim_state.py`, `runner/simulate.py`, `recording/*`, `scripts/run_experiment.py` | **`test_exactness` passes**; `test_simulate` passes; X0, X1, X1b, X2 produce F1, F2, F5, F8 |
-| **4** | `runner/sweep.py`, `scripts/run_sweep.py`, `scripts/make_figures.py` | X3–X6 produce F3, F4, F6, F7, F9 |
+| **2** | `models/*`, `likelihoods/*`, `metrics/*`, `evaluation/*`, `scripts/train_reference.py` | `test_models` passes; all 16 rotation-level $e^\star$ cached, each at expected MNIST accuracy for a $196$–$14$–$10$ MLP | ✅ done |
+| **3** ✅ | `learners/*`, `learners/optim_state.py`, `runner/simulate.py`, `recording/*`, `scripts/run_experiment.py`, `scripts/sweep_hyperparameters.py`, `scripts/make_figures.py` | **`test_exactness` passes** (1.7e-15); `test_simulate` passes; X0, X1, X1b, X2, X5 produce F1, F2, F5, F8 |
+| **4** | `runner/sweep.py`, `scripts/run_sweep.py` | X3–X6 produce F3, F4, F6, F7, F9. X3 re-tunes lr per topology (WORKPLAN §10.2 item 5) |
 | **5** | `learners/diffusion_ekf.py`, `utils/linalg.py`, structured covariance | Filter reproduces the centralized EKF on a complete graph |
 
 ---
