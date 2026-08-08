@@ -19,9 +19,27 @@ filter (Diff-EKF).
 | [`docs/configs.md`](docs/configs.md) | Every config file and field, with legal values |
 | [`docs/design_notes.md`](docs/design_notes.md) | Decisions log: what was chosen, over what, and why |
 
-**Status:** phases 0-3 complete. The exactness check X0 passes at 1.7e-15. Every
-method is tuned on a held-out grid before comparison (`docs/results.md` §2);
-X1, X1b, X2 and X5 run at those settings.
+**Status:** phases 0–4 complete; phase 5 (Diff-EKF) is next. X0 passes at
+1.7e-15. Every method is tuned on a held-out grid before any comparison
+(`docs/results.md` §2) — a fixed learning rate produced a headline that was an
+optimizer artefact, so this is now a standing rule rather than a convenience.
+
+### Results so far
+
+| | |
+|---|---|
+| **Diffusion ≈ pooled data** | On a ring, ATC is 0.0014 behind centralized SGD against a seed s.d. of 0.0035 — *inside the noise*. Ten agents exchanging one message with two neighbours recover almost everything a fusion centre would get. |
+| **Cooperation is worth 0.047 to 0.518** | Depending on sparsity and label skew. Under strong non-IID ($\beta{=}0.1$) a lone agent lands near chance while the same agent in the network reaches 0.106. |
+| **Connectivity costs little** | Across seven topologies the worst penalty is 0.018 (a star), and a path graph costs only 0.009. |
+| **The spectral gap is not the best predictor of it** | Mean self-weight $\bar a_{vv}$ ranks the topologies at Spearman $+0.964$ against $-0.786$ for $1-\rho$ — but it was chosen post hoc and failed its one out-of-sample test (`docs/results.md` §7.3). |
+| **ATC ≈ CTA** | 0.0768 vs 0.0774, indistinguishable at tuned settings. ATC's real advantage is robustness to step size, not accuracy. |
+| **Diffusion tolerates mis-tuning** | Worst penalty for a learning rate chosen in the wrong regime: 0.027 for ATC against 0.217 for centralized. |
+
+**What this sets up for phase 5.** There is no headroom left on stationary
+accuracy, so Diff-EKF's case has to come from tracking under drift, from
+communication efficiency, or from calibrated uncertainty. Its competitor on the
+communication axis is `diffusion_sgd_atc_plain` at 0.0902 — not the stronger
+momentum variant — because the filter sends one $p$-vector per link.
 
 ## Setup
 
@@ -41,6 +59,24 @@ On a CPU-only machine, drop the `+cu126` local version and use the
 `https://download.pytorch.org/whl/cpu` index instead. Everything in phases 1–4 is
 sized for a laptop CPU.
 
+## Running things
+
+Every algorithmic entry point is a plain script with editable constants at the
+top, runnable from an IDE with a debugger attached:
+
+```bash
+python scripts/run_experiment.py x1_stationary   # one experiment; --fresh to restart
+python scripts/run_topology_sweep.py             # X3
+python scripts/run_sparsity_sweep.py             # X4 and X6
+python scripts/sweep_hyperparameters.py          # the tuning grid
+python scripts/make_figures.py                   # F1-F9
+python scripts/make_figures.py --from-cache --dpi 300
+```
+
+Runs and sweeps are **resumable and exact**: the loop consumes no randomness, so
+a resumed run reproduces an uninterrupted one bit-for-bit, and re-running a sweep
+skips cells already on disk.
+
 ## Tasks
 
 `make` is not available on Windows, so the targets live in `tasks.py` and the
@@ -59,16 +95,20 @@ python tasks.py clean         # caches and build artefacts; leaves data/ and res
 Experiment targets (`x0`–`x6`, `reference`, `sweep`, `figures`) are listed but
 report which phase introduces them until the corresponding scripts exist.
 
+`run.device` accepts only `cpu`. CUDA is *measurably slower* at this model size
+-- 0.69x at batch 4, since p=2908 cannot amortise a kernel launch -- and phase 5
+lifts the guard when the dense covariance makes it a 14x win (design note D43).
+
 ## Layout
 
 ```
 src/dekf_bench/     the package: env, data, models, learners, metrics,
                     evaluation, runner, recording, utils
 configs/            composable YAML; every swept quantity is a config field
-scripts/            thin entry points; no logic
+scripts/            runnable entry points: experiments, sweeps, figures
 tests/              pytest; test_exactness.py is the gate
-data/               gitignored MNIST cache
-results/            gitignored run outputs
+results/            gitignored; one parquet per seed, plus a resumable checkpoint
+data/               gitignored MNIST cache and the offline reference e*
 ```
 
 Tests import the *installed* package rather than `src/` directly, so packaging
