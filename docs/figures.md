@@ -152,8 +152,31 @@ until quite late. This is the axis on which phase 5's claim is actually stated.
 
 $$\text{gap} = e(\texttt{diffusion\_sgd\_atc}) - e(\texttt{centralized\_sgd})$$
 
-one point per topology, in two windows (`transient` $t\in[150,300)$ and `settled`
-$t\in[1400,1500)$), against two **different** predictors.
+one point per topology, in two windows against two **different** predictors.
+
+**What the window names claim, and how it is checked.** `settled` asserts the gap
+has *stopped changing* — not merely "the last 100 steps". The test is whether a
+line fitted over the final 500 steps has a slope exceeding the seed s.d.:
+
+| topology | final gap | seed s.d. | slope / 500 steps |
+|---|---|---|---|
+| path | 0.0035 | 0.0023 | −0.0021 |
+| star | 0.0077 | 0.0037 | −0.0026 |
+| ring | 0.0014 | 0.0012 | −0.0008 |
+| complete | 0.0000 | 0.0000 | +0.0000 |
+
+No topology exceeds its noise, and the two with meaningful gaps (path, star) stop
+moving by $t \approx 1075$ — well before the window opens at 1400. `transient`
+$t\in[150,300)$ is a window while the gap is still falling for every topology,
+which is where connectivity matters most.
+
+Both labels were originally *asserted*: the windows were picked as "the end" and
+"early on", and the names attached afterwards. `tests/test_figures.py` now checks
+them against the data — that the settled window is flat, that the transient
+precedes it, and that the spread across topologies really is wider in the
+transient (otherwise the second column buys nothing). A change to `run.horizon`
+that left the window inside the transient would fail those tests rather than
+quietly relabel a moving target.
 
 **Why two predictors rather than one.** The spec asks for gap vs spectral gap.
 Measured on seven topologies, $1-\rho$ does predict ($\rho_s = -0.786$, exact

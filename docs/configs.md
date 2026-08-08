@@ -254,7 +254,7 @@ extrapolates. Lookup between grid points interpolates linearly; outside the grid
 it raises.
 
 Measured at the defaults: $e^\star$ ranges over roughly 4.6–5.5% for the
-$196$–$14$–$10$ MLP, and the symmetry $e^\star(-arphi) = e^\star(+arphi)$
+$196$–$14$–$10$ MLP, and the symmetry $e^\star(-\varphi) = e^\star(+\varphi)$
 holds to within 0.004 — checked rather than assumed.
 
 *Consumed by:* `evaluation/` (phase 2).

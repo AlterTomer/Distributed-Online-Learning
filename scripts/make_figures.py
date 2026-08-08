@@ -692,9 +692,25 @@ def save(figure, name: str) -> None:
 # F3 -- the price of connectivity
 # =========================================================================== #
 
-#: The windows F3 reports. Connectivity matters most while information is still
-#: propagating, so the transient is shown alongside the settled value rather
-#: than only the endpoint.
+#: The windows F3 reports, and what the names claim.
+#:
+#: `settled` means the gap has stopped changing -- not merely "the end of the
+#: run". The test is whether a line fitted over the last 500 steps has a slope
+#: exceeding the seed s.d.; measured, no topology does, and the two with
+#: meaningful gaps (path, star) stop moving by t ~ 1075:
+#:
+#:     topology        final gap   seed sd   slope/500
+#:     path            0.0035      0.0023    -0.0021
+#:     star            0.0077      0.0037    -0.0026
+#:     ring            0.0014      0.0012    -0.0008
+#:     complete        0.0000      0.0000    +0.0000
+#:
+#: `transient` is a window while the gap is still falling for every topology,
+#: which is where connectivity matters most -- the spread across topologies is
+#: several times larger there than at the end.
+#:
+#: `test_figures.py` asserts the settled window really is flat, so a change to
+#: run.horizon cannot silently leave this label describing something else.
 F3_WINDOWS = [("transient", 150, 300), ("settled", 1400, 1500)]
 
 
