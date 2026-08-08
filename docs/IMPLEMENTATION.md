@@ -522,7 +522,7 @@ Everything fits on a laptop CPU. Parallelize sweeps across seeds with a process 
 | **1** | `env/graph.py`, `env/partition.py`, `env/drift.py`, `env/stream.py`, `env/environment.py`, `data/transforms.py`, `scripts/check_environment.py` | `test_graph`, `test_partition`, `test_stream`, `test_drift`, `test_transforms` pass; stream visualisation renders | ✅ done |
 | **2** | `models/*`, `likelihoods/*`, `metrics/*`, `evaluation/*`, `scripts/train_reference.py` | `test_models` passes; all 16 rotation-level $e^\star$ cached, each at expected MNIST accuracy for a $196$–$14$–$10$ MLP | ✅ done |
 | **3** ✅ | `learners/*`, `learners/optim_state.py`, `runner/simulate.py`, `recording/*`, `scripts/run_experiment.py`, `scripts/sweep_hyperparameters.py`, `scripts/make_figures.py` | **`test_exactness` passes** (1.7e-15); `test_simulate` passes; X0, X1, X1b, X2, X5 produce F1, F2, F5, F8 |
-| **4** | `runner/sweep.py`, `scripts/run_sweep.py` | X3–X6 produce F3, F4, F6, F7, F9. X3 re-tunes lr per topology (WORKPLAN §10.2 item 5) |
+| **4** ✅ | `runner/sweep.py`, `scripts/run_sweep.py`, `scripts/run_topology_sweep.py`, `scripts/run_sparsity_sweep.py` | X3–X7 produce F3, F4, F6a, F6b, F7, F9, F10. X3 re-tunes lr per topology; X4 is tuned per cell |
 | **5** | `learners/diffusion_ekf.py`, `utils/linalg.py`, structured covariance | Filter reproduces the centralized EKF on a complete graph |
 
 ---

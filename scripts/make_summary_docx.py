@@ -347,6 +347,12 @@ def build() -> Path:
             ["X4 Sparsity", "Where does the online signal become too weak to learn from?"],
             ["X5 Abrupt shift", "How fast does each method recover from a sudden change?"],
             ["X6 Non-IID", "Does cooperation still work when agents see different classes?"],
+            [
+                "X7 Forgetting",
+                "Does a method lose what it learned at a rotation it has left? The only "
+                "schedule that revisits states, so the only one where the question is "
+                "well posed.",
+            ],
         ],
         widths=[85, 300],
     )
