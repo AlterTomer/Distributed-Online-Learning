@@ -296,13 +296,29 @@ def collect_f5() -> Collected | None:
         frame = load(experiment)
         seeds = max(seeds, int(frame.seed.nunique()))
         title = PANEL_TITLES.get(experiment, experiment)
-        for metric in ("e_agree", "e_cent"):
-            series = scalar_metric(frame, metric)
+        # e_cent_rel is e_cent divided by the squared norm of the mean parameter.
+        #
+        # The raw e_cent rises through the whole run, which reads as "diffusion
+        # drifts further from centralized over time". Roughly half of that is
+        # just the weights growing: ||theta||^2 nearly doubles (47.7 -> 79.5), so
+        # two trajectories a fixed *relative* distance apart separate in absolute
+        # terms simply by travelling further from the origin. Normalising
+        # separates the two effects. The residual rise is real but costs almost
+        # nothing in error (0.0749 vs 0.0762 at t=1499), because the loss surface
+        # has flat directions -- e_cent measures parameter distance, not
+        # disagreement about predictions.
+        norms = scalar_metric(frame, "theta_mean_norm_sq")
+        for metric in ("e_agree", "e_cent", "e_cent_rel"):
+            source = "e_cent" if metric == "e_cent_rel" else metric
+            series = scalar_metric(frame, source)
             for name in learners_of(frame):
                 subset = series[series.learner == name]
                 if subset.empty:
                     continue  # centralized has no e_cent against itself
                 mean, _ = band(subset, "value")
+                if metric == "e_cent_rel":
+                    scale = norms[norms.learner == name].groupby("t").value.mean()
+                    mean = (mean / scale.reindex(mean.index)).dropna()
                 positive = mean[mean > 0]  # log axis: a zero is dropped, not clipped
                 if positive.empty:
                     continue
@@ -597,14 +613,23 @@ def draw_f5(collected: Collected) -> None:
     frame, meta = collected.frame, collected.meta
     keys = list(dict.fromkeys(frame.panel))
     columns = list(dict.fromkeys(key.split("|")[0] for key in keys))
-    metrics = [("e_agree", "$E_{\\mathrm{agree}}$"), ("e_cent", "$E_{\\mathrm{cent}}$")]
+    # The third row is the second one normalised. The raw E_cent rises through
+    # the whole run, which invites "diffusion drifts further from centralized
+    # over time" -- but roughly half of that is the weights themselves growing
+    # (||theta||^2 nearly doubles), so a fixed *relative* separation shows up as
+    # a growing absolute distance. Dividing by ||theta||^2 separates the two.
+    metrics = [
+        ("e_agree", "$E_{\\mathrm{agree}}$"),
+        ("e_cent", "$E_{\\mathrm{cent}}$"),
+        ("e_cent_rel", "$E_{\\mathrm{cent}}\\,/\\,\\Vert\\bar{\\theta}\\Vert^{2}$"),
+    ]
 
     figure, axes = plt.subplots(
-        2,
+        len(metrics),
         len(columns),
         # A single column would otherwise render tall and narrow; the width floor
         # keeps one panel readable without distorting the two-panel case.
-        figsize=(max(7.6, 5.9 * len(columns)), 6.2),
+        figsize=(max(7.6, 5.9 * len(columns)), 2.9 * len(metrics)),
         sharex="col",
         squeeze=False,
     )
@@ -621,7 +646,7 @@ def draw_f5(collected: Collected) -> None:
                 axis.set_ylabel(label)
             if row == 0:
                 axis.set_title(title)
-            else:
+            if row == len(metrics) - 1:
                 axis.set_xlabel("step $t$")
 
     shared_legend(figure, series_present(frame))

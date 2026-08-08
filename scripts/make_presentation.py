@@ -210,14 +210,20 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                 dict(
                     file="14_f5_disagreement.png",
                     title="F5 — consensus and fidelity",
-                    claim="Two independent failure modes, separated.",
-                    shows="E_agree (how far agents are from each other) and E_cent (how far "
-                    "their average is from the centralized solution), log y.",
-                    setup="Computed on the parameter vectors, not the predictions.",
+                    claim="The combine step turns a random walk into an equilibrium.",
+                    shows="E_agree (how far agents are from each other), E_cent (how far their "
+                    "average is from the centralized solution), and E_cent normalised by "
+                    "‖θ̄‖² — all log y.",
+                    setup="Computed on the parameter vectors, not on predictions. The third "
+                    "row exists because the raw E_cent is easy to misread.",
                     data="X1 and X2, five seeds.",
-                    why="A network can agree perfectly on the wrong answer. E_cent rising "
-                    "while E_agree stays flat would mean the agents are drifting away "
-                    "*together* — a mixing problem, not a consensus problem.",
+                    why="ATC's E_agree plateaus at ~0.009 where the combine's pull toward "
+                    "consensus balances the gradients pushing apart; local_only has no such "
+                    "pull, so its disagreement grows linearly in t (r = 0.993) — a random "
+                    "walk. E_cent rises for everyone, but about half of that is the weights "
+                    "growing (‖θ̄‖² nearly doubles), and the rest costs almost nothing in "
+                    "error (0.0749 vs 0.0762 at t = 1499): the models stay functionally "
+                    "identical while their parameters drift along a flat direction.",
                 ),
                 dict(
                     file="18_f6a_sparsity_tuned.png",

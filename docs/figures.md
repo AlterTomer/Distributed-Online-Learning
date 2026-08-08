@@ -232,9 +232,47 @@ is absent from the top row rather than drawn along the floor.
 fusion centre would have computed. The two are independent: a network can agree
 perfectly on the wrong answer.
 
-**What to look for.** `local_only` climbs without bound in both. The diffusion
-methods plateau in $E_\text{agree}$, where the combine step's pull toward
-consensus balances the per-agent gradients pushing apart.
+**The third row is the second one normalised**, $E_\text{cent}/\lVert\bar{\bm\theta}\rVert^2$,
+and it exists because the raw curve is easy to misread.
+
+### Why $E_\text{cent}$ rises, and why that is not "getting worse"
+
+| $t$ | $\lVert\bar{\bm\theta}\rVert^2$ | $E_\text{cent}$ | ratio |
+|---|---|---|---|
+| 100 | 47.7 | 0.03 | 0.0006 |
+| 600 | 64.7 | 0.12 | 0.0019 |
+| 1499 | 79.5 | 0.31 | 0.0039 |
+
+$E_\text{cent}$ is an **unnormalised** squared distance, and the weights
+themselves grow — $\lVert\bar{\bm\theta}\rVert^2$ nearly doubles over the run. Two
+trajectories a fixed *relative* distance apart therefore separate in absolute
+terms simply by travelling further from the origin. Roughly half the rise is
+that, which the third row removes.
+
+The residual rise is real but **costs almost nothing in error**: at $t = 1499$
+centralized is at 0.0749 and ATC at 0.0762. The two models are functionally
+near-identical while their parameters separate — the ordinary situation for
+neural networks, whose loss surfaces have wide flat directions and permutation
+symmetries. **$E_\text{cent}$ measures parameter distance, not disagreement about
+predictions**, and those come apart. Read the rise as the network wandering along
+a flat direction, not as degradation.
+
+### Why $E_\text{agree}$ plateaus for ATC and diverges for local-only
+
+ATC settles near 0.009 because two forces balance every step: the combine is a
+*contraction* toward consensus, while the per-agent gradients push apart because
+each agent sees different data. The plateau is where they cancel. The small rise
+then settle (0.0110 → 0.0089) is the initial transient, when gradients are
+largest and consensus has not caught up.
+
+`local_only` has **no contraction at all**, so disagreement accumulates as a
+random walk. Measured, $E_\text{agree}$ grows essentially linearly in $t$
+($r = 0.993$) — exactly what a random walk gives in *squared* distance, since
+displacement goes as $\sqrt t$. It reaches 17.3 by the end with no sign of
+stopping, because nothing stops it.
+
+That contrast is the clearest single picture of what the combine step buys: it
+converts an unbounded random walk into a bounded equilibrium.
 
 **A useful diagnostic.** $E_\text{cent}$ rising while $E_\text{agree}$ stays flat
 means the agents agree with each other but are drifting away from the centralized
