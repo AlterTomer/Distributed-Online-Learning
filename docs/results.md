@@ -169,11 +169,17 @@ one.**
 
 ### 3.3 X2 — linear rotation to 45 degrees
 
-| learner | $t$ 200-300 | $t$ 700-800 | $t$ 1400-1500 | vs stationary |
-|---|---|---|---|---|
-| `centralized_sgd` | 0.1196 | 0.0966 | 0.0912 | +0.016 |
-| `diffusion_sgd_atc` | 0.1229 | 0.0986 | 0.0932 | +0.016 |
-| `local_only` | 0.2390 | 0.1738 | 0.1667 | +0.032 |
+| learner | $t$ 1400-1500 | drift cost vs stationary |
+|---|---|---|
+| `centralized_sgd` | 0.0912 | +0.016 |
+| `diffusion_sgd_atc` | 0.0932 | +0.016 |
+| ATC (payload-matched) | 0.1120 | **+0.022** |
+| `local_only` | 0.1667 | **+0.032** |
+
+**Drift cost tracks how much averaging a method gets.** Centralized and the
+momentum ATC both pay 0.016; the payload-matched variant pays 0.022 and the lone
+agent 0.032. The variant that carries no momentum has less inertia to smooth a
+moving target, and the agent with no neighbours has none at all.
 
 Every method still *improves* through the run, so at $\alpha = 0.03$ deg/step the
 drift is slow relative to the information rate — the regime the Diff-EKF
@@ -187,32 +193,53 @@ lone agent degrades faster, and communication is what buys the resilience.
 
 ### 3.4 X5 — abrupt 15-degree shift at $t = 500$
 
-| learner | before | $t$ 500-520 | $t$ 700-800 | final | final vs before |
-|---|---|---|---|---|---|
-| `centralized_sgd` | 0.1005 | 0.1742 | 0.0942 | 0.0745 | **-0.026** |
-| `diffusion_sgd_atc` | 0.1034 | 0.1769 | 0.0963 | 0.0760 | **-0.027** |
-| `local_only` | 0.1870 | 0.2612 | 0.1718 | 0.1334 | **-0.054** |
+| learner | before | spike | final | final vs before |
+|---|---|---|---|---|
+| `centralized_sgd` | 0.1005 | +0.0737 | 0.0738 | **−0.027** |
+| `diffusion_sgd_atc` | 0.1034 | +0.0734 | 0.0753 | **−0.028** |
+| ATC (payload-matched) | 0.1237 | +0.0811 | 0.0879 | **−0.036** |
+| `local_only` | 0.1870 | +0.0742 | 0.1327 | **−0.054** |
 
-The shift costs every method about 0.074 immediately, and **all three recover to
-*better* than their pre-shift error** — the negative final column. That is not
-the shift being harmless: the methods were still improving at $t=500$, so
-recovery and ongoing learning overlap.
+**The shift costs every method the same 0.073–0.081**, regardless of how much
+data it pools or how much it communicates — so an abrupt change is a shared tax,
+not something cooperation protects against. What differs is the level each
+recovers to.
+
+All four end *better* than their pre-shift error (the negative final column).
+That is not the shift being harmless: the methods were still improving at
+$t=500$, so recovery and ongoing learning overlap.
 
 The transient itself is the measurement, which is why F7 zooms on
 $[t^\ast-50,\ t^\ast+300]$ rather than quoting endpoints. All three recover
 within ~200 steps, and the *relative* ordering is unchanged throughout — the
 shift does not advantage any method.
 
-### 3.5 F2 — the curves cross
+### 3.5 F2 — the curves cross, under drift as well
 
-Plotted against *cumulative scalars transmitted* rather than $t$, the two ATC
-variants swap places. `atc_plain` is ahead for most of the run and they meet only
-around $2	imes10^7$ scalars.
+Measured at matched bandwidth, prequential error over the last 20 evaluation
+points before each budget:
 
-That is the whole argument for the payload-matched variant, and it is a genuine
-crossing rather than a restatement: **at equal time momentum ATC wins by 0.013,
-at equal bandwidth ATC (payload-matched) wins until quite late.** Which one is "better"
-depends on whether the clock or the network is the binding constraint.
+| budget (scalars) | stationary | rotating 45° |
+|---|---|---|
+| $10^{7}$ | payload-matched +0.064 | payload-matched +0.067 |
+| $2\times10^{7}$ | payload-matched +0.013 | payload-matched +0.009 |
+| $5\times10^{7}$ | payload-matched +0.014 | payload-matched +0.008 |
+| $10^{8}$ | **ATC (2p) +0.009** | **ATC (2p) +0.024** |
+
+The same shape in both regimes, so **the crossing is not an artefact of the
+stationary task**. Under drift the momentum variant's eventual win at high
+bandwidth is *larger* (0.024 against 0.009): momentum pays off more when the
+target is moving, but only once bandwidth is plentiful.
+
+This panel could not be drawn until X2 was re-run. Its config listed three
+learners while X1 listed four, so the payload-matched variant — the series this
+figure exists for — was simply absent from the rotating panel. X5 had the same
+omission and was re-run with it too.
+
+**It is a genuine crossing, not a restatement of §3.1**: at equal *time* momentum
+ATC wins by 0.013, at equal *bandwidth* the payload-matched variant wins until
+quite late. Which one is "better" depends on whether the clock or the network is
+the binding constraint.
 
 It is also the shape phase 5 needs. Diff-EKF's claim is stated at identical
 communication, so F2 is the axis on which it has to be argued -- and §3.1 already
@@ -487,7 +514,7 @@ Measured on an RTX 4070 Laptop against 10 CPU threads:
 | one agent's gradient | 40 | 1.58 ms | 2.04 ms | **0.77x** |
 | one agent's gradient | 400 | 2.16 ms | 1.61 ms | 1.34x |
 | reference trainer, one epoch | 128 | 0.57 s | 0.62 s | **0.92x** |
-| **dense $p	imes p$ matmul** | — | **120 ms** | **8.6 ms** | **14x** |
+| **dense $p\times p$ matmul** | — | **120 ms** | **8.6 ms** | **14x** |
 
 **Nothing in phases 1-4 benefits.** At $p = 2908$ with batches of 4-40, kernel
 launch overhead exceeds the arithmetic; the crossover is near batch 400, an order
@@ -495,7 +522,7 @@ of magnitude above anything these experiments use. Even the longest CPU job in
 the project -- the 20-minute reference trainer -- comes out slower.
 
 **Phase 5 inverts it.** A dense covariance is 8.5M entries per agent and the EKF
-update needs several $p 	imes p$ products per agent per step. 120 ms against
+update needs several $p \times p$ products per agent per step. 120 ms against
 8.6 ms across 10 agents and 1500 steps is the difference between days and
 minutes; CUDA is what makes the dense filter feasible, which is the assumption
 $p=2908$ was chosen under.

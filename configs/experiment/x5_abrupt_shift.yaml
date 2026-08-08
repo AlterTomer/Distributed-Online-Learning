@@ -4,7 +4,9 @@ include:
   graph: ring
   model: mlp_small
 
-learners: [centralized_sgd, diffusion_sgd_atc, local_only]
+# atc_plain included so F7's transient covers the payload-matched variant
+# too: recovery speed at p per link is what phase 5 has to beat.
+learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
 
 run:
   name: x5_abrupt_shift

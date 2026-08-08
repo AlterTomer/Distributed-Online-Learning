@@ -5,7 +5,12 @@ include:
   graph: ring
   model: mlp_small
 
-learners: [centralized_sgd, diffusion_sgd_atc, local_only]
+# atc_plain is here for the same reason as in X1: F2 plots error against
+# bandwidth, and the payload-matched variant is the series that axis exists
+# for. Without it the rotating panel of F2 cannot show whether the crossing
+# seen under stationary data survives drift -- which is the question phase 5
+# needs answered, since Diff-EKF's claim is stated at p per link.
+learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
 
 run:
   name: x2_rotating
