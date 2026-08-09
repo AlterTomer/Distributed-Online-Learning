@@ -46,6 +46,14 @@ RULE = RGBColor(0xE1, 0xE0, 0xD9)
 
 WIDE, TALL = Inches(13.333), Inches(7.5)
 MARGIN = Inches(0.55)
+EMU_PER_INCH = 914400
+
+#: Above this aspect the notes go *below* the image in two columns; at or
+#: below it they go in a right-hand column beside it. The two branches have
+#: very different note capacity, which is why `note_demand` needs the aspect.
+NOTES_BELOW_ASPECT = 1.95
+#: The two-column note block is capped so the figure keeps a usable height.
+NOTES_MAX_IN = 2.6
 
 
 # --------------------------------------------------------------------------- #
@@ -175,13 +183,21 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                     file="13_f2_error_vs_communication.png",
                     title="F2 — error against bandwidth",
                     claim="The curves cross: cheapest is not the same as best.",
-                    shows="F1 replotted against cumulative scalars transmitted, log x.",
-                    setup="Centralized and local-only are horizontal references — they carry no "
-                    "cost on this axis, for opposite reasons.",
-                    data="X1 and X2, the communication ledger recorded per step.",
-                    why="At equal *time* momentum ATC wins by 0.013; at equal *bandwidth* the "
-                    "payload-matched variant wins until quite late. This is the axis on which "
-                    "Diff-EKF's claim is actually stated.",
+                    shows="F1 replotted against **cumulative scalars transmitted**: the "
+                    "running total of numbers the whole network has put on the wire since t = 0, "
+                    "log axis. Not rounds — every method does one per step, so what "
+                    "differs is message *size*.",
+                    setup="Charged **(1 + |mixed|) × p × 2 n_edges** per step: every directed "
+                    "link carries p = 2908 floats for θ, plus another p per mixed "
+                    "optimizer moment. So ATC sends 2p per link, the payload-matched variant p. "
+                    "Centralized and local-only are horizontal — off-axis, and silent.",
+                    data="X1 and X2, ledger recorded per step.",
+                    why="Bandwidth, not wall-clock, is what binds a real deployment. F1 asks "
+                    "'best after 1500 steps'; F2 asks 'best per scalar sent', and they disagree: "
+                    "at equal time momentum ATC wins by 0.013, at equal bandwidth the "
+                    "payload-matched variant leads until ≈2×10⁷ scalars. "
+                    "**Diff-EKF's claim is stated on this axis** — a filter sending a mean "
+                    "but no covariance is a p-per-link method.",
                 ),
                 dict(
                     file="16_f3_price_of_connectivity.png",
@@ -257,11 +273,10 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                     data="X4, T = 750, two sweep seeds per setting.",
                     why="The pooling gap is *negative* only in the sparse corner and shrinks "
                     "monotonically — the signature of implicit iterate averaging, not of "
-                    "mis-tuning, which would scatter. It is ≤0.021, and diffusion is not "
-                    "using data better. The payload cost darkens into that same corner: 0.007 "
-                    "to 0.046, about 2.5× along each axis. The extra p scalars buy "
-                    "momentum, and momentum is worth most where each gradient is noisiest — "
-                    "which is why this cost is **flat** across label skew (F9).",
+                    "mis-tuning, which would scatter. It is ≤0.021. The payload cost "
+                    "darkens into that same corner: 0.007 to 0.046, about 2.5× along each "
+                    "axis — the extra p scalars buy momentum, worth most where gradients are "
+                    "noisiest, hence **flat** across skew (F9).",
                 ),
                 dict(
                     file="19a_f6b_headline.png",
@@ -274,15 +289,13 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                     "which are impossible for a minimum over a grid containing the headline. "
                     "Now 0 of 48 cells are negative.",
                     data="X4 tuning sweep, two seeds per setting.",
-                    why="ATC's panel is nearly blank — that flatness *is* the figure. Not "
-                    "because its error-vs-lr curve is flatter: that measure reorders when the "
-                    "grid is trimmed (0.025 vs 0.013 with lr 0.2 in, 0.013 vs 0.012 without), "
-                    "so it measures the grid. It is that ATC's optimum barely moves. With ~2.5 "
-                    "of 10 agents active, idle agents contribute unchanged θ to the "
-                    "combine, so its effective step is η·n_active/N ≈ "
-                    "η/4 automatically — exactly the reduction a smaller batch "
-                    "needs. Centralized applies the full η whatever the batch, so its "
-                    "optimum has to move by 4× and the headline rate costs it 0.18.",
+                    why="ATC's panel is nearly blank — that flatness *is* the figure. Not a "
+                    "flatter error-vs-lr curve (that measure reorders when the grid is "
+                    "trimmed): ATC's **optimum barely moves**. With ~2.5 of 10 active, "
+                    "idle agents contribute unchanged θ to the combine, so its step is "
+                    "η·n_active/N ≈ η/4 automatically — just what "
+                    "a smaller batch needs. Centralized applies the full η regardless, "
+                    "so its optimum must move 4×.",
                 ),
                 dict(
                     file="19b_f6b_baselines.png",
@@ -425,6 +438,68 @@ def rule(slide, top, width):
     line.shadow.inherit = False
 
 
+def note_items(spec: Slide) -> list[tuple[str, str]]:
+    return [
+        ("Shows", spec["shows"]),
+        ("Setup", spec["setup"]),
+        ("Data", spec["data"]),
+        ("Why it matters", spec["why"]),
+    ]
+
+
+def balanced_split(notes: list[tuple[str, str]]) -> tuple[int, float]:
+    """Where to cut the four notes into two columns, and the taller column's cost.
+
+    Balanced rather than 2 + 2: one long note otherwise makes its column tall
+    while the other sits half empty, and since the image gets whatever height
+    the notes leave, the figure pays for the imbalance. The +60 per note is the
+    label line above it.
+    """
+    best_split, best_cost = 2, None
+    for cut in (1, 2, 3):
+        left = sum(len(text) for _, text in notes[:cut]) + 60 * cut
+        right = sum(len(text) for _, text in notes[cut:]) + 60 * (len(notes) - cut)
+        cost = max(left, right)
+        if best_cost is None or cost < best_cost:
+            best_split, best_cost = cut, cost
+    return best_split, float(best_cost)
+
+
+def note_demand(spec: Slide, aspect: float) -> tuple[float, float]:
+    """(inches the notes need, inches the layout can give them).
+
+    Neither branch can grow past the slide, so notes longer than this run off
+    the bottom -- and they do it *silently*: python-pptx writes the overflowing
+    text without complaint and the shape simply extends past the page. Two
+    slides shipped that way before this was checked, so `build` now refuses.
+    """
+    if aspect >= NOTES_BELOW_ASPECT:
+        column_in = (WIDE - 2 * MARGIN - Inches(0.4)) / 2 / EMU_PER_INCH
+        _, cost = balanced_split(note_items(spec))
+        return (cost / (column_in * 9.0) + 2) * 0.19, NOTES_MAX_IN
+    left = MARGIN + int(WIDE * 0.56) + Inches(0.3)
+    column_in = (WIDE - left - MARGIN) / EMU_PER_INCH
+    cost = sum(len(text) for _, text in note_items(spec)) + 60 * 4
+    available = (TALL - Inches(1.5) - Inches(0.35)) / EMU_PER_INCH
+    return (cost / (column_in * 9.0) + 4) * 0.19, available
+
+
+def overflowing(specs: list[Slide]) -> list[str]:
+    """Slides whose notes do not fit, as a report line each."""
+    bad = []
+    for spec in specs:
+        with Image.open(FIGURES / spec["file"]) as image:
+            aspect = image.size[0] / image.size[1]
+        needed, available = note_demand(spec, aspect)
+        if needed > available:
+            total = sum(len(text) for _, text in note_items(spec))
+            bad.append(
+                f"{spec['file']}: notes need {needed:.2f}in of {available:.2f}in "
+                f"({total} chars) -- shorten them"
+            )
+    return bad
+
+
 def figure_slide(presentation, spec: Slide, index: int, total: int) -> None:
     slide = blank(presentation)
     path = FIGURES / spec["file"]
@@ -441,12 +516,7 @@ def figure_slide(presentation, spec: Slide, index: int, total: int) -> None:
     top = Inches(1.5)
     rule(slide, Inches(1.38), WIDE - 2 * MARGIN)
 
-    notes = [
-        ("Shows", spec["shows"]),
-        ("Setup", spec["setup"]),
-        ("Data", spec["data"]),
-        ("Why it matters", spec["why"]),
-    ]
+    notes = note_items(spec)
 
     if aspect >= 1.95:
         # Wide: image across the top, notes in two columns underneath.
@@ -455,23 +525,9 @@ def figure_slide(presentation, spec: Slide, index: int, total: int) -> None:
         # A cap sized for the wordiest slide wastes an inch of height on every
         # other one, and in a meeting the figure is the thing people need to be
         # able to read from the back of the room.
-        column_in = (WIDE - 2 * MARGIN - Inches(0.4)) / 2 / 914400
-
-        # Split the four notes across the two columns to *balance* them, rather
-        # than 2 + 2. One long note (a slide that explains a term as well as a
-        # result) otherwise makes its column tall while the other sits half
-        # empty, and since the image gets whatever height the notes leave, the
-        # figure pays for the imbalance.
-        best_split, best_cost = 2, None
-        for cut in (1, 2, 3):
-            left = sum(len(text) for _, text in notes[:cut]) + 60 * cut
-            right = sum(len(text) for _, text in notes[cut:]) + 60 * (len(notes) - cut)
-            cost = max(left, right)
-            if best_cost is None or cost < best_cost:
-                best_split, best_cost = cut, cost
-
-        note_lines = best_cost / (column_in * 9.0) + 2
-        notes_in = min(2.6, max(1.4, note_lines * 0.19))
+        best_split, _ = balanced_split(notes)
+        needed, _ = note_demand(spec, aspect)
+        notes_in = min(NOTES_MAX_IN, max(1.4, needed))
         available = 7.5 - 1.5 - notes_in - 0.22 - 0.30
         box_w, box_h = int(WIDE - 2 * MARGIN), Inches(max(2.8, available))
         width, height = fitted(path, box_w, box_h)
@@ -620,6 +676,13 @@ def build() -> Path:
     title_slide(presentation)
     groups = sections()
     total = sum(len(slides) for _, _, slides in groups)
+
+    # Refuse before writing, rather than producing a deck whose text runs off the
+    # bottom of two slides -- which is exactly what shipped when this was left to
+    # inspection. python-pptx overflows silently.
+    bad = overflowing([spec for _, _, slides in groups for spec in slides])
+    if bad:
+        raise SystemExit("slide notes do not fit:\n  " + "\n  ".join(bad))
 
     index = 0
     for title, subtitle, slides in groups:

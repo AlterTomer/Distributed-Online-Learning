@@ -185,3 +185,31 @@ def test_no_document_contains_a_mangled_latex_escape() -> None:
             if any(char in line for char in "\x07\x08\x09\x0b\x0c\x1b"):
                 bad.append(f"{path.name}:{number}: {line.strip()[:70]!r}")
     assert not bad, "control characters in documentation:\n  " + "\n  ".join(bad)
+
+
+# =========================================================================== #
+# the deck
+# =========================================================================== #
+
+
+def test_no_slide_note_runs_off_the_bottom() -> None:
+    """python-pptx overflows text silently, so this is not visible in the file.
+
+    A note longer than its box is written without complaint and the shape simply
+    extends past the page; the deck opens and looks fine until someone scrolls.
+    Two slides shipped that way -- both introduced while *adding* an explanation,
+    which is exactly when the notes grow.
+
+    `make_presentation.build` refuses on the same check. This exists so the
+    failure surfaces in the suite rather than only when the deck is rebuilt.
+    """
+    presentation = pytest.importorskip("make_presentation")
+    if not presentation.FIGURES.is_dir():
+        pytest.skip("figures not built")
+
+    specs = [spec for _, _, slides in presentation.sections() for spec in slides]
+    if any(not (presentation.FIGURES / spec["file"]).is_file() for spec in specs):
+        pytest.skip("figures not built")
+
+    bad = presentation.overflowing(specs)
+    assert not bad, "slide notes do not fit:\n  " + "\n  ".join(bad)
