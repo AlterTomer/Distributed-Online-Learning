@@ -601,9 +601,9 @@ with Polyak averaging would probably close much of it. Worth stating because
 
 ### 9.2 The tuned grid (F6a)
 
-336 cells: 12 $(n, \pi_\text{lab})$ combinations $\times$ 7 learning rates
-$\times$ 2 optimizers $\times$ 2 seeds. Each method at **its own optimum in each
-cell**.
+432 cells: 12 $(n, \pi_\text{lab})$ combinations $\times$ 9 learning rates
+(0.001 to 1.0) $\times$ 2 optimizers $\times$ 2 seeds. Each method at **its own
+optimum in each cell**, and every optimum is interior to the grid (§9.3).
 
 | $n$ | $\pi_\text{lab}$ | centralized | ATC | ATC (payload-matched) | local only | coop gap | pool gap | payload cost |
 |---|---|---|---|---|---|---|---|---|
@@ -703,13 +703,15 @@ optimum," averaged over the twelve cells within each method's own optimizer arm:
 
 | grid | centralized | ATC | ATC (payload-matched) | local only |
 |---|---|---|---|---|
-| full (lr ≤ 0.2) | 0.025 | 0.013 | 0.033 | 0.073 |
-| without lr 0.2 | 0.013 | 0.012 | 0.070 | 0.042 |
+| full (lr ≤ 1.0) | 0.025 | 0.013 | 0.040 | 0.073 |
+| without 1.0, 0.5 | 0.025 | 0.013 | 0.033 | 0.073 |
+| without 1.0, 0.5, 0.2 | 0.013 | 0.012 | 0.070 | 0.042 |
 
-Dropping one endpoint halves centralized's number and closes the gap to
-0.013/0.012. A quantity that reorders when the grid is trimmed is not measuring
-the method, so it is not the mechanism — even though on the full grid it happens
-to favour ATC.
+Widening the grid changes nothing for three of the four — their optima sit far
+from the top, so their neighbours are untouched. Trimming it down to 0.05
+*halves* centralized's number and closes the gap to 0.013/0.012. A quantity that
+reorders when the grid is trimmed is not measuring the method, so it is not the
+mechanism — even though on the full grid it happens to favour ATC.
 
 The optimum's *location* is stable, and why it barely moves is visible in the
 full momentum-arm profile at $n{=}1,\ \pi_\text{lab}{=}0.25$:
@@ -729,16 +731,32 @@ the combine, so ATC's effective step is $\eta \cdot n_\text{active}/N \approx
 Centralized applies the full $\eta$ however many agents held labels, so its
 nominal optimum must move to compensate.
 
-*Two caveats on the per-cell argmin.*
+*A caveat on the per-cell argmin, and one that was tested and withdrawn.*
 
-**The grid ceiling binds for the payload-matched variant.** Its optimum sits at
-lr 0.2 — the largest value swept — in 7 of 12 cells, so its 0.6-decade span is
-the grid's width, not the method's. Expected: it runs plain SGD, and momentum's
-$\eta/(1-\beta) = 10\eta$ means a plain learner needs roughly 10x the nominal
-rate to take the same effective step, which puts its true optimum at or past the
-edge. Its tuned errors in §9.2 are therefore mildly *pessimistic*, and its
-apparent stability should not be quoted. Centralized also hits 0.2 in two cells,
-so its 1.9-decade span is a lower bound.
+**The grid ceiling does not bind — checked, not assumed.** An earlier draft here
+warned that the payload-matched variant's optimum sat at lr 0.2, the largest rate
+then swept, in 7 of 12 cells, so its tuned errors were probably *pessimistic* and
+its 0.6-decade span was "the grid's width, not the method's". The reasoning was
+sound — it runs plain SGD, and momentum's $\eta/(1-\beta) = 10\eta$ means a plain
+learner needs roughly 10x the nominal rate for the same effective step, which
+should push its optimum past the edge — but the conclusion was wrong.
+
+The grid was extended to **lr 0.5 and 1.0** (192 further cells, 432 per tag) to
+settle it. **Neither new rate wins a single cell for any method.** The optima
+stay at 0.2 in 7 cells and 0.05 in 5, and every reported number in §9.2 and §9.3
+is unchanged to four decimals. So:
+
+- the payload costs are **not** pessimistic; they are measured;
+- the 0.6-decade span is the **method's**, and survives a grid 0.7 decades wider
+  — the payload-matched variant genuinely has the narrowest optimum range here,
+  which the ceiling argument had dismissed as an artefact;
+- centralized's 1.9-decade span is likewise no longer a lower bound. It still
+  picks 0.2 at $n{=}8$, $\pi \in \{0.5, 1.0\}$, but 0.2 is now interior.
+
+The $10\eta$ heuristic was not wrong so much as over-read: ATC's optima run
+0.005–0.05, so it predicts a band of 0.05–0.5, and the plain variant's 0.05–0.2
+sits inside it — at the low end. Predicting a *band* was fine; reading the top of
+that band as "at or past the edge" was the error.
 
 **The identity of the best lr in one cell is barely determined.** At
 $n{=}1,\pi{=}0.25$ the grid picks plain SGD at lr 0.02 (0.191) for centralized

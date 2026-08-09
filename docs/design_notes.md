@@ -1293,13 +1293,30 @@ non-IID regime. It also predicts that a Diff-EKF *would* recover the difference
 if its curvature estimate does the job momentum was doing — which is a testable
 claim, not a hope.
 
-**Caveat.** The payload-matched variant's tuned optimum sits at lr 0.2, the
-largest rate swept, in 7 of 12 cells, so these costs are mildly pessimistic.
-Expected: momentum's $\eta/(1-\beta) = 10\eta$ means a plain learner needs
-roughly 10x the nominal rate for the same effective step, which puts its true
-optimum at or past the grid edge. Extending the grid would tighten the numbers;
-it would not change the sparsity-versus-skew contrast, which is a comparison
-between two quantities measured the same way.
+**A caveat that was tested and withdrawn.** This note originally carried one:
+the payload-matched variant's tuned optimum sat at lr 0.2, the largest rate then
+swept, in 7 of 12 cells, so the costs were "mildly pessimistic" and its
+0.6-decade span was the grid's width rather than the method's. The mechanism
+argued for it — momentum's $\eta/(1-\beta) = 10\eta$ means a plain learner needs
+roughly 10x the nominal rate for the same effective step, which should put its
+optimum at or past the edge.
+
+The grid was extended to **lr 0.5 and 1.0** (192 further cells, 432 per tag).
+**Neither rate wins a single cell, for any method.** Every number above is
+unchanged to four decimals, so the costs are measured rather than pessimistic,
+and the 0.6-decade span survives a grid 0.7 decades wider — the payload-matched
+variant genuinely has the narrowest optimum range of the four, which the ceiling
+argument had written off as an artefact. Centralized's 1.9-decade span is
+likewise no longer a lower bound; it still picks 0.2 twice, but 0.2 is interior
+now.
+
+**What went wrong in the reasoning, since the mechanism was right.** The $10\eta$
+rule predicts a *band*: ATC's optima run 0.005–0.05, so it points at 0.05–0.5,
+and the plain variant's 0.05–0.2 sits inside that band at the low end. The rule
+was fine; treating the top of its range as a point prediction, and then treating
+"optimum at the boundary" as evidence of truncation rather than as a hypothesis
+to test, was the error. **A boundary optimum is a question, not a conclusion** —
+and it costs 90 minutes of compute to answer.
 
 ---
 

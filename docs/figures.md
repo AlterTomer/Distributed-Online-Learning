@@ -330,10 +330,18 @@ gives up at ~0.046 worst case.
 
 The trend is clean in the marginals but not cell-by-cell: $n{=}4$ is non-monotone
 in $\pi_\text{lab}$ (0.013 / 0.021 / 0.014), which at two sweep seeds is inside
-the noise. A caveat that limits panel 4 in the other direction: the variant's
-tuned optimum sits at lr 0.2, the **largest rate swept**, in 7 of 12 cells, so
-these are mildly pessimistic. Expected — plain SGD needs roughly 10× momentum's
-nominal rate to take the same effective step, since $\eta/(1-\beta) = 10\eta$.
+the noise.
+
+**These are measured, not pessimistic — a caveat that was tested and withdrawn.**
+An earlier version noted that the variant's tuned optimum sat at lr 0.2, the
+largest rate then swept, in 7 of 12 cells, and inferred that its true optimum lay
+past the edge and the costs were therefore overstated. The reasoning was
+plausible: plain SGD needs roughly 10× momentum's nominal rate for the same
+effective step, since $\eta/(1-\beta) = 10\eta$. The grid was extended to 0.5 and
+1.0 to check, and **neither wins a single cell** — for any method. Panel 4 is
+unchanged to four decimals. The $10\eta$ rule predicts a *band* of 0.05–0.5 from
+ATC's 0.005–0.05, and the plain variant's 0.05–0.2 sits inside it, at the low
+end; reading the top of that band as "past the edge" was the error.
 
 ---
 
@@ -385,12 +393,15 @@ optimum," averaged over the twelve cells within each method's own optimizer arm:
 
 | grid | centralized | ATC | ATC (payload-matched) | local only |
 |---|---|---|---|---|
-| full (lr ≤ 0.2) | 0.025 | 0.013 | 0.033 | 0.073 |
-| without lr 0.2 | 0.013 | 0.012 | 0.070 | 0.042 |
+| full (lr ≤ 1.0) | 0.025 | 0.013 | 0.040 | 0.073 |
+| without 1.0, 0.5 | 0.025 | 0.013 | 0.033 | 0.073 |
+| without 1.0, 0.5, 0.2 | 0.013 | 0.012 | 0.070 | 0.042 |
 
-Dropping one endpoint halves centralized's number and closes the gap. A quantity
-that reorders when the grid is trimmed is measuring the grid, not the method — so
-it is not the mechanism, even though on the full grid it happens to favour ATC.
+Widening the grid changes nothing for three of the four — their optima sit far
+from the top, so their neighbours are untouched. Trimming it down to 0.05
+*halves* centralized's number and closes the gap to 0.013/0.012. A quantity that
+reorders when the grid is trimmed is measuring the grid, not the method — so it
+is not the mechanism, even though on the full grid it happens to favour ATC.
 
 **The actual mechanism is automatic step-size scaling.** The optimum's *location*
 is stable, and at $n{=}1,\ \pi_\text{lab}{=}0.25$ the momentum-arm profiles show
@@ -412,11 +423,15 @@ needs a ~4× smaller step, and diffusion supplies that reduction by itself, so i
 *nominal* rate need not move. Centralized applies the full $\eta$ however many
 agents happened to hold labels, so its nominal optimum has to move to compensate.
 
-**Two caveats about the per-cell "best".** The grid ceiling binds for the
-payload-matched variant: its optimum sits at lr 0.2 in 7 of 12 cells, so its
-apparent stability is the grid's width, not the method's, and centralized's
-1.9-decade span (it also reaches 0.2 twice) is a lower bound. And the argmin over
-a flat basin with two seeds is barely determined — the grid reports centralized's
+**The grid ceiling does not bind — checked.** An earlier version warned that the
+payload-matched variant's optimum sat at lr 0.2, the largest rate then swept, in
+7 of 12 cells, so its stability was "the grid's width, not the method's", and
+that centralized's 1.9-decade span was a lower bound. The grid was extended to
+**0.5 and 1.0** to settle it: **neither wins a single cell for any method**, and
+every number here is unchanged to four decimals. The spans are the methods'.
+
+**The argmin within a cell is still barely determined**, which is a separate
+point and survives. The grid reports centralized's
 optimum at $n{=}1,\pi{=}0.25$ as plain SGD at lr 0.02 (0.191) while a finer sweep
 found momentum at lr 0.0025 (0.193), two arms within 0.002 of each other inside
 the ±0.023 seed spread. **The identity of the best lr in any single cell should

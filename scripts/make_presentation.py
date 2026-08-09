@@ -233,7 +233,7 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                     shows="ATC's error, and the cooperation gap (local − ATC), over "
                     "(n, π_lab). n is samples per agent per step; π_lab is the "
                     "fraction of steps carrying a label.",
-                    setup="336 tuning runs so every cell uses each method's own best rate. "
+                    setup="432 tuning runs so every cell uses each method's own best rate. "
                     "Without that the comparison measures step size, not method — at "
                     "π_lab = 0.25 the two effective steps differ by 4×.",
                     data="X4, T = 750, two sweep seeds per setting.",
@@ -252,7 +252,8 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                     "and payload cost (payload-matched − ATC).",
                     setup="Same tuned plane as 1/2. The payload-matched variant is tuned "
                     "within the plain-SGD arm only — unconstrained it picks momentum and "
-                    "becomes numerically identical to ATC, making the cost read exactly 0.000.",
+                    "becomes numerically identical to ATC, making the cost read exactly 0.000. "
+                    "The grid runs to lr 1.0, so no optimum is pinned at an edge.",
                     data="X4, T = 750, two sweep seeds per setting.",
                     why="The pooling gap is *negative* only in the sparse corner and shrinks "
                     "monotonically — the signature of implicit iterate averaging, not of "
