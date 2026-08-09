@@ -282,8 +282,9 @@ solution *together* — a mixing problem, not a consensus problem.
 
 ## 8. F6a — the sparsity plane, tuned per cell
 
-Three heatmaps over $(n, \pi_\text{lab})$: ATC's error, the cooperation gap
-(`local_only` − ATC), and the pooling gap (ATC − `centralized_sgd`).
+Four heatmaps over $(n, \pi_\text{lab})$: ATC's error, the cooperation gap
+(`local_only` − ATC), the pooling gap (ATC − `centralized_sgd`), and the payload
+cost (ATC (payload-matched) − ATC).
 
 **Every cell uses each method's own best (optimizer, lr) for that cell**, not one
 global setting. This is not fussiness. At $\pi_\text{lab} < 1$ most agents are
@@ -293,17 +294,46 @@ takes the full $\eta$. At $\pi_\text{lab} = 0.25$ that is a **4×** difference.
 Comparing the two at one lr compares step sizes, not methods. (Measured: the two
 optima sit at lr 0.0025 and 0.01, exactly the predicted ratio.)
 
-**Colour.** Sequential single-hue for the two magnitudes; **diverging with a
-neutral midpoint** for the pooling gap, which is signed. Values are printed in
-each cell, with ink on light cells and paper on dark ones.
+**Tuning the payload-matched variant.** Both names map to one class, and the
+sweep sets the optimizer for every learner it runs — so left unconstrained the
+variant picks momentum and becomes numerically identical to ATC, making panel 4
+exactly 0.000 everywhere. That is a definition being overridden, not a null
+result: carrying no optimizer state is precisely what makes its message $p$ per
+link rather than $2p$. Its optimum is therefore taken **within the plain-SGD arm
+only** (`make_figures.x4_tuned`).
 
-**What to look for.** A negative pooling gap — diffusion beating pooled data —
-confined to the sparse corner and shrinking as $n$ and $\pi_\text{lab}$ rise. That
-pattern is the signature of **implicit iterate averaging**: diffusion maintains
-$N$ trajectories under continuous averaging, a variance-reduction device a single
-centralized trajectory lacks, and it should pay only where the per-step gradient
-is noisiest. If instead the negative region were scattered, the remaining cause
-would be residual mis-tuning rather than a real mechanism.
+**Colour.** Sequential single-hue for the three magnitudes; **diverging with a
+neutral midpoint** for the pooling gap, which is signed. The payload cost stays
+sequential deliberately — properly tuned it is positive in all twelve cells, so a
+neutral midpoint would imply a sign change that does not occur. Values are
+printed in each cell, with ink on light cells and paper on dark ones.
+
+**What to look for — panel 3.** A negative pooling gap — diffusion beating pooled
+data — confined to the sparse corner and shrinking as $n$ and $\pi_\text{lab}$
+rise. That pattern is the signature of **implicit iterate averaging**: diffusion
+maintains $N$ trajectories under continuous averaging, a variance-reduction
+device a single centralized trajectory lacks, and it should pay only where the
+per-step gradient is noisiest. If instead the negative region were scattered, the
+remaining cause would be residual mis-tuning rather than a real mechanism.
+
+**What to look for — panel 4.** The same corner, darkening the same way: the
+payload cost runs 0.046 in the sparsest cell down to 0.007 in the densest, about
+**2.5×** along each axis in the marginals (0.0118 → 0.0304 in $\pi_\text{lab}$,
+0.0125 → 0.0292 in $n$). Both axes control how much signal one step carries; the
+extra $p$ scalars buy momentum, whose job is to accumulate a consistent direction
+out of noisy gradients, so it is worth most where each gradient is worst. Read
+panel 4 against F9's non-IID result, where the same cost is **flat** (0.015 /
+0.013 / 0.015 across three decades of skew): skew changes *what* an agent sees,
+not how often it updates. **The second half of the message earns its keep under
+sparsity, not under heterogeneity** — which bounds what a $p$-per-link Diff-EKF
+gives up at ~0.046 worst case.
+
+The trend is clean in the marginals but not cell-by-cell: $n{=}4$ is non-monotone
+in $\pi_\text{lab}$ (0.013 / 0.021 / 0.014), which at two sweep seeds is inside
+the noise. A caveat that limits panel 4 in the other direction: the variant's
+tuned optimum sits at lr 0.2, the **largest rate swept**, in 7 of 12 cells, so
+these are mildly pessimistic. Expected — plain SGD needs roughly 10× momentum's
+nominal rate to take the same effective step, since $\eta/(1-\beta) = 10\eta$.
 
 ---
 
@@ -311,31 +341,60 @@ would be residual mis-tuning rather than a real mechanism.
 
 $$\text{penalty} = e(\text{headline lr}) - e(\text{best lr for this cell})$$
 
-one heatmap per method. Only computable because X4 was run **both** ways, and the
-reason both were kept.
+one heatmap per method, four in all.
 
 F6a asks "how do the methods compare when each is used properly?". F6b asks the
 practitioner's question: **"what does it cost me that I tuned for the nominal
 regime and deployment turned out sparser?"** Nobody re-tunes when a sensor's
 label rate drops, so this is the more operational of the two.
 
-**What it shows.** Worst penalty across the plane: centralized **0.217**,
-local-only **0.144**, ATC **0.027**. Diffusion is roughly eight times more
-forgiving of a step size chosen for a different regime.
+**What it shows.** Worst penalty across the plane:
 
-### Why — three candidate mechanisms, only one of which survives
+| method | worst | where | median |
+|---|---|---|---|
+| centralized | **0.183** | $n{=}1,\ \pi{=}0.25$ | 0.007 |
+| local only | 0.151 | $n{=}1,\ \pi{=}1.0$ | 0.004 |
+| ATC (payload-matched) | 0.110 | $n{=}1,\ \pi{=}0.5$ | 0.000 |
+| **ATC** | **0.028** | $n{=}8,\ \pi{=}0.25$ | 0.004 |
+
+ATC's panel is nearly blank — that flatness *is* the figure. It is roughly 6.5×
+more forgiving of a step size chosen for a different regime than centralized.
+
+**Both terms come from the tuning sweep, not from the X4 runs.** A penalty
+defined as "headline minus the minimum over a grid containing the headline"
+cannot be negative, so a negative cell is a bug, not a finding. Two produced them
+and both are fixed: lr 0.2 was absent from the grid, and the two terms were drawn
+from different estimators (a five-seed X4 number minus a two-seed sweep number),
+which gave penalties as low as −0.042. With one estimator on both sides, **0 of
+48 cells are negative**. The five-seed X4 runs remain what is quoted elsewhere;
+they are simply not what *this* difference can be built from.
+
+### Why — candidate mechanisms, only one of which survives
 
 An earlier version of this text said "the combine step damps an oversized
 update". That is loose, and testing it showed it is not the mechanism.
 
 | candidate | verdict |
 |---|---|
-| ATC's error-vs-lr curve is *flatter* | **no** — one grid step off the optimum costs 0.035 for ATC against 0.037 for centralized. `local_only` is the *flattest* at 0.023 and still has the second-largest penalty |
-| ATC's optimum *moves less* across the plane | **yes** — its chosen lr spans 1.0 decades against 1.3 for centralized and 1.7 for local-only |
+| ATC's error-vs-lr curve is *flatter* | **not robustly** — the measure reorders when the grid is trimmed (below) |
+| ATC's optimum *moves less* across the plane | **yes** — its chosen lr spans 1.0 decades against 1.9 for centralized and 1.7 for local-only |
 | the combine *damps* a too-large update | superseded by the sharper statement below |
 
-**The actual mechanism is automatic step-size scaling.** At
-$n{=}1,\ \pi_\text{lab}{=}0.25$ the full profiles are:
+*Why flatness was dropped.* "Cost of being one grid step off the per-cell
+optimum," averaged over the twelve cells within each method's own optimizer arm:
+
+| grid | centralized | ATC | ATC (payload-matched) | local only |
+|---|---|---|---|---|
+| full (lr ≤ 0.2) | 0.025 | 0.013 | 0.033 | 0.073 |
+| without lr 0.2 | 0.013 | 0.012 | 0.070 | 0.042 |
+
+Dropping one endpoint halves centralized's number and closes the gap. A quantity
+that reorders when the grid is trimmed is measuring the grid, not the method — so
+it is not the mechanism, even though on the full grid it happens to favour ATC.
+
+**The actual mechanism is automatic step-size scaling.** The optimum's *location*
+is stable, and at $n{=}1,\ \pi_\text{lab}{=}0.25$ the momentum-arm profiles show
+why:
 
 | lr | centralized | ATC |
 |---|---|---|
@@ -343,6 +402,7 @@ $n{=}1,\ \pi_\text{lab}{=}0.25$ the full profiles are:
 | 0.005 | 0.259 | 0.207 |
 | **0.01** ← headline | 0.374 | **0.170** ← its optimum |
 | 0.02 | 0.726 | 0.199 |
+| 0.05 | 0.896 | 0.302 |
 
 ATC's optimum is *still the headline value*; centralized's has moved by a factor
 of four. With ~2.5 of 10 agents active, an idle agent contributes its unchanged
@@ -352,16 +412,21 @@ needs a ~4× smaller step, and diffusion supplies that reduction by itself, so i
 *nominal* rate need not move. Centralized applies the full $\eta$ however many
 agents happened to hold labels, so its nominal optimum has to move to compensate.
 
-**A caveat about the per-cell "best".** The x4 grid reports centralized's optimum
-in that cell as plain SGD at lr 0.02 (0.191), while a finer sweep found momentum
-at lr 0.0025 (0.193) — two different optimizer arms landing within 0.002 of each
-other, inside the ±0.023 seed spread. **The argmin over a flat basin with two
-seeds is barely determined**, so the *identity* of the best lr in any single cell
-should not be quoted as a finding. The penalties themselves (0.217 against 0.027)
-are an order of magnitude above that ambiguity and are safe.
+**Two caveats about the per-cell "best".** The grid ceiling binds for the
+payload-matched variant: its optimum sits at lr 0.2 in 7 of 12 cells, so its
+apparent stability is the grid's width, not the method's, and centralized's
+1.9-decade span (it also reaches 0.2 twice) is a lower bound. And the argmin over
+a flat basin with two seeds is barely determined — the grid reports centralized's
+optimum at $n{=}1,\pi{=}0.25$ as plain SGD at lr 0.02 (0.191) while a finer sweep
+found momentum at lr 0.0025 (0.193), two arms within 0.002 of each other inside
+the ±0.023 seed spread. **The identity of the best lr in any single cell should
+not be quoted as a finding.** The penalties themselves (0.183 against 0.028) are
+an order of magnitude above that ambiguity and are safe.
 
-Sequential colour on a shared scale across the three panels, so the panels can be
-compared to each other rather than only read individually.
+Sequential colour on **one shared scale across all four panels**, so they can be
+compared to each other rather than only read individually — which is the whole
+point of the figure. Per-panel colourbars would autoscale ATC's near-zero plane
+up to look like centralized's and destroy the comparison.
 
 ---
 
@@ -414,14 +479,20 @@ no caveat. That was checked, not assumed — see design note D40.
 Two panels against Dirichlet $\beta$ on a log axis: each method's error, and the
 cooperation gap.
 
-**The clearest result in the benchmark.** `local_only` runs 0.144 → 0.624 as skew
-increases while ATC stays nearly flat (0.083 → 0.106), so the cooperation gap goes
-**0.061 → 0.518**, an 8.5× increase. Under $\beta = 0.1$ an agent sees three or
+**The clearest result in the benchmark.** `local_only` runs 0.142 → 0.629 as skew
+increases while ATC stays nearly flat (0.080 → 0.103), so the cooperation gap goes
+**0.062 → 0.527**, an 8.5× increase. Under $\beta = 0.1$ an agent sees three or
 four digits and alone lands near chance; the same agent inside a diffusion network
-reaches 0.106.
+reaches 0.103.
 
-**A free correctness check.** `centralized_sgd` is flat across $\beta$ (0.080,
-0.078, 0.082) — it pools every agent's samples, so the partition is invisible to
+**The payload cost is flat across skew** — 0.015, 0.013, 0.015 at five seeds, so
+the payload-matched curve tracks ATC's at a constant offset. Contrast F6a panel
+4, where the same quantity grows ~2.5× as the problem gets sparser. Skew changes
+*what* an agent sees; sparsity changes *how often* it updates, and momentum — the
+thing the second $p$ scalars buy — only compensates for the latter.
+
+**A free correctness check.** `centralized_sgd` is flat across $\beta$ (0.078,
+0.077, 0.080) — it pools every agent's samples, so the partition is invisible to
 it. A slope there would mean the skew is leaking into the data path rather than
 the partition.
 

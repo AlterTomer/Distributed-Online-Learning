@@ -468,6 +468,13 @@ Two further decisions were taken at the same time that were not previously liste
 | 10 | **Phase 4 before phase 5, or the filter first?** | **Finish X3, X4 and X6 before Diff-EKF.** The filter is a different mathematics and a different learning paradigm; keeping it out of the backpropagation baselines until those are fully characterised avoids mixing the two. Re-running X4 and X6 later to include the filter is accepted -- there is no deadline. | §6, §8 |
 | 11 | **Where does CUDA help?** | Nowhere in phases 1-4 -- it is 0.69-0.92x, *slower*, because p=2908 with batches of 4-40 is too small to amortise kernel launches. It is a 14x win on the dense p x p covariance, so phase 5 depends on it. `run.device` now refuses anything but `cpu` rather than accepting a value it ignores. | D43 |
 
+### 10.1d Resolved (2026-08-09)
+
+| # | Question | Decision | Where it lands |
+|---|---|---|---|
+| 12 | **What does halving the message actually cost?** | **0.007-0.046, and the cost has a shape.** Across the tuned X4 plane it grows ~2.5x toward the sparse corner along each axis; across three decades of label skew it is **flat** (0.015 / 0.013 / 0.015). Both X4 axes control how much signal one step carries, and the extra $p$ scalars buy momentum -- worth most where each gradient is noisiest, worth nothing extra when gradients are merely *different* from a neighbour's. **The second half of the message pays under sparsity, not under heterogeneity**, which bounds a $p$-per-link Diff-EKF at ~0.046 worst case and says where to look for it. | D45, `results.md` §9.2, §10, F6a panel 4 |
+| 13 | **How is a quantity with a construction-fixed sign protected?** | **By a test, not by looking at the figure.** F6b's penalty and F6a's payload cost are both non-negative by construction and both produced impossible values (-0.042; exactly 0.000 in all twelve cells) that rendered as unremarkable cells. Now asserted in `tests/test_figures.py`, and `make_summary_docx` raises rather than printing a negative penalty. | D44 |
+
 ### 10.2 Still open
 
 2. **Non-IID.** Is label skew across agents in scope for the first paper, or is IID sufficient? X6 and the Dirichlet $\beta$ axis are built either way, so this is a question about what gets written up, not about what gets implemented. Decide before phase 4.

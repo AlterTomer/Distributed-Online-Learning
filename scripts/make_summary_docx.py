@@ -29,6 +29,14 @@ from docx.shared import Pt, RGBColor
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# The tuned and headline X4 tables come from make_figures rather than being
+# rebuilt here. Both encode non-obvious constraints -- the payload-matched
+# variant is tuned within the plain-SGD arm only, and the F6b penalty must draw
+# both of its terms from the sweep -- and getting either wrong silently produces
+# a number (0.000 payload cost; negative penalties) that looks like a finding.
+from make_figures import x4_headline, x4_tuned  # noqa: E402
 
 OUT = Path(r"C:\Users\alter\OneDrive\Desktop\PhD\Distributed Online Learning\preliminary work")
 RESULTS = ROOT / "results"
@@ -198,9 +206,7 @@ def build() -> Path:
     coop = paired(x1, "local_only", "diffusion_sgd_atc")
     payload = paired(x1, "diffusion_sgd_atc_plain", "diffusion_sgd_atc")
 
-    x4 = sweep_rows("x4")
-    tuned = x4.groupby(["learner", "n", "pi", "optimizer", "lr"], as_index=False).error.mean()
-    best = tuned.loc[tuned.groupby(["learner", "n", "pi"]).error.idxmin()]
+    best = x4_tuned()
 
     document = Document()
     style(document)
@@ -446,7 +452,12 @@ def build() -> Path:
         ("m", "2p"),
         " to ",
         ("m", "p"),
-        " per link.",
+        " per link. **The order of adapt and combine does not matter**: at identical "
+        "communication cost ATC and CTA settle at ",
+        ("m", f"{x1b.groupby('learner').err.mean()['diffusion_sgd_atc']:.4f}"),
+        " and ",
+        ("m", f"{x1b.groupby('learner').err.mean()['diffusion_sgd_cta']:.4f}"),
+        ", so the choice is free and ATC is kept for its step-size robustness (§6).",
     )
 
     def x4_gap(n: int, pi: float) -> float:
@@ -592,18 +603,16 @@ def build() -> Path:
     heading(document, "6. What this sets up for the diffusion EKF")
 
     # The F6b penalty: what each method loses by keeping the headline learning
-    # rate in a cell where a different one is optimal.
-    fixed = []
-    for n in (1, 2, 4, 8):
-        for pi in (0.25, 0.5, 1.0):
-            per_seed = window(f"x4_n{n}_pi{pi}", 650, 750)
-            for learner, error in per_seed.groupby("learner").err.mean().items():
-                fixed.append({"learner": learner, "n": n, "pi": pi, "fixed": error})
+    # rate in a cell where a different one is optimal. Both terms come from the
+    # sweep -- see x4_headline. Subtracting a five-seed X4 error from a two-seed
+    # sweep minimum gave penalties below zero, which this quantity cannot take.
     penalty = (
-        pd.DataFrame(fixed)
+        x4_headline()
         .merge(best[["learner", "n", "pi", "error"]], on=["learner", "n", "pi"])
         .assign(penalty=lambda f: f.fixed - f.error)
     )
+    if (penalty.penalty < -1e-9).any():
+        raise AssertionError("negative F6b penalty: the two terms are not the same estimator")
     penalty_worst = penalty.groupby("learner").penalty.max()
     table(
         document,

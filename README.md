@@ -29,11 +29,12 @@ optimizer artefact, so this is now a standing rule rather than a convenience.
 | | |
 |---|---|
 | **Diffusion ≈ pooled data** | On a ring, ATC is 0.0014 behind centralized SGD against a seed s.d. of 0.0035 — *inside the noise*. Ten agents exchanging one message with two neighbours recover almost everything a fusion centre would get. |
-| **Cooperation is worth 0.047 to 0.518** | Depending on sparsity and label skew. Under strong non-IID ($\beta{=}0.1$) a lone agent lands near chance while the same agent in the network reaches 0.106. |
+| **Cooperation is worth 0.047 to 0.527** | Depending on sparsity and label skew. Under strong non-IID ($\beta{=}0.1$) a lone agent lands near chance while the same agent in the network reaches 0.103. |
 | **Connectivity costs little** | Across seven topologies the worst *settled* penalty is 0.008 (a star); early in a run the spread is wider (0.018), so connectivity governs convergence speed more than the final answer. |
 | **The spectral gap is not the best predictor of it** | Mean self-weight $\bar a_{vv}$ ranks the topologies at Spearman $+0.964$ against $-0.786$ for $1-\rho$ — but it was chosen post hoc and failed its one out-of-sample test (`docs/results.md` §7.3). |
 | **ATC ≈ CTA** | 0.0768 vs 0.0774, indistinguishable at tuned settings. ATC's real advantage is robustness to step size, not accuracy. |
-| **Diffusion tolerates mis-tuning** | Worst penalty for a learning rate chosen in the wrong regime: 0.027 for ATC against 0.217 for centralized. |
+| **Diffusion tolerates mis-tuning** | Worst penalty for a learning rate chosen in the wrong regime: 0.028 for ATC against 0.183 for centralized. |
+| **Halving the message costs little** | Dropping momentum to send $p$ scalars per link instead of $2p$ costs 0.007–0.046, worst in the sparsest corner and **flat across label skew** — the second half of the message pays under sparsity, not under heterogeneity. |
 | **Nobody forgets; the lone agent lags** | X7's sinusoidal schedule revisits earlier rotations, the only regime where forgetting is well-posed. No cooperative method shows measurable forgetting (1.1–1.6 σ); `local_only` is *better* on a state it left than on the current one, at 10 σ — lag, not retention. |
 
 **What this sets up for phase 5.** There is no headroom left on stationary

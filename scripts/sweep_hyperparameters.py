@@ -86,6 +86,10 @@ TOPOLOGIES: list[str] | None = None
 #: idle agent contributes its unchanged theta to the combine, so ATC's step is
 #: eta * n_active/N while centralized takes the full eta (results.md 9.1).
 LABEL_AVAILABILITY: list[float] | None = None
+#: Which learners each cell runs. The environment does NOT depend on this list --
+#: verified: two runs differing only in learners produce identical observation
+#: streams -- so a learner added later can be swept alone under its own --tag and
+#: merged, rather than re-running every cell.
 LEARNERS = ["centralized_sgd", "diffusion_sgd_atc", "local_only"]
 #: Tags a cell with the learner set that produced it. A cell records the
 #: learners it ran, so changing LEARNERS without changing TAG would let the

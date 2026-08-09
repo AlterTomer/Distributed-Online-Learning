@@ -962,16 +962,24 @@ X4_SAMPLES = [1, 2, 4, 8]
 X4_PI = [0.25, 0.5, 1.0]
 
 
-def _sweep_cells(tag: str) -> pd.DataFrame:
+def _sweep_cells(*tags: str) -> pd.DataFrame:
+    """Tuning cells for one or more tags, concatenated.
+
+    Several tags because a learner added after a sweep can be swept alone
+    under its own tag and merged: the environment does not depend on which
+    learners run (verified -- identical observation streams), so the cells
+    are directly comparable. That turns a 2.7-hour re-run into 45 minutes.
+    """
     path = RESULTS / "sweep" / "cells.jsonl"
     if not path.is_file():
         return pd.DataFrame()
+    wanted = set(tags)
     rows = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         cell = json.loads(line)
-        if cell.get("tag") != tag:
+        if cell.get("tag") not in wanted:
             continue
         for learner, error in cell["errors"].items():
             rows.append(
@@ -998,15 +1006,57 @@ def x4_tuned() -> pd.DataFrame:
     $\\pi = 0.25$ that is 4x, and comparing them at one lr compares step sizes
     rather than methods (`results.md` 9.1).
     """
-    frame = _sweep_cells("x4")
+    frame = _sweep_cells("x4", "x4plain")
     if frame.empty:
         return frame
+
+    # The payload-matched variant is tuned WITHIN the plain-SGD arm only.
+    #
+    # Both names map to one class, and the sweep sets the optimizer for every
+    # learner it runs -- so left unconstrained, `atc_plain` picks momentum and
+    # becomes numerically identical to ATC. Its tuned "payload cost" then comes
+    # out as exactly 0.000 in all twelve cells, which is not a small effect but
+    # a definition being overridden: carrying no optimizer state is precisely
+    # what makes it p per link rather than 2p.
+    plain = frame.learner == "diffusion_sgd_atc_plain"
+    frame = frame[~plain | (frame.optimizer == "sgd")]
+
     averaged = frame.groupby(["learner", "n", "pi", "optimizer", "lr"], as_index=False).error.mean()
     return averaged.loc[averaged.groupby(["learner", "n", "pi"]).error.idxmin()]
 
 
-def x4_fixed() -> pd.DataFrame:
-    """The same grid at the *headline* tuning, from the X4 experiment runs."""
+def x4_headline() -> pd.DataFrame:
+    """Each learner's error at its HEADLINE lr, taken from the tuning sweep.
+
+    Deliberately from the sweep and not from the X4 experiment runs, even though
+    those have five seeds against the sweep's two. F6b subtracts this from the
+    per-cell best, and the two terms have to be the *same estimator*: mixing a
+    five-seed number with a two-seed one produced penalties as low as -0.04,
+    which is impossible for a quantity defined as "headline minus the minimum
+    over a grid containing the headline".
+
+    The five-seed X4 runs remain the numbers quoted everywhere else; they are
+    simply not what this particular difference should be built from.
+    """
+    from dekf_bench.utils.config import load_config
+
+    headline = {e.name: (e.optimizer, e.lr) for e in load_config("x1_stationary").learners}
+    frame = _sweep_cells("x4", "x4plain")
+    if frame.empty:
+        return frame
+    averaged = frame.groupby(["learner", "n", "pi", "optimizer", "lr"], as_index=False).error.mean()
+    keep = [
+        (row.learner in headline) and (row.optimizer, row.lr) == headline[row.learner]
+        for row in averaged.itertuples()
+    ]
+    return averaged[keep][["learner", "n", "pi", "error"]].rename(columns={"error": "fixed"})
+
+
+def x4_fixed_from_runs() -> pd.DataFrame:
+    """The headline-tuning error from the X4 experiment runs (five seeds).
+
+    Used for the reported tables, not for F6b's difference -- see x4_headline.
+    """
     rows = []
     for n in X4_SAMPLES:
         for pi in X4_PI:
@@ -1095,8 +1145,9 @@ def draw_f6a(collected: Collected) -> None:
     atc = _grid(tuned, "diffusion_sgd_atc")
     local = _grid(tuned, "local_only")
     central = _grid(tuned, "centralized_sgd")
+    plain = _grid(tuned, "diffusion_sgd_atc_plain")
 
-    figure, axes = plt.subplots(1, 3, figsize=(14.4, 4.0), constrained_layout=True)
+    figure, axes = plt.subplots(1, 4, figsize=(19.2, 4.0), constrained_layout=True)
     im0 = _heatmap(axes[0], atc, "ATC error", SEQUENTIAL)
     im1 = _heatmap(axes[1], local - atc, "cooperation gap  (local $-$ ATC)", SEQUENTIAL)
     limit = np.nanmax(np.abs(atc - central)) or 0.01
@@ -1108,8 +1159,12 @@ def draw_f6a(collected: Collected) -> None:
         vmin=-limit,
         vmax=limit,
     )
+    # Fourth panel: what the second p scalars per link are worth. Sequential
+    # rather than diverging -- properly tuned it is positive in all twelve cells,
+    # so a neutral midpoint would imply a sign change that does not occur.
+    im3 = _heatmap(axes[3], plain - atc, "payload cost  (payload-matched $-$ ATC)", SEQUENTIAL)
     axes[0].set_ylabel("$\\pi_{\\mathrm{lab}}$")
-    for axis, image in zip(axes, (im0, im1, im2), strict=True):
+    for axis, image in zip(axes, (im0, im1, im2, im3), strict=True):
         figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
         despine(axis)
     figure.suptitle(
@@ -1123,15 +1178,11 @@ def draw_f6a(collected: Collected) -> None:
 
 
 def collect_f6b() -> Collected | None:
-    tuned, fixed = x4_tuned(), x4_fixed()
+    tuned, fixed = x4_tuned(), x4_headline()
     if tuned.empty or fixed.empty:
         return None
-    merged = fixed.merge(
-        tuned[["learner", "n", "pi", "error"]],
-        on=["learner", "n", "pi"],
-        suffixes=("_fixed", "_tuned"),
-    )
-    merged["penalty"] = merged.error_fixed - merged.error_tuned
+    merged = fixed.merge(tuned[["learner", "n", "pi", "error"]], on=["learner", "n", "pi"])
+    merged["penalty"] = merged.fixed - merged.error
     pieces = []
     for row in merged.itertuples():
         piece = rows_for(f"{row.learner}|penalty", row.learner, "cell", [row.n], [row.penalty])
@@ -1142,13 +1193,9 @@ def collect_f6b() -> Collected | None:
 
 
 def draw_f6b(collected: Collected) -> None:
-    tuned, fixed = x4_tuned(), x4_fixed()
-    merged = fixed.merge(
-        tuned[["learner", "n", "pi", "error"]],
-        on=["learner", "n", "pi"],
-        suffixes=("_fixed", "_tuned"),
-    )
-    merged["penalty"] = merged.error_fixed - merged.error_tuned
+    tuned, fixed = x4_tuned(), x4_headline()
+    merged = fixed.merge(tuned[["learner", "n", "pi", "error"]], on=["learner", "n", "pi"])
+    merged["penalty"] = merged.fixed - merged.error
 
     names = [n for n in ORDER if n in set(merged.learner)]
     figure, axes = plt.subplots(
@@ -1165,8 +1212,8 @@ def draw_f6b(collected: Collected) -> None:
             axis, _grid(merged, name, "penalty"), LABELS[name], SEQUENTIAL, 0.0, limit or 0.01
         )
         despine(axis)
-    # One colourbar, because the three panels share a scale -- which is the
-    # point of the figure. Three identical bars would suggest otherwise.
+    # One colourbar, because every panel shares a scale -- which is the point of
+    # the figure. Per-panel bars would suggest otherwise.
     figure.colorbar(image, ax=list(axes), fraction=0.03, pad=0.02, label="penalty")
     axes[0].set_ylabel("$\\pi_{\\mathrm{lab}}$")
     figure.suptitle(
@@ -1351,14 +1398,18 @@ def draw_f9(collected: Collected) -> None:
         markersize=6,
         capsize=3,
         linewidth=1.8,
-        color=COLOURS["local_only"],
+        # Neutral ink, NOT a palette hue. This is a *derived* quantity -- the
+        # difference between two rates -- and colour in this project follows the
+        # method. Drawing it in local_only's aqua said "this is local_only's
+        # error rate", which is the one thing it is not.
+        color=INK_SECONDARY,
         markeredgecolor=SURFACE,
         markeredgewidth=1.0,
     )
     axes[1].set_xscale("log")
     axes[1].set_xlabel("Dirichlet $\\beta$")
     axes[1].set_ylabel("cooperation gap  (local $-$ ATC)")
-    axes[1].set_title("What cooperation is worth")
+    axes[1].set_title("What cooperation is worth  (a difference, not a rate)")
     despine(axes[1])
 
     figure.subplots_adjust(wspace=0.28)

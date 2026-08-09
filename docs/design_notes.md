@@ -1229,6 +1229,78 @@ saying no. **Phase 5 removes the guard when it wires the device through.**
 default. Here the intuition was wrong in both directions — slower where it was
 expected to help, and decisive in a place that had not been benchmarked.
 
+### ✅ D44. A derived quantity whose sign is fixed by construction is a test
+
+Two figures compute a difference whose sign cannot vary if the computation is
+right, and both produced the impossible sign before anyone noticed — because an
+impossible value renders as an unremarkable cell rather than as an error.
+
+**F6b's penalty** is $e(\text{headline lr}) - \min_{\text{lr}} e(\text{lr})$ over
+a grid that *contains* the headline. A minimum over a set cannot exceed a member
+of it, so the penalty is $\ge 0$ by construction. It reached $-0.042$, from two
+independent causes:
+
+1. **lr 0.2 was missing from the sweep grid**, so for a method whose headline
+   sat there the "headline" term came from one place and the minimum from
+   another.
+2. **The two terms were different estimators** — a five-seed X4 run error minus
+   a two-seed sweep minimum. Seed noise alone then makes negatives routine.
+
+The fix for (2) is the interesting one: the five-seed numbers are *better*, and
+are still what every reported table quotes. They are simply not what a
+*difference* can be built from, because a difference needs both sides measured
+the same way. `x4_headline`'s docstring says exactly this so the "improvement"
+of switching it back to the five-seed runs is not made twice.
+
+**F6a's payload cost** is $e(\text{payload-matched}) - e(\text{ATC})$ at matched
+tuning. The payload-matched variant *is* ATC minus momentum, so at each one's own
+optimum the cost is $\ge 0$: the constrained optimum cannot beat the
+unconstrained one. It came out **exactly 0.000 in all twelve cells** — which
+looks like a clean null result and is a definition being overridden. Both names
+map to one class, the sweep sets the optimizer for every learner it runs, so
+unconstrained the variant picked momentum and became numerically identical to
+ATC. Carrying no optimizer state is precisely what makes its message $p$ per link
+rather than $2p$, so it is now tuned within the plain-SGD arm only.
+
+**What was done about it.** Two tests in `tests/test_figures.py` assert the
+signs, and `make_summary_docx` raises rather than printing a negative penalty
+into a supervisor-facing document. `make_summary_docx` also now imports
+`x4_tuned`/`x4_headline` from `make_figures` instead of rebuilding the tables,
+because it had independently reproduced bug (2).
+
+**The general point.** Every derived quantity in this project should be asked
+"what values can this not take?" before it is plotted. Where the answer is
+non-empty it is a test, and the test is cheap. Neither of these was caught by
+looking at the figure.
+
+### ✅ D45. The second $p$ scalars pay under sparsity, not under heterogeneity
+
+With the payload cost finally well-defined, it has a shape. Across the tuned X4
+plane it runs 0.007–0.046, rising toward the sparse corner: about **2.5x** along
+each axis in the marginals (0.0118 → 0.0304 as $\pi_\text{lab}$ falls 1.0 →
+0.25; 0.0125 → 0.0292 as $n$ falls 8 → 1). Across X6's three decades of label
+skew it is **flat** — 0.015, 0.013, 0.015.
+
+Both X4 axes control how much signal one step carries; skew does not. Momentum
+accumulates a consistent direction out of noisy gradients, so the extra $p$
+scalars are worth most where each gradient is worst, and worth nothing extra
+when the gradients are merely *different* from a neighbour's.
+
+**Why this matters for phase 5.** Diff-EKF sends a mean, and if it sends no
+covariance it is a $p$-per-link method. This bounds what that costs against the
+$2p$ baseline at ~0.046 worst case, and locates it: the sparse corner, not the
+non-IID regime. It also predicts that a Diff-EKF *would* recover the difference
+if its curvature estimate does the job momentum was doing — which is a testable
+claim, not a hope.
+
+**Caveat.** The payload-matched variant's tuned optimum sits at lr 0.2, the
+largest rate swept, in 7 of 12 cells, so these costs are mildly pessimistic.
+Expected: momentum's $\eta/(1-\beta) = 10\eta$ means a plain learner needs
+roughly 10x the nominal rate for the same effective step, which puts its true
+optimum at or past the grid edge. Extending the grid would tighten the numbers;
+it would not change the sparsity-versus-skew contrast, which is a comparison
+between two quantities measured the same way.
+
 ---
 
 ## Open questions

@@ -229,26 +229,32 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                     file="18_f6a_sparsity_tuned.png",
                     title="F6a — the sparsity plane",
                     claim="Cooperation is worth eight times more when data is scarce.",
-                    shows="ATC error, cooperation gap, and pooling gap over (n, π_lab).",
-                    setup="288 tuning runs so every cell uses each method's own best rate. "
+                    shows="ATC error, cooperation gap, pooling gap, and payload cost over (n, π_lab).",
+                    setup="336 tuning runs so every cell uses each method's own best rate. "
                     "Without that the comparison measures step size, not method.",
-                    data="X4, T = 750, three seeds per cell.",
+                    data="X4, T = 750, two sweep seeds per setting.",
                     why="The cooperation gap runs 0.047 to 0.370 across the plane. The pooling "
                     "gap is *negative* only in the sparse corner and shrinks monotonically — "
-                    "the signature of implicit iterate averaging, not of mis-tuning.",
+                    "the signature of implicit iterate averaging, not of mis-tuning. **Panel 4 "
+                    "is new:** the payload cost darkens into the same corner, 0.007 to 0.046, "
+                    "about 2.5× along each axis. The extra p scalars buy momentum, and momentum "
+                    "is worth most where each gradient is noisiest.",
                 ),
                 dict(
                     file="19_f6b_cost_of_not_retuning.png",
                     title="F6b — the cost of a wrong learning rate",
                     claim="Diffusion needs less re-tuning, because it re-tunes itself.",
                     shows="error(headline rate) − error(best rate for that cell), per method. "
-                    "Worst penalty: centralized 0.217, local-only 0.144, ATC 0.027.",
-                    setup="Only computable because X4 was run at both tunings — the fixed one "
-                    "and the per-cell one.",
-                    data="X4, both variants, three seeds.",
-                    why="Not because ATC's error-vs-lr curve is flatter (it is not — 0.035 "
-                    "against centralized's 0.037, and local_only is flattest of all yet "
-                    "second-worst). It is that ATC's optimum barely moves: with ~2.5 of 10 "
+                    "Worst penalty: centralized 0.183, local-only 0.151, payload-matched 0.110, ATC **0.028**.",
+                    setup="Both terms come from the same tuning sweep. Mixing estimators — a "
+                    "five-seed error minus a two-seed one — gave negative penalties, which "
+                    "are impossible here by construction. Now 0 of 48 cells are negative.",
+                    data="X4 tuning sweep, two seeds per setting.",
+                    why="ATC's panel is nearly blank — that flatness *is* the figure. Not "
+                    "because its error-vs-lr curve is flatter: that measure reorders when the "
+                    "grid is trimmed (0.025 vs 0.013 with lr 0.2 in the grid, 0.013 vs 0.012 "
+                    "without), so it measures the grid, not the method. It is that ATC's "
+                    "optimum barely moves: with ~2.5 of 10 "
                     "agents active, idle agents contribute unchanged θ to the combine, so its "
                     "effective step is η·n_active/N ≈ η/4 automatically — exactly the "
                     "reduction a smaller batch needs. Centralized applies the full η whatever "
@@ -307,11 +313,15 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                     claim="The strongest result in the benchmark.",
                     shows="Error and cooperation gap against Dirichlet β, log x.",
                     setup="Shard sizes equal; only label composition varies.",
-                    data="X6, T = 1500, three seeds.",
-                    why="Cooperation goes from worth 0.061 to worth 0.518 — 8.5×. At β = 0.1 a "
-                    "lone agent lands near chance (0.62) while the same agent in the network "
-                    "reaches 0.106. Centralized is flat across β, which is a free check that "
-                    "the skew is in the partition and not leaking into the data path.",
+                    data="X6, T = 1500, five seeds.",
+                    why="Cooperation goes from worth 0.062 to worth 0.527 — 8.5×. At β = 0.1 a "
+                    "lone agent lands near chance (0.63) while the same agent in the network "
+                    "reaches 0.103. The payload-matched variant costs a **flat** 0.013–0.015 "
+                    "across the whole range, so halving the message is no more expensive under "
+                    "skew than under IID — unlike F6a panel 4, where the same cost grows 2.5× "
+                    "as the problem gets sparser. Its 0.1171 is what phase 5 must beat. Centralized "
+                    "is flat across β, a free check that the skew is in the partition and not "
+                    "leaking into the data path.",
                 ),
             ],
         ),
@@ -527,7 +537,7 @@ def closing_slide(presentation) -> None:
         (
             "open",
             "Curvature-derived step",
-            "No learning rate to get wrong (F6b: 0.217 vs 0.027) — though a prior scale and a "
+            "No learning rate to get wrong (F6b: 0.183 vs 0.028) — though a prior scale and a "
             "forgetting factor replace it.",
         ),
         (

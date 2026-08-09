@@ -536,23 +536,31 @@ guard when it wires the device through. See design note D43.
 ## 9. X4 — where sparsity bites (Q4)
 
 $n \in \{1,2,4,8\}$ crossed with $\pi_\text{lab} \in \{0.25, 0.5, 1.0\}$,
-$T = 750$, three seeds, at the **headline tuning** ($n{=}4$, $\pi_\text{lab}{=}1$).
+$T = 750$, five seeds, at the **headline tuning** ($n{=}4$, $\pi_\text{lab}{=}1$).
 Held-out error over the last 100 steps.
 
-| $n$ | $\pi_\text{lab}$ | centralized | ATC | local only | coop gap | pool gap |
-|---|---|---|---|---|---|---|
-| 1 | 0.25 | 0.4078 | 0.1755 | 0.5854 | 0.410 | **−0.232** |
-| 1 | 0.5 | 0.2054 | 0.1518 | 0.5184 | 0.367 | **−0.054** |
-| 1 | 1.0 | 0.1267 | 0.1369 | 0.4327 | 0.296 | +0.010 |
-| 2 | 0.25 | 0.2003 | 0.1505 | 0.4103 | 0.260 | **−0.050** |
-| 2 | 0.5 | 0.1321 | 0.1218 | 0.3116 | 0.190 | −0.010 |
-| 2 | 1.0 | 0.1074 | 0.1097 | 0.2397 | 0.130 | +0.002 |
-| 4 | 0.25 | 0.1379 | 0.1342 | 0.2827 | 0.148 | −0.004 |
-| 4 | 0.5 | 0.1058 | 0.1104 | 0.2020 | 0.092 | +0.005 |
-| 4 | 1.0 | 0.0890 | 0.0911 | 0.1601 | 0.069 | +0.002 |
-| 8 | 0.25 | 0.1121 | 0.1271 | 0.2195 | 0.092 | +0.015 |
-| 8 | 0.5 | 0.0943 | 0.1026 | 0.1591 | 0.057 | +0.008 |
-| 8 | 1.0 | 0.0858 | 0.0866 | 0.1282 | 0.042 | +0.001 |
+| $n$ | $\pi_\text{lab}$ | centralized | ATC | ATC (payload-matched) | local only | coop gap | pool gap |
+|---|---|---|---|---|---|---|---|
+| 1 | 0.25 | 0.4035 | 0.1722 | 0.2921 | 0.5847 | 0.413 | **−0.231** |
+| 1 | 0.5 | 0.1904 | 0.1489 | 0.2513 | 0.5118 | 0.363 | **−0.041** |
+| 1 | 1.0 | 0.1276 | 0.1352 | 0.2480 | 0.4309 | 0.296 | +0.008 |
+| 2 | 0.25 | 0.1908 | 0.1453 | 0.1797 | 0.3971 | 0.252 | **−0.046** |
+| 2 | 0.5 | 0.1289 | 0.1220 | 0.1658 | 0.3047 | 0.183 | −0.007 |
+| 2 | 1.0 | 0.1038 | 0.1068 | 0.1418 | 0.2406 | 0.134 | +0.003 |
+| 4 | 0.25 | 0.1369 | 0.1317 | 0.1303 | 0.2724 | 0.141 | −0.005 |
+| 4 | 0.5 | 0.1058 | 0.1090 | 0.1200 | 0.2008 | 0.092 | +0.003 |
+| 4 | 1.0 | 0.0886 | 0.0905 | 0.1081 | 0.1606 | 0.070 | +0.002 |
+| 8 | 0.25 | 0.1109 | 0.1252 | 0.1178 | 0.2143 | 0.089 | +0.014 |
+| 8 | 0.5 | 0.0926 | 0.1015 | 0.1030 | 0.1572 | 0.056 | +0.009 |
+| 8 | 1.0 | 0.0847 | 0.0859 | 0.0864 | 0.1271 | 0.041 | +0.001 |
+
+*Reading the payload-matched column here.* This table fixes every learner at its
+own headline setting, and ATC's headline carries momentum while the
+payload-matched variant's does not — so the column is a snapshot of one
+particular pair of settings, not a tuned comparison. That is why it can go
+**negative** at $n \in \{4, 8\}$, $\pi_\text{lab} = 0.25$: momentum's
+$\eta/(1-\beta) = 10\eta$ effective step is too large there, and dropping it
+helps. The properly tuned payload cost is §9.2's, and it is positive everywhere.
 
 ### 9.1 The negative pooling gaps: mostly a step-size artefact
 
@@ -593,24 +601,32 @@ with Polyak averaging would probably close much of it. Worth stating because
 
 ### 9.2 The tuned grid (F6a)
 
-288 cells: 12 $(n, \pi_\text{lab})$ combinations $\times$ 6 learning rates
+336 cells: 12 $(n, \pi_\text{lab})$ combinations $\times$ 7 learning rates
 $\times$ 2 optimizers $\times$ 2 seeds. Each method at **its own optimum in each
 cell**.
 
-| $n$ | $\pi_\text{lab}$ | centralized | ATC | local only | coop gap | pool gap |
-|---|---|---|---|---|---|---|
-| 1 | 0.25 | 0.1907 | 0.1698 | 0.5394 | 0.370 | **−0.021** |
-| 1 | 0.50 | 0.1602 | 0.1521 | 0.4080 | 0.256 | −0.008 |
-| 1 | 1.00 | 0.1168 | 0.1226 | 0.2883 | 0.166 | +0.006 |
-| 2 | 0.25 | 0.1544 | 0.1445 | 0.4144 | 0.270 | −0.010 |
-| 2 | 0.50 | 0.1223 | 0.1183 | 0.2965 | 0.178 | −0.004 |
-| 2 | 1.00 | 0.1077 | 0.1091 | 0.2010 | 0.092 | +0.001 |
-| 4 | 0.25 | 0.1220 | 0.1165 | 0.2846 | 0.168 | −0.006 |
-| 4 | 0.50 | 0.1038 | 0.1039 | 0.2035 | 0.100 | 0.000 |
-| 4 | 1.00 | 0.0881 | 0.0904 | 0.1555 | 0.065 | +0.002 |
-| 8 | 0.25 | 0.1096 | 0.0998 | 0.2218 | 0.122 | −0.010 |
-| 8 | 0.50 | 0.0930 | 0.0903 | 0.1608 | 0.071 | −0.003 |
-| 8 | 1.00 | 0.0793 | 0.0806 | 0.1271 | 0.047 | +0.001 |
+| $n$ | $\pi_\text{lab}$ | centralized | ATC | ATC (payload-matched) | local only | coop gap | pool gap | payload cost |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 0.25 | 0.1907 | 0.1698 | 0.2160 | 0.5394 | 0.370 | **−0.021** | 0.0461 |
+| 1 | 0.50 | 0.1602 | 0.1521 | 0.1787 | 0.4080 | 0.256 | −0.008 | 0.0266 |
+| 1 | 1.00 | 0.1168 | 0.1226 | 0.1374 | 0.2883 | 0.166 | +0.006 | 0.0148 |
+| 2 | 0.25 | 0.1544 | 0.1445 | 0.1863 | 0.4144 | 0.270 | −0.010 | 0.0418 |
+| 2 | 0.50 | 0.1223 | 0.1183 | 0.1395 | 0.2965 | 0.178 | −0.004 | 0.0213 |
+| 2 | 1.00 | 0.1077 | 0.1091 | 0.1210 | 0.2010 | 0.092 | +0.001 | 0.0120 |
+| 4 | 0.25 | 0.1220 | 0.1165 | 0.1291 | 0.2846 | 0.168 | −0.006 | 0.0126 |
+| 4 | 0.50 | 0.1038 | 0.1039 | 0.1247 | 0.2035 | 0.100 | +0.000 | 0.0209 |
+| 4 | 1.00 | 0.0881 | 0.0904 | 0.1042 | 0.1555 | 0.065 | +0.002 | 0.0138 |
+| 8 | 0.25 | 0.1096 | 0.0998 | 0.1210 | 0.2218 | 0.122 | −0.010 | 0.0212 |
+| 8 | 0.50 | 0.0896 | 0.0903 | 0.1000 | 0.1608 | 0.070 | +0.001 | 0.0097 |
+| 8 | 1.00 | 0.0764 | 0.0806 | 0.0871 | 0.1271 | 0.047 | +0.004 | 0.0065 |
+
+*How the payload-matched variant is tuned.* Both names map to one class, and the
+sweep sets the optimizer for every learner it runs — so left unconstrained the
+variant picks momentum and becomes numerically identical to ATC, making the
+payload cost exactly 0.000 in all twelve cells. That is not a small effect but a
+definition being overridden: carrying no optimizer state is precisely what makes
+the message $p$ per link rather than $2p$. Its optimum is therefore taken
+**within the plain-SGD arm only** (`make_figures.x4_tuned`).
 
 **Tuning accounts for about 90% of the apparent effect.** At $n{=}1,
 \pi_\text{lab}{=}0.25$ the fixed-tuning table showed $-0.232$; properly tuned it
@@ -630,20 +646,48 @@ data better. A centralized baseline with Polyak averaging would likely close muc
 of it — worth stating, because "distributed beats pooled data" is a claim no
 reader expects.
 
+**The payload cost rises as the problem gets sparser.** Averaged over the other
+axis it runs 0.0118 → 0.0196 → 0.0304 as $\pi_\text{lab}$ falls from 1.0 to 0.25,
+and 0.0125 → 0.0292 as $n$ falls from 8 to 1 — about **2.5x** along each. Both
+axes control the same thing: how much signal one step carries. The extra $p$
+scalars buy momentum, and momentum's job is to accumulate a consistent direction
+out of noisy gradients, so it is worth most exactly where each gradient is worst.
+The trend is clean in the marginals but not cell-by-cell — $n{=}4$ is
+non-monotone in $\pi_\text{lab}$ (0.0126 / 0.0209 / 0.0138), which at two sweep
+seeds is inside the noise.
+
+Contrast §10: under label skew the payload cost is **flat** (0.015 / 0.013 /
+0.015). Skew changes *what* an agent sees, not how often it updates — and
+momentum only compensates for the latter. Taken together: the $2p$ message earns
+its second half under sparsity, not under heterogeneity. For phase 5 that bounds
+what a $p$-per-link Diff-EKF gives up — at most ~0.046, in the sparsest corner of
+the plane.
+
 ### 9.3 The cost of not re-tuning (F6b)
 
-$\text{penalty} = e(\text{headline lr}) - e(\text{best lr for that cell})$,
-computable only because X4 was run both ways.
+$\text{penalty} = e(\text{headline lr}) - e(\text{best lr for that cell})$.
 
-| method | worst penalty | where |
-|---|---|---|
-| `centralized_sgd` | **0.217** | $n{=}1$, $\pi{=}0.25$ |
-| `local_only` | 0.144 | $n{=}1$, $\pi{=}1.0$ |
-| **`diffusion_sgd_atc`** | **0.027** | $n{=}8$, $\pi{=}0.25$ |
+| method | worst penalty | where | median |
+|---|---|---|---|
+| `centralized_sgd` | **0.183** | $n{=}1$, $\pi{=}0.25$ | 0.007 |
+| `local_only` | 0.151 | $n{=}1$, $\pi{=}1.0$ | 0.004 |
+| ATC (payload-matched) | 0.110 | $n{=}1$, $\pi{=}0.5$ | 0.000 |
+| **`diffusion_sgd_atc`** | **0.028** | $n{=}8$, $\pi{=}0.25$ | 0.004 |
 
-**ATC's worst case is 8x smaller than centralized's**, and its penalty never
-exceeds 0.027 anywhere on the plane while centralized reaches 0.217 and
-`local_only` 0.144.
+**ATC's worst case is 6.5x smaller than centralized's**, and its penalty never
+exceeds 0.028 anywhere on the plane while centralized reaches 0.183 and
+`local_only` 0.151.
+
+*Both terms come from the tuning sweep, not from the X4 runs.* A penalty defined
+as "headline minus the minimum over a grid that contains the headline" cannot be
+negative, so a negative value is a bug rather than a finding. Two produced them
+and both are fixed: lr 0.2 was missing from the grid (so the "headline" for a
+method tuned there was being compared against a minimum taken without it), and
+the two terms were drawn from different estimators — a five-seed X4 number minus
+a two-seed sweep number, which gave penalties as low as −0.042. With one
+estimator on both sides, **0 of 48 cells are negative**. The five-seed X4 runs
+remain what is quoted everywhere else; they are simply not what *this* difference
+can be built from.
 
 **The mechanism is automatic step-size scaling, not damping.** An earlier draft
 here said "the combine step damps an oversized update"; testing separated three
@@ -651,11 +695,24 @@ candidates and that was not the one that survived.
 
 | candidate | verdict |
 |---|---|
-| ATC's error-vs-lr curve is flatter | **no** — one grid step off costs 0.035 for ATC against 0.037 for centralized, and `local_only` is flattest at 0.023 yet second-worst |
-| ATC's optimum moves less across the plane | **yes** — 1.0 decades against 1.3 and 1.7 |
+| ATC's error-vs-lr curve is flatter | **not robustly** — the measure depends on the grid (below) |
+| ATC's optimum moves less across the plane | **yes** — 1.0 decades against 1.9 for centralized and 1.7 for `local_only` |
 
-Why its optimum barely moves is visible in the full profile at
-$n{=}1,\ \pi_\text{lab}{=}0.25$:
+*Why flatness was dropped.* "Cost of being one grid step off the per-cell
+optimum," averaged over the twelve cells within each method's own optimizer arm:
+
+| grid | centralized | ATC | ATC (payload-matched) | local only |
+|---|---|---|---|---|
+| full (lr ≤ 0.2) | 0.025 | 0.013 | 0.033 | 0.073 |
+| without lr 0.2 | 0.013 | 0.012 | 0.070 | 0.042 |
+
+Dropping one endpoint halves centralized's number and closes the gap to
+0.013/0.012. A quantity that reorders when the grid is trimmed is not measuring
+the method, so it is not the mechanism — even though on the full grid it happens
+to favour ATC.
+
+The optimum's *location* is stable, and why it barely moves is visible in the
+full momentum-arm profile at $n{=}1,\ \pi_\text{lab}{=}0.25$:
 
 | lr | centralized | ATC |
 |---|---|---|
@@ -663,6 +720,7 @@ $n{=}1,\ \pi_\text{lab}{=}0.25$:
 | 0.005 | 0.259 | 0.207 |
 | **0.01** ← headline | 0.374 | **0.170** ← optimum |
 | 0.02 | 0.726 | 0.199 |
+| 0.05 | 0.896 | 0.302 |
 
 ATC's optimum is *still the headline value*; centralized's has moved by 4x. With
 ~2.5 of 10 agents active, an idle agent contributes its unchanged $\bm\theta$ to
@@ -671,12 +729,23 @@ the combine, so ATC's effective step is $\eta \cdot n_\text{active}/N \approx
 Centralized applies the full $\eta$ however many agents held labels, so its
 nominal optimum must move to compensate.
 
-*A caveat on the per-cell argmin.* The x4 grid picks plain SGD at lr 0.02 (0.191)
-for centralized in that cell while a finer sweep picked momentum at lr 0.0025
-(0.193) — two optimizer arms within 0.002 of each other, inside the ±0.023 seed
-spread. The *identity* of the best lr in a single cell is barely determined and
-should not be quoted; the penalties (0.217 against 0.027) are an order of
-magnitude clear of it.
+*Two caveats on the per-cell argmin.*
+
+**The grid ceiling binds for the payload-matched variant.** Its optimum sits at
+lr 0.2 — the largest value swept — in 7 of 12 cells, so its 0.6-decade span is
+the grid's width, not the method's. Expected: it runs plain SGD, and momentum's
+$\eta/(1-\beta) = 10\eta$ means a plain learner needs roughly 10x the nominal
+rate to take the same effective step, which puts its true optimum at or past the
+edge. Its tuned errors in §9.2 are therefore mildly *pessimistic*, and its
+apparent stability should not be quoted. Centralized also hits 0.2 in two cells,
+so its 1.9-decade span is a lower bound.
+
+**The identity of the best lr in one cell is barely determined.** At
+$n{=}1,\pi{=}0.25$ the grid picks plain SGD at lr 0.02 (0.191) for centralized
+while a finer sweep picked momentum at lr 0.0025 (0.193) — two optimizer arms
+within 0.002 of each other, inside the ±0.023 seed spread. The penalties (0.183
+against 0.028) are an order of magnitude clear of that noise; the argmin itself
+is not.
 
 The two baselines fail in different places, which is itself informative.
 Centralized is worst in the sparse corner, where its pooled batch shrinks and its
@@ -688,12 +757,12 @@ momentum has nothing damping it.
 
 The two robust readings do not depend on the cross-method comparison:
 
-**Sparsity bites hardest on the lone agent.** `local_only` runs from 0.128
+**Sparsity bites hardest on the lone agent.** `local_only` runs from 0.127
 ($n{=}8$, $\pi{=}1$) to 0.585 ($n{=}1$, $\pi{=}0.25$) — a factor of 4.6. ATC moves
-only 0.087 to 0.176, a factor of 2.
+only 0.086 to 0.172, a factor of 2.
 
-**The cooperation gap is a strong function of both axes**, from 0.042 in the
-densest cell to 0.410 in the sparsest — a tenfold range. Combined with §2.2's
+**The cooperation gap is a strong function of both axes**, from 0.041 in the
+densest cell to 0.413 in the sparsest — a tenfold range. Combined with §2.2's
 finding that it collapses sixfold in $n$ alone, this settles that sparsity is not
 a nuisance axis: it substantially determines the answer to Q2.
 
@@ -704,17 +773,28 @@ a nuisance axis: it substantially determines the answer to Q2.
 Dirichlet label skew, $T = 1500$, three seeds, shard sizes held equal so only the
 *composition* varies.
 
-| $\beta$ | centralized | ATC | local only | coop gap | pool gap |
-|---|---|---|---|---|---|
-| 0.1 (strong skew) | 0.0803 | 0.1061 | **0.6244** | **0.518** | 0.026 |
-| 1.0 (mild) | 0.0776 | 0.0800 | 0.2731 | 0.193 | 0.002 |
-| 100 (~IID) | 0.0823 | 0.0828 | 0.1442 | 0.061 | 0.001 |
+| $\beta$ | centralized | ATC | ATC (payload-matched) | local only | coop gap | payload cost |
+|---|---|---|---|---|---|---|
+| 0.1 (strong skew) | 0.0779 | 0.1025 | 0.1171 | **0.6292** | **0.527** | 0.015 |
+| 1.0 (mild) | 0.0769 | 0.0799 | 0.0925 | 0.2727 | 0.193 | 0.013 |
+| 100 (~IID) | 0.0795 | 0.0804 | 0.0951 | 0.1420 | 0.062 | 0.015 |
+
+**The payload cost is flat across skew** — 0.015, 0.013, 0.015 at five seeds,
+with no trend at all. Halving the message from $2p$ to $p$ costs the same whether
+agents see the same classes or very different ones. So Diff-EKF's competitor sits
+at 0.1171 even in the hardest regime: only 0.015 behind the $2p$ variant, and
+still 0.51 ahead of a lone agent.
+
+**Contrast this with sparsity, where the payload cost is *not* flat** (§9.2): it
+grows about 2.5x as $\pi_\text{lab}$ falls. Skew changes *what* each agent sees;
+sparsity changes *how often* it updates — and momentum, which is what the extra
+$p$ buys, only compensates for the latter.
 
 **This is the clearest answer to Q2 in the whole benchmark.** The cooperation gap
-runs 0.061 → 0.518, an **8.5x increase** from IID to strong skew. Under
+runs 0.062 → 0.527, an **8.5x increase** from IID to strong skew. Under
 $\beta = 0.1$ an agent sees only three or four digits, so alone it cannot learn
-the rest at all — `local_only` sits at 0.62, near chance — while the same agent
-inside a diffusion network reaches 0.106.
+the rest at all — `local_only` sits at 0.63, near chance — while the same agent
+inside a diffusion network reaches 0.103.
 
 **Diffusion recovers nearly all of it.** ATC is 0.026 behind centralized at
 $\beta = 0.1$, against 0.001 at IID — so skew does cost diffusion something, but

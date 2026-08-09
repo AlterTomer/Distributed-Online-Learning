@@ -106,6 +106,64 @@ def test_the_transient_window_shows_a_wider_spread_than_the_settled_one() -> Non
 
 
 # =========================================================================== #
+# F6a / F6b -- quantities with a sign that is fixed by construction
+# =========================================================================== #
+
+
+def test_the_retuning_penalty_is_never_negative() -> None:
+    """F6b's penalty is "headline lr minus the best lr", over a grid containing it.
+
+    A minimum over a set cannot exceed a member of that set, so a negative cell
+    is a bug rather than a finding. Two produced them: lr 0.2 was missing from
+    the sweep grid, and the two terms were drawn from different estimators (a
+    five-seed X4 error minus a two-seed sweep minimum), which reached -0.042.
+    Both are invisible in the figure -- a negative penalty just renders as the
+    palest cell -- so they are checked here instead.
+    """
+    from make_figures import x4_headline, x4_tuned
+
+    tuned, headline = x4_tuned(), x4_headline()
+    if tuned.empty or headline.empty:
+        pytest.skip("no X4 sweep results")
+
+    merged = headline.merge(tuned[["learner", "n", "pi", "error"]], on=["learner", "n", "pi"])
+    merged["penalty"] = merged.fixed - merged.error
+    bad = merged[merged.penalty < -1e-9]
+    assert bad.empty, "negative re-tuning penalties:\n" + bad.to_string(index=False)
+
+
+def test_the_payload_matched_variant_is_not_tuned_into_being_atc() -> None:
+    """Its defining property is carrying no optimizer state.
+
+    Both names map to one class and the sweep sets the optimizer for every
+    learner it runs, so an unconstrained tuning picks momentum for the
+    payload-matched variant and it becomes numerically identical to ATC. The
+    payload cost then reads exactly 0.000 in all twelve cells, which looks like
+    a strong null result and is actually a definition being overridden.
+    """
+    from make_figures import x4_tuned
+
+    tuned = x4_tuned()
+    if tuned.empty:
+        pytest.skip("no X4 sweep results")
+
+    plain = tuned[tuned.learner == "diffusion_sgd_atc_plain"]
+    assert not plain.empty, "the payload-matched variant is missing from the sweep"
+    assert (plain.optimizer == "sgd").all(), (
+        "the payload-matched variant was tuned onto a stateful optimizer: "
+        f"{sorted(set(plain.optimizer))}"
+    )
+
+    atc = tuned[tuned.learner == "diffusion_sgd_atc"]
+    cost = plain.merge(atc, on=["n", "pi"], suffixes=("_plain", "_atc"))
+    cost["payload"] = cost.error_plain - cost.error_atc
+    assert (cost.payload > 0).all(), (
+        "the payload cost is non-positive somewhere, which at matched tuning "
+        f"means the two arms have collapsed:\n{cost[['n', 'pi', 'payload']].to_string(index=False)}"
+    )
+
+
+# =========================================================================== #
 # document integrity
 # =========================================================================== #
 

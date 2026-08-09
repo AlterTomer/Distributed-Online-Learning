@@ -70,8 +70,21 @@ X4_HORIZON = 750
 X6_BETAS = [0.1, 1.0, 100.0]
 X6_HORIZON = 1500
 
-LEARNERS = ["centralized_sgd", "diffusion_sgd_atc", "local_only"]
-SEEDS = [0, 1, 2]  # three, not five: 12 cells for X4 already
+# atc_plain is included for the same reason as in X1, X2 and X5: it is the
+# p-per-link variant, and therefore the baseline phase 5 is actually measured
+# against. Non-IID is where the gaps are largest, so leaving it out would omit
+# the payload-matched number from exactly the regime that matters most.
+LEARNERS = [
+    "centralized_sgd",
+    "diffusion_sgd_atc",
+    "diffusion_sgd_atc_plain",
+    "local_only",
+]
+#: Five, matching the headline runs. Three was a compromise when X4 had 12 cells
+#: and three learners; with the payload-matched variant added, the payload costs
+#: it reports (0.010-0.019) sit close enough to the seed noise that three seeds
+#: could not rank them.
+SEEDS = [0, 1, 2, 3, 4]
 FRESH = False
 
 DATA_ROOT = ROOT / "data"
