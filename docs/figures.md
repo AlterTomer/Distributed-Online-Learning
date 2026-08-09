@@ -23,8 +23,8 @@ python scripts/make_figures.py --dpi 300      # publication resolution
 | F3 | `16_f3_price_of_connectivity.png` | X3 |
 | F4 | `17_f4_per_agent_spread.png` | X1, X2 |
 | F5 | `14_f5_disagreement.png` | X1, X2 |
-| F6a | `18_f6a_sparsity_tuned.png` | X4 + per-cell tuning sweep |
-| F6b | `19_f6b_cost_of_not_retuning.png` | X4 (both tunings) |
+| F6a | `18_f6a_sparsity_tuned.png` (slides: `18a`, `18b`) | X4 + per-cell tuning sweep |
+| F6b | `19_f6b_cost_of_not_retuning.png` (slides: `19a`, `19b`) | X4 (both tunings) |
 | F7 | `20_f7_adaptation_transient.png` | X5 |
 | F8 | `15_f8_atc_vs_cta.png` | X1b |
 | F9 | `21_f9_non_iid.png` | X6 |
@@ -422,6 +422,27 @@ found momentum at lr 0.0025 (0.193), two arms within 0.002 of each other inside
 the ±0.023 seed spread. **The identity of the best lr in any single cell should
 not be quoted as a finding.** The penalties themselves (0.183 against 0.028) are
 an order of magnitude above that ambiguity and are safe.
+
+### Slide variants
+
+Both figures are also written as two-panel halves for the deck:
+`18a`/`18b` for F6a and `19a`/`19b` for F6b. **The documents use the full
+four-panel versions; only the slides use the halves.**
+
+Not a duplicate figure — a sizing one. The slide layout gives a wide image the
+frame width and whatever height the notes leave, so a 4.5:1 figure is scaled to
+0.64x and its cell values land near 5pt projected, which cannot be read from a
+room. The halves sit near 1.5:1, which puts them in the layout's *image-left,
+notes-right* branch instead: near 1:1 scale, and 10.3pt projected. Same panels,
+same data, one code path (`_panel_figure`) — the halves are the same `Panel`
+list, sliced.
+
+**F6b's halves carry the whole figure's colour scale**, not their own. The limit
+is taken over all four panels before any of them is drawn. A half that rescaled
+to its own two would make ATC's near-blank plane look like centralized's and
+destroy the only comparison the figure makes — invisibly, since each half would
+still look internally sensible. Both half titles say "shared colour scale" for
+the reader who sees only one.
 
 Sequential colour on **one shared scale across all four panels**, so they can be
 compared to each other rather than only read individually — which is the whole

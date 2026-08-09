@@ -44,6 +44,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -1102,6 +1103,14 @@ def _grid(frame: pd.DataFrame, learner: str, value: str = "error") -> np.ndarray
 HEATMAP_TITLE_PT = 12
 HEATMAP_CELL_PT = 10.5
 
+#: Half-width figure size for the two-panel slide variants. Chosen for an aspect
+#: near 1.7, which puts the slide layout in its *image-left, notes-right* branch
+#: rather than its *image-across-the-top* one -- the wide branch caps a figure at
+#: whatever height the notes leave (~2.9in) and shrinks it to 0.64x, while the
+#: tall branch gives it 7.5in of width and leaves it near 1:1. Same figure, same
+#: type, more than twice the projected size.
+HEATMAP_HALF_SIZE = (7.6, 4.4)
+
 
 def _heatmap(axis, matrix, title, cmap, vmin=None, vmax=None, fmt="{:.3f}"):
     image = axis.imshow(matrix, cmap=cmap, vmin=vmin, vmax=vmax, aspect="auto", origin="lower")
@@ -1152,41 +1161,91 @@ def collect_f6a() -> Collected | None:
     return Collected(pd.concat(pieces, ignore_index=True), {"seeds": 2, "smooth": 0})
 
 
-def draw_f6a(collected: Collected) -> None:
+@dataclass
+class Panel:
+    """One heatmap in a multi-panel figure: enough to draw it anywhere."""
+
+    matrix: np.ndarray
+    title: str
+    cmap: Any
+    vmin: float | None = None
+    vmax: float | None = None
+
+
+def _panel_figure(
+    panels: list[Panel],
+    suptitle: str,
+    filename: str,
+    *,
+    figsize: tuple[float, float] | None = None,
+    shared_bar: str | None = None,
+) -> None:
+    """Render `panels` side by side and save.
+
+    Split out so the four-panel figure the docs use and the two-panel halves the
+    slides use are drawn by *one* code path from *one* panel list. Drawing them
+    separately would let the halves drift from the whole -- and the halves carry
+    pre-computed `vmin`/`vmax`, so a scale that silently differed between a slide
+    and the document would be invisible in both.
+    """
+    width = figsize or (4.2 * len(panels), 4.0)
+    figure, axes = plt.subplots(1, len(panels), figsize=width, constrained_layout=True)
+    axes = np.atleast_1d(axes)
+
+    image = None
+    for axis, panel in zip(axes, panels, strict=True):
+        image = _heatmap(axis, panel.matrix, panel.title, panel.cmap, panel.vmin, panel.vmax)
+        despine(axis)
+        if shared_bar is None:
+            figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
+    if shared_bar is not None:
+        # One bar, because every panel is on one scale -- which is the point of
+        # the figure. Per-panel bars would autoscale each to its own range and
+        # suggest the opposite.
+        figure.colorbar(image, ax=list(axes), fraction=0.03, pad=0.02, label=shared_bar)
+
+    axes[0].set_ylabel("$\\pi_{\\mathrm{lab}}$")
+    figure.suptitle(suptitle, y=1.10, fontsize=11, color=INK, weight="bold")
+    save(figure, filename)
+
+
+def _f6a_panels() -> list[Panel]:
     tuned = x4_tuned()
     atc = _grid(tuned, "diffusion_sgd_atc")
     local = _grid(tuned, "local_only")
     central = _grid(tuned, "centralized_sgd")
     plain = _grid(tuned, "diffusion_sgd_atc_plain")
+    limit = float(np.nanmax(np.abs(atc - central))) or 0.01
+    return [
+        Panel(atc, "ATC error", SEQUENTIAL),
+        Panel(local - atc, "cooperation gap  (local $-$ ATC)", SEQUENTIAL),
+        Panel(atc - central, "pooling gap  (ATC $-$ centralized)", DIVERGING, -limit, limit),
+        # What the second p scalars per link are worth. Sequential rather than
+        # diverging -- properly tuned it is positive in all twelve cells, so a
+        # neutral midpoint would imply a sign change that does not occur.
+        Panel(plain - atc, "payload cost  (payload-matched $-$ ATC)", SEQUENTIAL),
+    ]
 
-    figure, axes = plt.subplots(1, 4, figsize=(16.8, 4.0), constrained_layout=True)
-    im0 = _heatmap(axes[0], atc, "ATC error", SEQUENTIAL)
-    im1 = _heatmap(axes[1], local - atc, "cooperation gap  (local $-$ ATC)", SEQUENTIAL)
-    limit = np.nanmax(np.abs(atc - central)) or 0.01
-    im2 = _heatmap(
-        axes[2],
-        atc - central,
-        "pooling gap  (ATC $-$ centralized)",
-        DIVERGING,
-        vmin=-limit,
-        vmax=limit,
+
+def draw_f6a(collected: Collected) -> None:
+    panels = _f6a_panels()
+    title = "F6a  The sparsity plane, each method at its own tuned lr per cell"
+    _panel_figure(panels, title, "18_f6a_sparsity_tuned.png")
+
+    # Slide halves. Each panel carries its own colourbar here, so a split costs
+    # nothing -- unlike F6b, where the shared scale has to be carried across.
+    _panel_figure(
+        panels[:2],
+        "F6a (1/2)  What diffusion achieves, and what cooperation is worth",
+        "18a_f6a_achievement.png",
+        figsize=HEATMAP_HALF_SIZE,
     )
-    # Fourth panel: what the second p scalars per link are worth. Sequential
-    # rather than diverging -- properly tuned it is positive in all twelve cells,
-    # so a neutral midpoint would imply a sign change that does not occur.
-    im3 = _heatmap(axes[3], plain - atc, "payload cost  (payload-matched $-$ ATC)", SEQUENTIAL)
-    axes[0].set_ylabel("$\\pi_{\\mathrm{lab}}$")
-    for axis, image in zip(axes, (im0, im1, im2, im3), strict=True):
-        figure.colorbar(image, ax=axis, fraction=0.046, pad=0.04)
-        despine(axis)
-    figure.suptitle(
-        "F6a  The sparsity plane, each method at its own tuned lr per cell",
-        y=1.10,
-        fontsize=11,
-        color=INK,
-        weight="bold",
+    _panel_figure(
+        panels[2:],
+        "F6a (2/2)  What it costs against pooled data, and what halving the message costs",
+        "18b_f6a_costs.png",
+        figsize=HEATMAP_HALF_SIZE,
     )
-    save(figure, "18_f6a_sparsity_tuned.png")
 
 
 def collect_f6b() -> Collected | None:
@@ -1210,32 +1269,39 @@ def draw_f6b(collected: Collected) -> None:
     merged["penalty"] = merged.fixed - merged.error
 
     names = [n for n in ORDER if n in set(merged.learner)]
-    figure, axes = plt.subplots(
-        1, len(names), figsize=(4.2 * len(names), 4.0), constrained_layout=True
-    )
-    axes = np.atleast_1d(axes)
-    limit = float(np.nanmax(np.abs(_grid(merged, names[0], "penalty"))))
-    for name in names:
-        limit = max(limit, float(np.nanmax(np.abs(_grid(merged, name, "penalty")))))
+    # The limit is taken over EVERY panel and then handed to each one, so the
+    # slide halves stay on the whole figure's scale. Letting a half rescale to
+    # its own two panels would make ATC's near-blank plane look like
+    # centralized's -- destroying the only comparison this figure makes, and
+    # doing it invisibly, since each half would still look internally sensible.
+    limit = max(float(np.nanmax(np.abs(_grid(merged, name, "penalty")))) for name in names)
+    panels = [
+        Panel(_grid(merged, name, "penalty"), LABELS[name], SEQUENTIAL, 0.0, limit or 0.01)
+        for name in names
+    ]
 
-    image = None
-    for axis, name in zip(axes, names, strict=True):
-        image = _heatmap(
-            axis, _grid(merged, name, "penalty"), LABELS[name], SEQUENTIAL, 0.0, limit or 0.01
-        )
-        despine(axis)
-    # One colourbar, because every panel shares a scale -- which is the point of
-    # the figure. Per-panel bars would suggest otherwise.
-    figure.colorbar(image, ax=list(axes), fraction=0.03, pad=0.02, label="penalty")
-    axes[0].set_ylabel("$\\pi_{\\mathrm{lab}}$")
-    figure.suptitle(
-        "F6b  The cost of not re-tuning:  error(headline lr) $-$ error(best lr for this cell)",
-        y=1.10,
-        fontsize=11,
-        color=INK,
-        weight="bold",
+    title = "F6b  The cost of not re-tuning:  error(headline lr) $-$ error(best lr for this cell)"
+    _panel_figure(panels, title, "19_f6b_cost_of_not_retuning.png", shared_bar="penalty")
+
+    # Slide halves, ordered so the headline contrast -- centralized's 0.183
+    # against ATC's 0.028 -- lands on one slide rather than being split across
+    # two. Both halves say "shared scale" in their title because a reader who
+    # sees only one of them has no way to know.
+    half = len(panels) // 2
+    _panel_figure(
+        panels[:half],
+        "F6b (1/2)  Centralized against ATC  (shared colour scale with 2/2)",
+        "19a_f6b_headline.png",
+        figsize=HEATMAP_HALF_SIZE,
+        shared_bar="penalty",
     )
-    save(figure, "19_f6b_cost_of_not_retuning.png")
+    _panel_figure(
+        panels[half:],
+        "F6b (2/2)  The two cheaper methods  (shared colour scale with 1/2)",
+        "19b_f6b_baselines.png",
+        figsize=HEATMAP_HALF_SIZE,
+        shared_bar="penalty",
+    )
 
 
 # =========================================================================== #

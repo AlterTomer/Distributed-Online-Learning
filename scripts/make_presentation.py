@@ -227,40 +227,78 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                     "identical while their parameters drift along a flat direction.",
                 ),
                 dict(
-                    file="18_f6a_sparsity_tuned.png",
-                    title="F6a — the sparsity plane",
+                    file="18a_f6a_achievement.png",
+                    title="F6a (1/2) — what cooperation is worth",
                     claim="Cooperation is worth eight times more when data is scarce.",
-                    shows="ATC error, cooperation gap, pooling gap, and payload cost over (n, π_lab).",
+                    shows="ATC's error, and the cooperation gap (local − ATC), over "
+                    "(n, π_lab). n is samples per agent per step; π_lab is the "
+                    "fraction of steps carrying a label.",
                     setup="336 tuning runs so every cell uses each method's own best rate. "
-                    "Without that the comparison measures step size, not method.",
+                    "Without that the comparison measures step size, not method — at "
+                    "π_lab = 0.25 the two effective steps differ by 4×.",
                     data="X4, T = 750, two sweep seeds per setting.",
-                    why="The cooperation gap runs 0.047 to 0.370 across the plane. The pooling "
-                    "gap is *negative* only in the sparse corner and shrinks monotonically — "
-                    "the signature of implicit iterate averaging, not of mis-tuning. **Panel 4 "
-                    "is new:** the payload cost darkens into the same corner, 0.007 to 0.046, "
-                    "about 2.5× along each axis. The extra p scalars buy momentum, and momentum "
-                    "is worth most where each gradient is noisiest.",
+                    why="The cooperation gap runs 0.047 in the densest cell to 0.370 in the "
+                    "sparsest — a tenfold range. Sparsity is not a nuisance axis; it "
+                    "substantially determines the answer to 'is cooperating worth it'. Note "
+                    "the two panels darken toward the same corner: cooperation is worth most "
+                    "exactly where a lone agent is worst off.",
                 ),
                 dict(
-                    file="19_f6b_cost_of_not_retuning.png",
-                    title="F6b — the cost of a wrong learning rate",
+                    file="18b_f6a_costs.png",
+                    title="F6a (2/2) — what it costs",
+                    claim="Decentralizing costs nothing; halving the message costs a little, "
+                    "and only where data is scarce.",
+                    shows="Pooling gap (ATC − centralized), signed, on a diverging scale; "
+                    "and payload cost (payload-matched − ATC).",
+                    setup="Same tuned plane as 1/2. The payload-matched variant is tuned "
+                    "within the plain-SGD arm only — unconstrained it picks momentum and "
+                    "becomes numerically identical to ATC, making the cost read exactly 0.000.",
+                    data="X4, T = 750, two sweep seeds per setting.",
+                    why="The pooling gap is *negative* only in the sparse corner and shrinks "
+                    "monotonically — the signature of implicit iterate averaging, not of "
+                    "mis-tuning, which would scatter. It is ≤0.021, and diffusion is not "
+                    "using data better. The payload cost darkens into that same corner: 0.007 "
+                    "to 0.046, about 2.5× along each axis. The extra p scalars buy "
+                    "momentum, and momentum is worth most where each gradient is noisiest — "
+                    "which is why this cost is **flat** across label skew (F9).",
+                ),
+                dict(
+                    file="19a_f6b_headline.png",
+                    title="F6b (1/2) — the cost of a wrong learning rate",
                     claim="Diffusion needs less re-tuning, because it re-tunes itself.",
-                    shows="error(headline rate) − error(best rate for that cell), per method. "
-                    "Worst penalty: centralized 0.183, local-only 0.151, payload-matched 0.110, ATC **0.028**.",
-                    setup="Both terms come from the same tuning sweep. Mixing estimators — a "
-                    "five-seed error minus a two-seed one — gave negative penalties, which "
-                    "are impossible here by construction. Now 0 of 48 cells are negative.",
+                    shows="error(headline rate) − error(best rate for that cell). "
+                    "Centralized reaches **0.183**; ATC never exceeds **0.028**.",
+                    setup="Both terms come from the same tuning sweep. Mixing estimators — "
+                    "a five-seed error minus a two-seed one — gave negative penalties, "
+                    "which are impossible for a minimum over a grid containing the headline. "
+                    "Now 0 of 48 cells are negative.",
                     data="X4 tuning sweep, two seeds per setting.",
                     why="ATC's panel is nearly blank — that flatness *is* the figure. Not "
                     "because its error-vs-lr curve is flatter: that measure reorders when the "
-                    "grid is trimmed (0.025 vs 0.013 with lr 0.2 in the grid, 0.013 vs 0.012 "
-                    "without), so it measures the grid, not the method. It is that ATC's "
-                    "optimum barely moves: with ~2.5 of 10 "
-                    "agents active, idle agents contribute unchanged θ to the combine, so its "
-                    "effective step is η·n_active/N ≈ η/4 automatically — exactly the "
-                    "reduction a smaller batch needs. Centralized applies the full η whatever "
-                    "the batch, so its optimum has to move by 4× and the headline rate costs "
-                    "it 0.18.",
+                    "grid is trimmed (0.025 vs 0.013 with lr 0.2 in, 0.013 vs 0.012 without), "
+                    "so it measures the grid. It is that ATC's optimum barely moves. With ~2.5 "
+                    "of 10 agents active, idle agents contribute unchanged θ to the "
+                    "combine, so its effective step is η·n_active/N ≈ "
+                    "η/4 automatically — exactly the reduction a smaller batch "
+                    "needs. Centralized applies the full η whatever the batch, so its "
+                    "optimum has to move by 4× and the headline rate costs it 0.18.",
+                ),
+                dict(
+                    file="19b_f6b_baselines.png",
+                    title="F6b (2/2) — the two cheaper methods",
+                    claim="The baselines fail in different places, which is itself informative.",
+                    shows="The same penalty for the payload-matched variant (worst 0.110) and "
+                    "local-only (worst 0.151). **Same colour scale as 1/2** — the panels "
+                    "are directly comparable to centralized's 0.183 and ATC's 0.028.",
+                    setup="Identical to 1/2; this is the same figure, split for legibility.",
+                    data="X4 tuning sweep, two seeds per setting.",
+                    why="Centralized is worst in the sparse corner, where its pooled batch "
+                    "shrinks and its step is far too large. Local-only is worst at the "
+                    "*opposite* corner, π_lab = 1 and n = 1, where it updates every step "
+                    "on a single sample with nothing damping the momentum. The payload-matched "
+                    "variant sits between them: dropping momentum costs some of ATC's "
+                    "self-scaling, but it keeps the combine step, so it is still 1.7× more "
+                    "forgiving than centralized.",
                 ),
                 dict(
                     file="20_f7_adaptation_transient.png",
