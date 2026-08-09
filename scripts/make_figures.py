@@ -1093,17 +1093,27 @@ def _grid(frame: pd.DataFrame, learner: str, value: str = "error") -> np.ndarray
     return out
 
 
+#: Type sizes for the heatmaps, which are set larger than the rest of the
+#: figures on purpose. These two figures go on slides, where the layout gives a
+#: wide image the width of the frame and whatever height the notes leave -- a
+#: four-panel figure is therefore scaled to about 0.7x. At the default 7.5pt the
+#: cell values land near 5pt on the projected slide, which is not readable from
+#: a room. Sized so they survive the scaling; standalone they look generous.
+HEATMAP_TITLE_PT = 12
+HEATMAP_CELL_PT = 10.5
+
+
 def _heatmap(axis, matrix, title, cmap, vmin=None, vmax=None, fmt="{:.3f}"):
     image = axis.imshow(matrix, cmap=cmap, vmin=vmin, vmax=vmax, aspect="auto", origin="lower")
     axis.set_xticks(range(len(X4_SAMPLES)), [str(v) for v in X4_SAMPLES])
     axis.set_yticks(range(len(X4_PI)), [str(v) for v in X4_PI])
     axis.set_xlabel("$n$  (samples per agent per step)")
-    axis.set_title(title, fontsize=10)
+    axis.set_title(title, fontsize=HEATMAP_TITLE_PT)
     axis.grid(False)
     for i in range(matrix.shape[0]):
         for j in range(matrix.shape[1]):
             if np.isnan(matrix[i, j]):
-                axis.text(j, i, "--", ha="center", va="center", fontsize=7, color=MUTED)
+                axis.text(j, i, "--", ha="center", va="center", fontsize=HEATMAP_CELL_PT, color=MUTED)
                 continue
             # Ink on light cells, paper on dark ones -- decided from the cell's
             # *actual* mapped luminance rather than from where the value sits in
@@ -1119,7 +1129,7 @@ def _heatmap(axis, matrix, title, cmap, vmin=None, vmax=None, fmt="{:.3f}"):
                 fmt.format(matrix[i, j]),
                 ha="center",
                 va="center",
-                fontsize=7.5,
+                fontsize=HEATMAP_CELL_PT,
                 color=INK if luminance > 0.55 else SURFACE,
             )
     return image
@@ -1147,7 +1157,7 @@ def draw_f6a(collected: Collected) -> None:
     central = _grid(tuned, "centralized_sgd")
     plain = _grid(tuned, "diffusion_sgd_atc_plain")
 
-    figure, axes = plt.subplots(1, 4, figsize=(19.2, 4.0), constrained_layout=True)
+    figure, axes = plt.subplots(1, 4, figsize=(16.8, 4.0), constrained_layout=True)
     im0 = _heatmap(axes[0], atc, "ATC error", SEQUENTIAL)
     im1 = _heatmap(axes[1], local - atc, "cooperation gap  (local $-$ ATC)", SEQUENTIAL)
     limit = np.nanmax(np.abs(atc - central)) or 0.01
@@ -1169,7 +1179,7 @@ def draw_f6a(collected: Collected) -> None:
         despine(axis)
     figure.suptitle(
         "F6a  The sparsity plane, each method at its own tuned lr per cell",
-        y=1.04,
+        y=1.10,
         fontsize=11,
         color=INK,
         weight="bold",
@@ -1199,7 +1209,7 @@ def draw_f6b(collected: Collected) -> None:
 
     names = [n for n in ORDER if n in set(merged.learner)]
     figure, axes = plt.subplots(
-        1, len(names), figsize=(4.8 * len(names), 4.0), constrained_layout=True
+        1, len(names), figsize=(4.2 * len(names), 4.0), constrained_layout=True
     )
     axes = np.atleast_1d(axes)
     limit = float(np.nanmax(np.abs(_grid(merged, names[0], "penalty"))))
@@ -1218,7 +1228,7 @@ def draw_f6b(collected: Collected) -> None:
     axes[0].set_ylabel("$\\pi_{\\mathrm{lab}}$")
     figure.suptitle(
         "F6b  The cost of not re-tuning:  error(headline lr) $-$ error(best lr for this cell)",
-        y=1.04,
+        y=1.10,
         fontsize=11,
         color=INK,
         weight="bold",
