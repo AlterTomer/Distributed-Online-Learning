@@ -1113,7 +1113,9 @@ def _heatmap(axis, matrix, title, cmap, vmin=None, vmax=None, fmt="{:.3f}"):
     for i in range(matrix.shape[0]):
         for j in range(matrix.shape[1]):
             if np.isnan(matrix[i, j]):
-                axis.text(j, i, "--", ha="center", va="center", fontsize=HEATMAP_CELL_PT, color=MUTED)
+                axis.text(
+                    j, i, "--", ha="center", va="center", fontsize=HEATMAP_CELL_PT, color=MUTED
+                )
                 continue
             # Ink on light cells, paper on dark ones -- decided from the cell's
             # *actual* mapped luminance rather than from where the value sits in
