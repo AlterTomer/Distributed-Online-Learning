@@ -508,7 +508,7 @@ def build() -> Path:
         document,
         "**Non-IID is where cooperation matters most.** Under strong skew (",
         ("m", "β = 0.1"),
-        ") an agent sees three or four digits; alone it reaches ",
+        ") an agent has meaningful data on about three of the ten digits; alone it reaches ",
         ("m", f"{x6[0.1].groupby('learner').err.mean()['local_only']:.3f}"),
         ", near chance, while the same agent inside a diffusion network reaches ",
         ("m", f"{x6[0.1].groupby('learner').err.mean()['diffusion_sgd_atc']:.3f}"),

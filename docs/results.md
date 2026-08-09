@@ -792,7 +792,8 @@ $p$ buys, only compensates for the latter.
 
 **This is the clearest answer to Q2 in the whole benchmark.** The cooperation gap
 runs 0.062 → 0.527, an **8.5x increase** from IID to strong skew. Under
-$\beta = 0.1$ an agent sees only three or four digits, so alone it cannot learn
+$\beta = 0.1$ an agent nominally touches 5.5 of the ten digits but has
+meaningful data on about three (perplexity 2.9; `environment.md` §3), so alone it cannot learn
 the rest at all — `local_only` sits at 0.63, near chance — while the same agent
 inside a diffusion network reaches 0.103.
 

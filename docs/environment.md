@@ -223,6 +223,82 @@ composition varies, so X6 measures label skew rather than skew confounded with
 data volume — and so the config-time budget check, which assumes equal shards,
 remains meaningful.
 
+#### What "label skew" means here
+
+Every agent holds the same *number* of images. What differs is **which digits**
+they are. Agent 3 might hold mostly 2s and 3s while agent 7 holds mostly 8s and
+9s. Nothing about the images themselves is changed — the skew is entirely in
+*who got which*, which is why `centralized_sgd`, which pools every shard, is
+provably flat across $\beta$ and serves as a free correctness check (F9).
+
+It is a statement about the **marginal $P(y)$ per agent**, not about $P(x \mid
+y)$. A "3" looks the same on every agent; some agents just see very few of them.
+This is the standard federated-learning notion of non-IID, and it is the one that
+matters for diffusion: an agent whose local gradient only ever points toward
+"separate 2 from 3" needs its neighbours to learn anything about 8s.
+
+Reported as one number by `Partition.skew`: the mean total-variation distance
+between an agent's class histogram and the pooled one. $0$ means every agent
+mirrors the global data; it approaches $1 - 1/K = 0.9$ when each agent holds a
+single class.
+
+#### How $\beta$ controls it
+
+Each agent draws a preference vector over the $K = 10$ classes,
+
+$$\bm q_v \sim \mathrm{Dir}(\beta \bm 1_K),$$
+
+and is then filled to its target size, taking as much of each class as $\bm q_v$
+asks for and the remaining pool can supply. $\beta$ is the **concentration**: it
+is the only knob, and it controls how far a typical draw strays from the uniform
+vector $\bm 1/K$.
+
+The mechanism is the variance of a Dirichlet coordinate,
+
+$$\operatorname{Var}(q_{v,k}) = \frac{\tfrac1K\left(1 - \tfrac1K\right)}{\beta K + 1},$$
+
+which is $O(1/\beta)$. So:
+
+- **Small $\beta$ (0.1).** Draws are extreme — most of the mass lands on a couple
+  of coordinates and the rest are near zero. Agents get sharply different
+  preference vectors, hence sharply different digits.
+- **Large $\beta$ (100).** Draws concentrate on the mean $\bm 1/K$. Every agent's
+  preference is *nearly the same uniform vector*, so every agent's shard is
+  nearly a uniform sample of the pool. As $\beta \to \infty$ this converges to
+  IID.
+
+**"More independence" is the wrong intuition, and worth being precise about.**
+The $\bm q_v$ are drawn independently at *every* $\beta$ — that never changes.
+What large $\beta$ does is make them **nearly identical**, because they all
+concentrate on the same mean. The consequence is that an agent's shard becomes
+*uninformative about which agent it is*: knowing you are looking at agent 7's
+data tells you nothing about which digits you will see. That statistical
+independence between **agent identity and label** is what "IID across agents"
+names, and it is produced by low variance in $\bm q_v$, not by any change in how
+the $\bm q_v$ are drawn.
+
+Measured on MNIST, $N = 10$, five seeds:
+
+| $\beta$ | skew (mean TV) | classes present | classes with ≥5 % of the shard | perplexity $e^{H(\bm q_v)}$ |
+|---|---|---|---|---|
+| 0.1 | 0.647 | 5.5 [3–8] | 3.1 [1–5] | 2.9 |
+| 1.0 | 0.363 | 9.3 [6–10] | 6.0 [4–9] | 6.5 |
+| 100 | 0.060 | 9.9 [9–10] | 9.9 [8–10] | 9.8 |
+
+Two counts are given because they answer different questions. **Classes
+present** counts anything with at least one image, so it overstates what an agent
+can actually learn — a shard with 400 images of one digit and three of another
+"has" two classes. **Perplexity** is the effective count, $e^{H}$ of the shard's
+class histogram, and equals $K$ exactly when the shard is uniform. At $\beta =
+0.1$ an agent nominally touches 5.5 digits but has meaningful data on about 3.
+At $\beta = 100$ the two agree at ~9.9, which is what "IID" should look like.
+
+The skew column never reaches its 0.9 ceiling because sizes are held equal: an
+agent must be filled to its quota even after its preferred classes are exhausted,
+so it takes some of everything. That is a deliberate trade — see the note on
+`balance_sizes` in the module docstring — and it makes $\beta = 0.1$ a *milder*
+regime than the classical unbalanced Dirichlet partition, not a harsher one.
+
 ### Stream — `env/stream.py`
 
 Which of an agent's images arrive when. Label availability $\pi_{\text{lab}}$ is

@@ -505,10 +505,54 @@ Otherwise skew and shard starvation would be confounded.
 
 Two panels: current versus backward error over time, and their paired gap.
 
-The `backward` evalset scores the model at a rotation it visited *earlier* and
-has since left, so its gap to `current` is forgetting. It is only meaningful
-under a schedule that revisits states — 97 % of steps here against 67 % under
-linear and 0 % under stationary.
+### The three terms this figure depends on
+
+**Held-out error rate.** Fraction misclassified on the MNIST **test** split —
+images never used for training by anyone (guarantee G3). "Held out" is what makes
+it a measure of *generalisation* rather than of memorisation: an error rate
+computed on the training stream would fall simply by the model memorising the
+images it just saw. Both curves in the left panel are held-out; they differ only
+in **which rotation** the test images are drawn at.
+
+**"A rotation left behind."** The task drifts: at step $t$ every training image
+is rotated by $\varphi(t)$, and under X7's sinusoidal schedule $\varphi$ swings
+$\pm30°$ and comes back. So "the task" at $t = 200$ and "the task" at $t = 700$
+are genuinely different classification problems on the same digits.
+
+The **`backward`** evalset scores the *current* model on the test split rendered
+at a rotation the model has already visited and moved away from:
+
+$$t' = \max\{\,s < t \;:\; |\varphi(s) - \varphi(t)| \ge \Delta\varphi\,\},
+\qquad \Delta\varphi = 15°$$
+
+— the **most recent earlier step far enough away in rotation**. Two properties
+matter and neither is free:
+
+- it is a state the model **actually trained on**, so a failure there is
+  forgetting rather than never having learned;
+- it is **separated** from the current state, so the two probes are not asking
+  the same question.
+
+Anchoring by *rotation* rather than by a fixed step offset $t - \Delta$ is the
+reason this works. A step offset degenerates: set $\Delta$ to the sinusoidal
+period and the separation is *identically zero* — the schedule chosen to expose
+forgetting could not measure it. Where no qualifying $t'$ exists the probe is
+**undefined and reported as such**, never as "no forgetting". It is defined for
+97 % of steps here, against 67 % under linear drift and 0 % under stationary.
+
+**Forgetting = backward − current.** Both terms are the same model, at the same
+step, on the same test images — only the rotation differs. So the subtraction
+cancels everything except the effect of the rotation:
+
+- **positive** → worse on the old state than the current one → the model has
+  **forgotten** what it knew there;
+- **zero** → it handles both equally → no forgetting;
+- **negative** → *better* on the old state → the model is still tuned to where
+  the task used to be, i.e. it is **lagging** behind the drift.
+
+The sign is the whole content of the second panel. It is computed paired within
+seed (same seed's backward minus that same seed's current, then averaged), so
+seed-to-seed noise common to both cancels instead of adding.
 
 **⚠ The instantaneous gap is dominated by phase, not by forgetting.** It swings
 ±0.05 with the drift cycle, and the sign of any average depends on how much of a
@@ -522,6 +566,20 @@ methods sit at 1.1–1.6 σ from zero: no measurable forgetting. `local_only` is
 significantly *negative* at 10 σ — better on a state it has left than on the
 current one, which is **lag**, not retention: a slow learner's parameters trail
 the world.
+
+**Reading the two panels together.** In the left panel `local_only`'s solid
+(current) curve sits well above everyone else's *and* above its own dashed
+(backward) curve — it is the only method whose past beats its present. The other
+three have solid and dashed curves interleaving, crossing as the cycle turns:
+that interleaving is what "no forgetting" looks like. The oscillation visible in
+both panels is the drift cycle itself, not instability.
+
+**Why the negative result is the useful one.** A benchmark that showed heavy
+forgetting would make continual-learning machinery the obvious next step. This
+one does not, which says the Diff-EKF's case has to be argued somewhere else —
+tracking, uncertainty, or the sparse regime — rather than on retention. It also
+makes the *lag* reading concrete: `local_only`'s problem under drift is that it
+learns too slowly to keep up, and cooperation is what fixes that.
 
 ---
 

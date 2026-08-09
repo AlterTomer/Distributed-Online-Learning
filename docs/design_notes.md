@@ -1329,3 +1329,47 @@ than the dev machine uses. Acceptable, but it means CI is not bit-identical to
 local runs and the difference should be deliberate. Also unresolved: whether to
 run mypy on 3.11 in CI to genuinely enforce the stated floor, since locally it
 is pinned to 3.13 to avoid a `scipy-stubs` parse error.
+
+### ❓ Q5. Diff-EKF `adapt_scope`: `local` or `one_hop`?
+
+**Decide before phase 5 starts.** In diffusion SGD the adapt step is
+unambiguous — agent $v$ takes a gradient on its own batch, and using a
+neighbour's batch would mean shipping data, which the setting forbids. The EKF
+has a genuine second option, because its measurement update consumes
+$(\bm H, \bm R, \bm y)$ rather than raw samples, and a neighbour can send those
+without sending an image.
+
+**`local`.** Agent $v$ updates on its own measurement only, then combines:
+
+$$\bm\theta_v^+ = \bm\theta_v + \bm K_v(\bm y_v - h(\bm\theta_v)),
+\qquad \bm\theta_v \leftarrow \sum_u a_{uv}\bm\theta_u^+$$
+
+**`one_hop`.** Agent $v$ additionally assimilates its neighbours' measurements,
+stacking $\{(\bm H_u, \bm R_u, \bm y_u)\}_{u \in \mathcal N_v}$ (or applying them
+sequentially) before combining.
+
+| | `local` | `one_hop` |
+|---|---|---|
+| Matches the SGD baselines | **Yes** — same information per step, so F1/F3/F6 comparisons are like-for-like | No — it sees $\deg(v)+1$ batches to ATC's one, so a win is confounded with seeing more data |
+| Message size | $p$ (mean), or $p + \tfrac{p(p+1)}2$ with covariance | $+\ \deg(v) \cdot (mp + m^2 + m)$ for the Jacobian, noise and residual, $m$ = measurement dim |
+| Effective batch under sparse labels | Same $\eta \cdot n_\text{active}/N$ scaling as ATC (`results.md` §9.3) | Larger, and **exactly where ATC's automatic scaling helps** — likely its strongest regime |
+| Non-IID ($\beta = 0.1$) | Relies on the combine to spread class information | Gets neighbours' classes directly in one step, so consensus is not the only channel |
+| Convergence theory | Standard diffusion-EKF results apply | Closer to a distributed/consensus EKF; correlated innovations across agents complicate the covariance bookkeeping |
+| Implementation | Straightforward | Needs a second message type in the ledger and a Jacobian that is meaningful to a *neighbour's* parameters |
+| Risk | Might underperform for a boring reason (too little information per step) | Might outperform for a boring reason (too much) |
+
+**The confound is the crux.** Q1 of the workplan is "what does the filter buy
+over backpropagation?", and `one_hop` changes two things at once — the estimator
+*and* the information per step — so a positive result would not answer it.
+
+**Provisional recommendation: `local` for the headline, `one_hop` as an
+ablation.** `local` keeps every existing figure a valid comparison. Then run
+`one_hop` on X4 and X6 only, where the mechanism above predicts it should help
+most, and report it as "what an extra hop of measurement sharing buys" — a
+separate, well-posed question rather than a contaminated headline. Cost is one
+extra sweep, which §10.1c already accepted.
+
+**Open sub-question if `one_hop` is chosen as the headline instead:** the
+communication ledger needs a fair matched baseline, presumably an SGD variant
+that also exchanges $\deg(v)$ gradients per step. That baseline does not exist
+yet and would have to be built and tuned.

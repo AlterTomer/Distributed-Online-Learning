@@ -127,7 +127,8 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                     setup="Shard **sizes** are held equal; only the label composition varies.",
                     data="Training-split labels, partitioned at setup.",
                     why="Holding sizes fixed is what stops skew being confounded with shard "
-                    "starvation. At β = 0.1 an agent sees three or four digits — the regime "
+                    "starvation. At β = 0.1 an agent nominally touches 5.5 digits but has meaningful "
+                    "data on about three (perplexity 2.9) — the regime "
                     "where cooperation turns out to matter most.",
                 ),
                 dict(
