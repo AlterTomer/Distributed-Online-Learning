@@ -183,21 +183,20 @@ def sections() -> list[tuple[str, str, list[Slide]]]:
                     file="13_f2_error_vs_communication.png",
                     title="F2 — error against bandwidth",
                     claim="The curves cross: cheapest is not the same as best.",
-                    shows="F1 replotted against **cumulative scalars transmitted**: the "
-                    "running total of numbers the whole network has put on the wire since t = 0, "
-                    "log axis. Not rounds — every method does one per step, so what "
-                    "differs is message *size*.",
-                    setup="Charged **(1 + |mixed|) × p × 2 n_edges** per step: every directed "
-                    "link carries p = 2908 floats for θ, plus another p per mixed "
-                    "optimizer moment. So ATC sends 2p per link, the payload-matched variant p. "
-                    "Centralized and local-only are horizontal — off-axis, and silent.",
+                    shows="F1 replotted against **cumulative scalars transmitted**: every number "
+                    "the network has put on the wire since t = 0, log axis. Not rounds — "
+                    "every method does one per step, so what differs is message *size*.",
+                    setup="Charged **(1 + |mixed|) × p × 2 n_edges** per step: each directed "
+                    "link carries p = 2908 floats for θ, plus p per mixed optimizer "
+                    "moment — so ATC sends 2p per link, the payload-matched variant p. "
+                    "Centralized and local-only are horizontal: off-axis, and silent.",
                     data="X1 and X2, ledger recorded per step.",
-                    why="Bandwidth, not wall-clock, is what binds a real deployment. F1 asks "
-                    "'best after 1500 steps'; F2 asks 'best per scalar sent', and they disagree: "
-                    "at equal time momentum ATC wins by 0.013, at equal bandwidth the "
-                    "payload-matched variant leads until ≈2×10⁷ scalars. "
-                    "**Diff-EKF's claim is stated on this axis** — a filter sending a mean "
-                    "but no covariance is a p-per-link method.",
+                    why="**At equal bandwidth the payload-matched variant has taken twice as many "
+                    "steps** — that is the flip. It wins when doubling steps beats "
+                    "momentum per step: 0.054 vs 0.020 at t = 100, but 0.012 vs 0.010 by "
+                    "t = 700 as the curve flattens toward e* = 0.047. Paired within seed it "
+                    "leads significantly only to ≈1.2×10⁷ scalars; past that "
+                    "neither leads — **momentum never overtakes here**.",
                 ),
                 dict(
                     file="16_f3_price_of_connectivity.png",

@@ -141,10 +141,56 @@ never speaks. Plotting either at $x=0$ would read as "free and this good"
 (design note D30). Both are labelled in place, because three different things use
 dashed horizontals across F1 and F2.
 
-**What to look for: whether the curves cross.** They do — ATC (payload-matched) leads for
-most of the run and meets the momentum variant only around $2\times10^7$ scalars.
-At equal *time* momentum ATC wins by 0.013; at equal *bandwidth* the payload-matched variant wins
-until quite late. This is the axis on which phase 5's claim is actually stated.
+**What to look for: the two payload variants change places.** At equal *time*
+momentum ATC wins by 0.013 (~4x the seed noise); at equal *bandwidth* the
+payload-matched variant is ahead. This is the axis on which phase 5's claim is
+actually stated.
+
+### Why the ordering flips — a step-count identity
+
+Not a subtlety about momentum. **At equal bandwidth the payload-matched variant
+has taken twice as many steps.** Momentum ships $2p$ per link ($\bm\theta$ and
+its buffer), plain ships $p$ — 116 320 against 58 160 scalars per step on the
+ring — so a budget $B$ buys momentum $t$ steps and plain $2t$. The comparison is
+therefore $e_\text{plain}(2t)$ against $e_\text{momentum}(t)$, and plain wins
+exactly when
+
+$$\underbrace{e_\text{plain}(t) - e_\text{plain}(2t)}_{\text{what doubling the steps buys}}
+\;>\;
+\underbrace{e_\text{plain}(t) - e_\text{momentum}(t)}_{\text{what momentum buys per step}}$$
+
+| $t$ | doubling gain | momentum advantage | equal-bandwidth winner |
+|---|---|---|---|
+| 100 | **0.054** | 0.020 | payload-matched |
+| 300 | 0.020 | 0.014 | payload-matched |
+| 500 | 0.018 | 0.020 | ~tie |
+| 700 | 0.012 | 0.010 | ~tie |
+
+**The two terms are substitutes.** Momentum and extra steps do the same job —
+reduce gradient noise — but buy it from different places: momentum averages over
+*time*, extracting more from gradients already paid for, while extra steps
+average over *more data*. So the winner is whichever is cheaper per unit of noise
+reduction. Early the curve is steep and far from $e^\star = 0.047$, so fresh data
+dominates. Late it flattens and doubling buys 0.012 instead of 0.054; momentum's
+edge decays too, but more slowly, so the gap closes.
+
+**How far the claim actually goes.** Paired within seed, the payload-matched
+variant is significantly ahead (>2 s.e.) only up to $\approx 1.2\times10^7$
+scalars; past that the difference is **not significantly different from zero in
+either direction** at any point measured. So "the curves cross" overstates it:
+the supported statement is *payload-matched wins early and decisively, then the
+two become indistinguishable per scalar sent*, while momentum wins clearly per
+step. **Momentum never establishes a significant lead on this axis** within the
+horizon.
+
+⚠ The equal-bandwidth comparison can only run to $t = 750$, half the horizon,
+because it needs the plain curve at $2t$. A claim about the far end of this axis
+is not available from a $T = 1500$ run.
+
+**For phase 5** this is the favourable reading. A Diff-EKF sending a mean and no
+covariance is a $p$-per-link method, so it inherits the doubled step count, and
+on the axis where its claim is stated the $2p$ method never pulls significantly
+ahead.
 
 ---
 
