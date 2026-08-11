@@ -473,7 +473,7 @@ Two further decisions were taken at the same time that were not previously liste
 | # | Question | Decision | Where it lands |
 |---|---|---|---|
 | 12 | **What does halving the message actually cost?** | **0.007-0.046, and the cost has a shape.** Across the tuned X4 plane it grows ~2.5x toward the sparse corner along each axis; across three decades of label skew it is **flat** (0.015 / 0.013 / 0.015). Both X4 axes control how much signal one step carries, and the extra $p$ scalars buy momentum -- worth most where each gradient is noisiest, worth nothing extra when gradients are merely *different* from a neighbour's. **The second half of the message pays under sparsity, not under heterogeneity**, which bounds a $p$-per-link Diff-EKF at ~0.046 worst case and says where to look for it. | D45, `results.md` §9.2, §10, F6a panel 4 |
-| 13 | **How is a quantity with a construction-fixed sign protected?** | **By a test, not by looking at the figure.** F6b's penalty and F6a's payload cost are both non-negative by construction and both produced impossible values (-0.042; exactly 0.000 in all twelve cells) that rendered as unremarkable cells. Now asserted in `tests/test_figures.py`, and `make_summary_docx` raises rather than printing a negative penalty. | D44 |
+| 13 | **How is a quantity with a construction-fixed sign protected?** | **By a test, not by looking at the figure.** F6b's penalty and F6a's payload cost are both non-negative by construction and both produced impossible values (-0.042; exactly 0.000 in all twelve cells) that rendered as unremarkable cells. Now asserted in `tests/test_figures.py`; the out-of-repo document builders raise rather than printing a negative penalty. | D44 |
 
 ### 10.2 Still open
 

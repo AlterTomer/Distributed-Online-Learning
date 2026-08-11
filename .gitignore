@@ -25,3 +25,9 @@ htmlcov/
 # OS
 Thumbs.db
 .DS_Store
+
+# Meeting deliverables: the .docx summary and .pptx deck builders. They write to
+# a personal OneDrive folder and produce supervisor-facing documents, so they
+# help nobody run or check the benchmark. Kept on disk, out of the repo.
+/scripts/make_presentation.py
+/scripts/make_summary_docx.py

@@ -73,8 +73,6 @@ python scripts/run_sparsity_sweep.py             # X4 and X6
 python scripts/sweep_hyperparameters.py          # the tuning grid
 python scripts/make_figures.py                   # F1-F10
 python scripts/make_figures.py --from-cache --dpi 300
-python scripts/make_summary_docx.py               # the 3-page technical summary
-python scripts/make_presentation.py               # the slide deck
 ```
 
 Runs and sweeps are **resumable and exact**: the loop consumes no randomness, so

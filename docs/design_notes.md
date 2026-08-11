@@ -1263,10 +1263,13 @@ ATC. Carrying no optimizer state is precisely what makes its message $p$ per lin
 rather than $2p$, so it is now tuned within the plain-SGD arm only.
 
 **What was done about it.** Two tests in `tests/test_figures.py` assert the
-signs, and `make_summary_docx` raises rather than printing a negative penalty
-into a supervisor-facing document. `make_summary_docx` also now imports
-`x4_tuned`/`x4_headline` from `make_figures` instead of rebuilding the tables,
-because it had independently reproduced bug (2).
+signs. The meeting-document builders — which live outside the repo, see D46 —
+additionally raise rather than printing a negative penalty into a
+supervisor-facing document, and now import `x4_tuned`/`x4_headline` from
+`make_figures` instead of rebuilding the tables, because one of them had
+independently reproduced bug (2). **The tracked guard is the test**; the
+builders' check is a second line of defence on a document nobody can review
+before it is sent.
 
 **The general point.** Every derived quantity in this project should be asked
 "what values can this not take?" before it is plotted. Where the answer is
@@ -1317,6 +1320,34 @@ was fine; treating the top of its range as a point prediction, and then treating
 "optimum at the boundary" as evidence of truncation rather than as a hypothesis
 to test, was the error. **A boundary optimum is a question, not a conclusion** —
 and it costs 90 minutes of compute to answer.
+
+### ✅ D46. The meeting-document builders live outside the repo
+
+`scripts/make_presentation.py` and `scripts/make_summary_docx.py` are untracked
+and `.gitignore`d. They stay on disk — they are rebuilt before every supervisor
+meeting — but they are not part of the published benchmark.
+
+**The criterion.** A file belongs in the repo if it helps someone else *run the
+models, check them, or understand the environment*. These two do neither: they
+render a three-page .docx and a 25-slide .pptx aimed at one reader, and they
+write to a personal OneDrive path. Someone cloning this repository to reproduce
+X1 or to add a learner gains nothing from them and has to read past them.
+
+**What went with them.** `tests/test_figures.py` had a slide-overflow test that
+imported `make_presentation`; it was removed rather than skipped, because a test
+that can only ever skip in CI is noise. The builder still refuses to write an
+overflowing deck, which is where that check belongs — it guards a local action.
+
+**What deliberately stayed.** `make_figures.py` (the F1–F10 pipeline, the results
+of record) and `make_preliminary_figures.py` — that one renders the environment
+illustrations, and `environment.md` §4 points at it as the way to *inspect* what
+the agents actually see. It is a checking tool that happens to also produce
+slides material.
+
+**Known wart.** Both surviving figure scripts still write to a hardcoded
+`C:\Users\alter\OneDrive\...` path, so a fresh clone cannot run them without
+editing a constant. That is the same criterion failing in a smaller way, and it
+is not yet fixed.
 
 ---
 
