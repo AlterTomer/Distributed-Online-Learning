@@ -79,6 +79,15 @@ Runs and sweeps are **resumable and exact**: the loop consumes no randomness, so
 a resumed run reproduces an uninterrupted one bit-for-bit, and re-running a sweep
 skips cells already on disk.
 
+Figures land in a gitignored `figures/` at the repository root. To publish them
+elsewhere -- a shared drive, a paper's asset folder -- set `DEKF_FIGURES_DIR`
+rather than editing a script; a relative value resolves against the repository
+root, so it means the same thing from any working directory.
+
+```bash
+DEKF_FIGURES_DIR="/path/to/a/shared/folder" python scripts/make_figures.py
+```
+
 ## Tasks
 
 `make` is not available on Windows, so the targets live in `tasks.py` and the
@@ -111,6 +120,8 @@ scripts/            runnable entry points: experiments, sweeps, figures
 tests/              pytest; test_exactness.py is the gate
 results/            gitignored; one parquet per seed, plus a resumable checkpoint
 data/               gitignored MNIST cache and the offline reference e*
+figures/            gitignored PNGs and their cached figure_data/ tables;
+                    relocatable with DEKF_FIGURES_DIR
 ```
 
 Tests import the *installed* package rather than `src/` directly, so packaging

@@ -178,13 +178,28 @@ gradients**, because averaging commutes with linear maps:
 | optimizer | mixing | residual | |
 |---|---|---|---|
 | plain SGD | — | 9.99e-16 | exact |
-| momentum $\beta{=}0.9$ | mixed | 7.22e-16 | exact |
-| momentum $\beta{=}0.9$ | not mixed | 7.77e-16 | exact |
-| AdamW | all | 5.24 | **breaks** |
+| momentum $\beta{=}0.9$ | mixed | 1.33e-15 | exact |
+| momentum $\beta{=}0.9$ | not mixed | 9.99e-16 | exact |
+| AdamW | all | 0.76 | **breaks** |
 
 Heavy-ball is linear — $\bm m \leftarrow \beta\bm m + \bm g$ — so
 $\frac1N\sum_v\bm m_v$ *is* the centralized momentum recursion. Adam's second
 moment carries $\bm g^2$, which is not.
+
+**Read the magnitudes, not the digits.** All four are 30 steps, complete graph,
+float64, at the tuned lr 0.01. The exact rows sit at float64 accumulation and
+move by a factor of two between torch versions and learning rates; AdamW's
+breakage scales with the step size (5.24 at the untuned lr 0.05). What is stable
+is the fourteen-order-of-magnitude gap, which is why the positive control asserts
+`residual > 1e6 * TOLERANCE` rather than a literal — the threshold trap of design
+note D41, which this row is where it was first hit.
+
+**The unmixed-momentum row no longer builds from a config.** The D36 guard
+rejects any stateful optimizer with `mix_optimizer_state: none`, on the strength
+of the D-Adam finding. It is reproduced by relaxing the field after validation,
+and it is worth keeping in the table because it separates two claims that are
+easy to conflate: the *algebra* is indifferent to whether the buffers are
+exchanged, and the guard exists for the adaptive case, not for heavy-ball.
 
 Plain SGD is required as the **canonical** configuration so the check leans on
 nothing but the diffusion algebra — not because momentum would break it (design

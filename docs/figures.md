@@ -16,6 +16,22 @@ python scripts/make_figures.py --from-cache   # redraw without re-reading result
 python scripts/make_figures.py --dpi 300      # publication resolution
 ```
 
+Runnable from the IDE as-is: the module-level `ONLY` selects one figure, so a
+breakpoint in a single panel needs no arguments.
+
+**Where they land.** `figures/` at the repository root by default — gitignored,
+because a PNG in the history goes stale the moment a run is re-tuned. Publish
+somewhere else without editing anything by setting `DEKF_FIGURES_DIR`, absolute
+or repo-root-relative:
+
+```
+DEKF_FIGURES_DIR="/path/to/a/shared/folder" python scripts/make_figures.py
+```
+
+Set it once in the shell profile or the IDE run configuration and every script
+that writes or reads a figure follows — `make_preliminary_figures.py` too. See
+`src/dekf_bench/utils/paths.py`.
+
 | id | file | source |
 |---|---|---|
 | F1 | `12_f1_error_vs_time.png` | X1, X2 |
@@ -33,7 +49,7 @@ python scripts/make_figures.py --dpi 300      # publication resolution
 ### Two stages, and why
 
 **Collect** reduces ~775 000 raw rows per experiment to the few hundred points a
-figure actually draws, and writes them to `preliminary work/figure_data/`.
+figure actually draws, and writes them to `figure_data/` beside the PNGs.
 **Draw** renders from that.
 
 So changing a label, a colour, or the resolution is a second of work against a

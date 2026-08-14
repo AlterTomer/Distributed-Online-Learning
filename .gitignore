@@ -21,6 +21,9 @@ htmlcov/
 # matches src/dekf_bench/data/ and silently drops the package from commits.
 /data/
 /results/
+# The default figure output directory (utils/paths.py). Generated: a PNG in the
+# history goes stale the moment a run is re-tuned.
+/figures/
 
 # OS
 Thumbs.db

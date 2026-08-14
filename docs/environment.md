@@ -334,7 +334,9 @@ deliberate in-place mutation so you can watch G5 fire.
 
 `scripts/make_preliminary_figures.py` renders figure 10, which shows what each
 agent receives at four steps under both regimes, with identical indices in both
-halves so the only visible difference is the rotation.
+halves so the only visible difference is the rotation. It writes to the
+gitignored `figures/` at the repository root, or wherever `DEKF_FIGURES_DIR`
+points — see `docs/figures.md` §1.
 
 ---
 

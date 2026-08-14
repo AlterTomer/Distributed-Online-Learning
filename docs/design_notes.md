@@ -916,6 +916,14 @@ indistinguishable from one that checks nothing. Three other controls exist —
 float32 exceeds the tolerance, a ring breaks by $>10^{-6}$, and unequal batch
 sizes break it.
 
+**The numbers in that table are snapshots; the conclusion is not.** Re-measured
+at the tuned lr 0.01 the exact rows read 9.99e-16, 1.33e-15 and 9.99e-16 and
+AdamW reads 0.76 — float64 accumulation moves by a factor of two, and AdamW's
+breakage scales with the step size. `learners.md` §3 carries the current values
+and says so; D41 records the test that broke by asserting one of them literally.
+The unmixed row also stopped being constructible when D36 added the guard, and is
+now reproduced by relaxing the field after validation.
+
 **Note the limit of the result.** This holds on a *complete* graph, where every
 agent linearises at the same $\bm\theta$. It says nothing about a ring, where
 the agents differ and $\nabla L_v$ is evaluated at different points — and
@@ -1344,10 +1352,22 @@ illustrations, and `environment.md` §4 points at it as the way to *inspect* wha
 the agents actually see. It is a checking tool that happens to also produce
 slides material.
 
-**Known wart.** Both surviving figure scripts still write to a hardcoded
-`C:\Users\alter\OneDrive\...` path, so a fresh clone cannot run them without
-editing a constant. That is the same criterion failing in a smaller way, and it
-is not yet fixed.
+**The wart this exposed, now fixed.** Both surviving figure scripts wrote to a
+hardcoded `C:\Users\alter\OneDrive\...` path — the same criterion failing in a
+smaller way, since a fresh clone could not run them without editing a constant,
+and a reviewer who did run them would find the output nowhere they thought to
+look. `utils/paths.py` now resolves it: the default is repo-relative `figures/`
+(gitignored), and publishing elsewhere is `DEKF_FIGURES_DIR` rather than an edit.
+
+Two details worth keeping. The override is read on **every call** rather than
+cached at import, so a test can point it at `tmp_path` without reloading the
+module. And a relative value resolves against the *repository root*, not the
+working directory, so `DEKF_FIGURES_DIR=figures` means one place whether the
+script is launched from the IDE, the repo root, or `scripts/`.
+
+The untracked builders import the same helper, which is why the deck and the
+.docx keep finding the PNGs `make_figures.py` wrote: one variable moves all four
+scripts together, and nothing can half-move.
 
 ---
 

@@ -56,11 +56,15 @@ sys.path.insert(0, str(ROOT / "src"))
 
 RESULTS = ROOT / "results"
 
+from dekf_bench.utils.paths import figure_data_dir, figures_dir  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Edit these, then run the file.
 # ---------------------------------------------------------------------------
-OUT_DIR = Path(r"C:\Users\alter\OneDrive\Desktop\PhD\Distributed Online Learning\preliminary work")
-DATA_DIR = OUT_DIR / "figure_data"
+#: Repo-relative `figures/` by default, so a fresh clone runs without editing
+#: anything. Publish elsewhere by setting DEKF_FIGURES_DIR -- see utils/paths.py.
+OUT_DIR = figures_dir()
+DATA_DIR = figure_data_dir()
 ONLY: str | None = None  # "f1" / "f2" / "f5" / "f8", or None for all
 SMOOTH = 25  # rolling window in steps for error-rate curves; 0 disables
 DPI = 160  # raise to 300 for print

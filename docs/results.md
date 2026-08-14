@@ -33,12 +33,21 @@ optimizer *linear in the gradients*:
 | optimizer | mixing | residual | |
 |---|---|---|---|
 | plain SGD | — | 9.99e-16 | exact |
-| momentum $\beta{=}0.9$ | mixed | 7.22e-16 | exact |
-| momentum $\beta{=}0.9$ | not mixed | 7.77e-16 | exact |
+| momentum $\beta{=}0.9$ | mixed | 1.33e-15 | exact |
+| momentum $\beta{=}0.9$ | not mixed | 9.99e-16 | exact |
 | AdamW | all | 0.76 | **breaks** |
 
+30 steps, complete graph, float64, tuned lr 0.01. The exact rows are float64
+accumulation and are not stable to two digits across torch versions or learning
+rates; AdamW's residual scales with the step size (5.24 at lr 0.05). Only the
+gap against the 1e-12 tolerance is a claim.
+
 AdamW breaking is the positive control: without a case that fails, a test that
-always passes is indistinguishable from one that checks nothing.
+always passes is indistinguishable from one that checks nothing. **It is not a
+convergence result** — the identity fails on the first step because Adam's second
+moment is nonlinear in $\bm g$, which is a different phenomenon from the D-Adam
+divergence in `WORKPLAN.md` §3.4. No experiment here runs AdamW to convergence:
+the tuning sweep grid is `optimizer` $\in$ {`sgd`, `sgd_momentum`} only.
 
 ---
 
