@@ -44,10 +44,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from dekf_bench.metrics.breaks import error_by_step  # noqa: E402
+from dekf_bench.metrics.recovery import RecoveryError, recovery_profile  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Edit these, then run the file.
@@ -72,44 +72,20 @@ def load(experiment: str) -> pd.DataFrame | None:
     return pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
 
 
-def jump_profile(
-    frame: pd.DataFrame, learner: str, jump_every: int
-) -> tuple[float, float, float, float]:
-    """(rise, recovered fraction, standing error, tolerance) for one cell.
+def jump_profile(frame: pd.DataFrame, learner: str, jump_every: int):
+    """The recovery summary for one cell, or ``None`` if it cannot be built.
 
-    Aligns every evaluation to the most recent shift, so all the shifts in a
-    run are pooled into one transient rather than being averaged away by a
-    single run-long mean.
+    The alignment itself lives in ``metrics/recovery.py`` and is tested there.
+    Keeping a second copy here is how the report and the figure would end up
+    disagreeing about the same run.
     """
-    per_seed = error_by_step(frame, "current", by_seed=True)
-    per_seed = per_seed[per_seed.learner == learner]
-    if per_seed.empty:
-        return (np.nan,) * 4
-
-    horizon = int(per_seed.t.max()) + 1
-    tolerance = RECOVERY_TOLERANCE_SEM * float(
-        per_seed.groupby("t").error.std().mean() / max(per_seed.seed.nunique(), 1) ** 0.5
-    )
-
-    rises: list[float] = []
-    recoveries: list[bool] = []
-    for _seed, part in per_seed.groupby("seed"):
-        series = part.set_index("t").error.sort_index()
-        steps = series.index.to_numpy()
-        for jump in range(jump_every, horizon, jump_every):
-            before = steps[steps < jump]
-            after = steps[(steps >= jump) & (steps < jump + jump_every)]
-            if not len(before) or not len(after):
-                continue
-            baseline = float(series.loc[before[-1]])
-            window = series.loc[after].to_numpy()
-            rises.append(float(window.max() - baseline))
-            recoveries.append(bool((window[1:] <= baseline + tolerance).any()))
-
-    standing = float(per_seed[per_seed.t >= horizon // 2].error.mean())
-    if not rises:
-        return (np.nan, np.nan, standing, tolerance)
-    return (float(np.mean(rises)), float(np.mean(recoveries)), standing, tolerance)
+    errors = error_by_step(frame, "current", by_seed=True)
+    horizon = int(errors.t.max()) + 1
+    try:
+        return recovery_profile(errors, learner, jump_every, horizon, RECOVERY_TOLERANCE_SEM)
+    except RecoveryError as error:
+        print(f"  ({learner} at jump_every={jump_every}: {error})")
+        return None
 
 
 def main() -> int:
@@ -117,7 +93,7 @@ def main() -> int:
     if "--learner" in sys.argv:
         learner = sys.argv[sys.argv.index("--learner") + 1]
 
-    results: dict[tuple[int, float], tuple[float, float, float, float]] = {}
+    results: dict[tuple[int, float], object] = {}
     missing: list[str] = []
     for jump_every, jump_degrees in itertools.product(JUMP_EVERY, JUMP_DEGREES):
         frame = load(cell_name(jump_every, jump_degrees))
@@ -133,11 +109,11 @@ def main() -> int:
     if missing:
         print(f"note: {len(missing)} cell(s) not yet run: {', '.join(missing)}\n")
 
-    print(f"X11 recovery under repeated shifts — {learner}\n")
-    for title, index in (
-        ("rise above pre-shift error", 0),
-        ("fraction recovered before next shift", 1),
-        ("standing error, second half", 2),
+    print(f"X11 recovery under repeated shifts -- {learner}\n")
+    for title, field in (
+        ("rise above pre-shift error", "rise"),
+        ("fraction recovered before next shift", "recovered"),
+        ("standing error, second half", "standing"),
     ):
         print(f"  {title}")
         header = "    t'\\J  " + "".join(f"{value:>10g}" for value in JUMP_DEGREES)
@@ -145,8 +121,8 @@ def main() -> int:
         for jump_every in JUMP_EVERY:
             cells = ""
             for jump_degrees in JUMP_DEGREES:
-                value = results.get((jump_every, jump_degrees))
-                cells += "         -" if value is None else f"{value[index]:>10.4f}"
+                profile = results.get((jump_every, jump_degrees))
+                cells += "         -" if profile is None else f"{getattr(profile, field):>10.4f}"
             print(f"    {jump_every:<5}{cells}")
         print()
 
@@ -161,11 +137,15 @@ def main() -> int:
             continue
         parts = []
         for jump_every, jump_degrees in sorted(cells):
-            rise, recovered, _standing, _tol = results[(jump_every, jump_degrees)]
+            profile = results[(jump_every, jump_degrees)]
+            if profile is None:
+                continue
             parts.append(
-                f"t'={jump_every} J={jump_degrees:g}: rise {rise:.4f}, recovered {recovered:.2f}"
+                f"t'={jump_every} J={jump_degrees:g}: rise {profile.rise:.4f}, "
+                f"recovered {profile.recovered:.2f}"
             )
-        print(f"    {speed:.4f}  " + " | ".join(parts))
+        if len(parts) > 1:
+            print(f"    {speed:.4f}  " + " | ".join(parts))
 
     print(
         "\n  'recovered' counts a shift as survived when the error returns to within "
