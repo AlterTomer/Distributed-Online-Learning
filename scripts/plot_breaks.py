@@ -37,7 +37,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from dekf_bench.env.drift import build_drift  # noqa: E402
-from dekf_bench.metrics.breaks import excess_break, paired_excess  # noqa: E402
+from dekf_bench.metrics.breaks import excess_break, paired_excess, pooled_sem  # noqa: E402
 from dekf_bench.utils.config import load_config  # noqa: E402
 from dekf_bench.utils.paths import figures_dir  # noqa: E402
 
@@ -49,6 +49,9 @@ CONTROL = "x9_control"
 BASELINE = "frozen_atc"
 NOISE_MULTIPLE = 3.0
 PERSISTENCE = 3
+#: Marked with a vertical line: the rate at which report_breaks.py compares
+#: methods head to head, so the figure and the table point at the same place.
+MATCHED_RATE = 0.10
 DPI = 200
 
 LABELS = {
@@ -80,7 +83,7 @@ def load(experiment: str) -> pd.DataFrame:
     return pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
 
 
-def draw(axis, excess, drift, horizon, learners, title) -> None:
+def draw(axis, excess, drift, horizon, learners, title, noise) -> None:
     for learner in learners:
         rows = excess[excess.learner == learner]
         grouped = rows.groupby("t").excess
@@ -107,7 +110,9 @@ def draw(axis, excess, drift, horizon, learners, title) -> None:
             linewidth=0,
         )
 
-        point = excess_break(excess, learner, drift, horizon, NOISE_MULTIPLE, PERSISTENCE)
+        point = excess_break(
+            excess, learner, drift, horizon, NOISE_MULTIPLE, PERSISTENCE, noise=noise
+        )
         if point.broke:
             axis.plot(
                 [point.rate_at_break],
@@ -121,6 +126,16 @@ def draw(axis, excess, drift, horizon, learners, title) -> None:
             )
 
     axis.axhline(0.0, color="#999999", lw=0.8, ls="--")
+    if drift.schedule.peak_rate(horizon) >= MATCHED_RATE:
+        axis.axvline(MATCHED_RATE, color="#bbbbbb", lw=0.9, ls=":", zorder=0)
+        axis.annotate(
+            f"compared at {MATCHED_RATE:g}",
+            xy=(MATCHED_RATE, axis.get_ylim()[1]),
+            xytext=(3, -10),
+            textcoords="offset points",
+            fontsize=7,
+            color="#777777",
+        )
     axis.set_xlabel("drift rate at that step (degrees / step)")
     axis.set_title(title, fontsize=10)
     axis.grid(alpha=0.25, lw=0.5)
@@ -138,9 +153,16 @@ def main() -> int:
     everything = [name for name in LABELS if name in set(excess.learner)]
     adapting = [name for name in everything if name != BASELINE]
 
+    # The same pooled bar report_breaks.py uses, and pooled over the same
+    # learners: the baseline is an order of magnitude noisier, so including it
+    # would raise the bar for everyone to accommodate a learner not competing.
+    # If the figure used per-learner noise its markers would disagree with the
+    # table, and a reader comparing them would have no way to tell which was right.
+    noise = pooled_sem(excess, adapting)
+
     figure, axes = plt.subplots(1, 2, figsize=(11.0, 4.2))
-    draw(axes[0], excess, drift, horizon, everything, "All methods")
-    draw(axes[1], excess, drift, horizon, adapting, "Adapting methods only")
+    draw(axes[0], excess, drift, horizon, everything, "All methods", noise)
+    draw(axes[1], excess, drift, horizon, adapting, "Adapting methods only", noise)
     axes[0].set_ylabel("drift damage: error minus the stationary twin's")
     for axis in axes:
         axis.legend(fontsize=8, frameon=False, loc="upper left")
@@ -158,9 +180,11 @@ def main() -> int:
     figure.savefig(path, dpi=DPI)
     print(f"wrote {path}")
 
-    print("\nbreaks, for reference")
+    print("\nbreaks, for reference (same pooled bar as report_breaks.py)")
     for learner in everything:
-        point = excess_break(excess, learner, drift, horizon, NOISE_MULTIPLE, PERSISTENCE)
+        point = excess_break(
+            excess, learner, drift, horizon, NOISE_MULTIPLE, PERSISTENCE, noise=noise
+        )
         where = (
             f"rate {point.rate_at_break:.4f} deg/step at t={point.step}"
             if point.broke
