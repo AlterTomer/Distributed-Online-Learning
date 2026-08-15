@@ -51,6 +51,7 @@ import pandas as pd  # noqa: E402
 from dekf_bench.env.drift import build_drift  # noqa: E402
 from dekf_bench.metrics.breaks import (  # noqa: E402
     BreakError,
+    assert_paired_runs,
     comparative_break,
     damage_at_rate,
     error_by_step,
@@ -100,6 +101,7 @@ def main() -> int:
     drifting_name = sys.argv[1] if len(sys.argv) > 1 else DRIFTING
     control_name = sys.argv[2] if len(sys.argv) > 2 else CONTROL
 
+    assert_paired_runs(ROOT / "results" / drifting_name, ROOT / "results" / control_name)
     drifting = load(drifting_name)
     control = load(control_name)
     config = load_config(drifting_name)

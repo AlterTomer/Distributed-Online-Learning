@@ -136,6 +136,64 @@ def tracking_gap(
     return errors
 
 
+#: Everything that must match between a drifting run and its control for the
+#: subtraction to be exact. `env` is compared field by field *except* the drift
+#: blocks, which are the one thing that is supposed to differ.
+PAIRING_KEYS = ("graph", "model", "learners")
+ENV_KEYS_EXEMPT = ("drift", "prior_drift", "drift_scope")
+
+
+def assert_paired_runs(drifting_dir: Any, control_dir: Any) -> None:
+    r"""Refuse a pairing whose two runs were not configured identically.
+
+    The subtraction in :func:`paired_excess` is only exact when the two runs
+    differ in the drift and nothing else. Nothing in the *data* reveals a
+    mismatch: a control run at a different learning rate produces perfectly
+    well-formed rows, and the excess would then be part drift damage and part
+    hyperparameter difference with no way to separate them afterwards.
+
+    This is not hypothetical. Re-running a pair after a config fix leaves the
+    old control on disk until its stage starts, so for a window of hours the
+    new drifting run and the *previous* control are both present and pair
+    without complaint.
+    """
+    from pathlib import Path
+
+    import yaml
+
+    configs = {}
+    for label, directory in (("drifting", Path(drifting_dir)), ("control", Path(control_dir))):
+        path = directory / "config.yaml"
+        if not path.exists():
+            raise BreakError(
+                f"the {label} run at {directory} has no config.yaml, so the pairing cannot "
+                "be verified. Re-run it, or pair by hand knowing the risk."
+            )
+        configs[label] = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    differences: list[str] = []
+    left, right = configs["drifting"], configs["control"]
+    for key in PAIRING_KEYS:
+        if left.get(key) != right.get(key):
+            differences.append(key)
+    for key in set(left.get("env", {})) | set(right.get("env", {})):
+        if key in ENV_KEYS_EXEMPT:
+            continue
+        if left.get("env", {}).get(key) != right.get("env", {}).get(key):
+            differences.append(f"env.{key}")
+    for key in ("seeds", "horizon", "eval_every"):
+        if left.get("run", {}).get(key) != right.get("run", {}).get(key):
+            differences.append(f"run.{key}")
+
+    if differences:
+        raise BreakError(
+            f"the drifting run and its control differ in {sorted(differences)}, so their "
+            "subtraction would mix drift damage with a configuration difference and no "
+            "later step could separate the two. Re-run the control against the current "
+            "configuration."
+        )
+
+
 def paired_excess(
     drifting: pd.DataFrame,
     control: pd.DataFrame,

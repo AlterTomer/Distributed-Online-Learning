@@ -16,6 +16,7 @@ from dekf_bench.env.drift import Drift, Linear, Ramp
 from dekf_bench.metrics.breaks import (
     BreakError,
     absolute_break,
+    assert_paired_runs,
     comparative_break,
     damage_at_rate,
     error_by_step,
@@ -357,6 +358,62 @@ def test_the_comparison_must_start_at_the_freeze_point() -> None:
     )
     assert guarded.broke
     assert guarded.step > STEPS[freeze_index]
+
+
+def write_run(directory, **overrides):
+    """A results directory with just the config.yaml the pairing check reads."""
+    import yaml
+
+    config = {
+        "graph": {"topology": "ring", "n_nodes": 10},
+        "model": {"name": "mlp_small"},
+        "learners": [{"name": "diffusion_sgd_atc", "lr": 0.01}],
+        "env": {"samples_per_node_per_step": 4, "drift": {"schedule": "ramp"}},
+        "run": {"seeds": [0, 1, 2], "horizon": 1500, "eval_every": 10},
+    }
+    config.update(overrides)
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "config.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
+    return directory
+
+
+def test_a_control_differing_only_in_drift_is_a_valid_pairing(tmp_path) -> None:
+    """The one thing that is supposed to differ."""
+    drifting = write_run(tmp_path / "ramp")
+    control = write_run(
+        tmp_path / "control",
+        env={"samples_per_node_per_step": 4, "drift": {"schedule": "stationary"}},
+    )
+    assert_paired_runs(drifting, control)
+
+
+def test_a_control_with_different_learners_is_refused(tmp_path) -> None:
+    """Found live: re-running a pair after a config fix leaves the old control
+    on disk until its stage starts, so for hours the new drifting run and the
+    *previous* control both exist and pair without complaint. Nothing in the
+    data reveals it -- the excess would just quietly be part drift damage and
+    part learning-rate difference."""
+    drifting = write_run(tmp_path / "ramp")
+    control = write_run(tmp_path / "control", learners=[{"name": "diffusion_sgd_atc", "lr": 0.05}])
+    with pytest.raises(BreakError, match="learners"):
+        assert_paired_runs(drifting, control)
+
+
+def test_a_control_with_a_different_seed_set_is_refused(tmp_path) -> None:
+    """Pairing is by seed, so a different set silently changes the population."""
+    drifting = write_run(tmp_path / "ramp")
+    control = write_run(
+        tmp_path / "control", run={"seeds": [0, 1], "horizon": 1500, "eval_every": 10}
+    )
+    with pytest.raises(BreakError, match="run.seeds"):
+        assert_paired_runs(drifting, control)
+
+
+def test_a_missing_config_is_refused_rather_than_assumed_fine(tmp_path) -> None:
+    drifting = write_run(tmp_path / "ramp")
+    (tmp_path / "control").mkdir()
+    with pytest.raises(BreakError, match="no config.yaml"):
+        assert_paired_runs(drifting, tmp_path / "control")
 
 
 def test_a_pooled_bar_stops_a_noisy_learner_looking_robust() -> None:

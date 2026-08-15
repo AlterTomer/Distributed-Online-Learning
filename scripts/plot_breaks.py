@@ -37,7 +37,12 @@ import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from dekf_bench.env.drift import build_drift  # noqa: E402
-from dekf_bench.metrics.breaks import excess_break, paired_excess, pooled_sem  # noqa: E402
+from dekf_bench.metrics.breaks import (  # noqa: E402
+    assert_paired_runs,
+    excess_break,
+    paired_excess,
+    pooled_sem,
+)
 from dekf_bench.utils.config import load_config  # noqa: E402
 from dekf_bench.utils.paths import figures_dir  # noqa: E402
 
@@ -145,6 +150,7 @@ def main() -> int:
     drifting_name = sys.argv[1] if len(sys.argv) > 1 else DRIFTING
     control_name = sys.argv[2] if len(sys.argv) > 2 else CONTROL
 
+    assert_paired_runs(ROOT / "results" / drifting_name, ROOT / "results" / control_name)
     config = load_config(drifting_name)
     drift = build_drift(config)
     horizon = config.run.horizon
