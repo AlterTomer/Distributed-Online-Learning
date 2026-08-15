@@ -1531,6 +1531,54 @@ the warmup cost honestly and drops to zero only once the learner has stopped.
 silently ignored: it adapts through `adapt_pooled()`, which the runner calls
 without a step, so the freeze point could not be honoured.
 
+### ✅ D50. The absolute threshold is derived from a paired control, not chosen
+
+**The plan was** to threshold the tracking gap $e(t) - e^\star(\varphi_t)$ at
+some multiple of the seed noise. Measuring first showed that would not work.
+
+**What the existing runs say.** On x2 the gap does not grow with drift — it
+*shrinks*, because the learner is still converging:
+
+| learner | gap early | gap late | drift cost (x2 − x1, late) |
+|---|---|---|---|
+| centralized_sgd | 0.072 | 0.044 | 0.015 |
+| diffusion_sgd_atc | 0.076 | 0.046 | 0.015 |
+| diffusion_sgd_atc_plain | 0.104 | 0.066 | 0.022 |
+| local_only | 0.190 | 0.119 | 0.029 |
+
+Two things follow. A threshold on the raw gap would fire at step 0 for every
+method, for reasons that have nothing to do with tracking — the gap is mostly
+the price of learning online from a stream rather than offline from the whole
+split. And the *whole* drift effect at $\alpha = 0.03$ (0.015 to 0.029) is at or
+below $3\sigma$ of the seed noise (0.025 to 0.049), which is a useful
+calibration fact in its own right: **nothing is close to breaking at the rate
+the benchmark has been running at.**
+
+**The fix is a paired stationary control**, `x9_control`: identical seeds,
+horizon, cadence and learners, with the drift switched off. The break is then
+measured on $e_\text{drift}(t) - e_\text{control}(t)$, paired by seed *and* by
+step, so the convergence trend and the online-versus-offline penalty cancel
+exactly. $e^\star$ drops out of the subtraction, so this definition needs no
+reference table at all.
+
+**The noise is the s.e.m., not the s.d.** The quantity thresholded is the
+five-seed mean, so the relevant spread is that of the mean: $3\,\text{sem} =
+0.016$ against $3\sigma = 0.035$. The s.d. answers a different and more
+conservative question — whether any single run would show it — and is available
+via `statistic="sd"` for when that is what is wanted.
+
+**Estimated from the quiet opening of the run.** A $p = 6$ ramp has barely moved
+over its first quarter, so the excess there is zero by construction and its
+spread is noise and nothing else. Using a window from the same run keeps the
+estimate matched to the evaluation-set size and learner set actually in play,
+and it is not circular: early-window noise does not depend on whether the run
+breaks later.
+
+**The control must match exactly, and mismatch raises.** Unpaired rows would be
+dropped silently by the merge and the excess would then be computed over a
+different population than it claims, so a missing seed, step or learner is an
+error rather than a smaller intersection.
+
 ---
 
 ## Open questions
@@ -1545,12 +1593,38 @@ topology sweep and, via D5, on the feasible horizon. Decide before phase 4.
 X6 and the Dirichlet axis are built either way; this is a question about what
 gets written up. Decide before phase 4.
 
-### ❓ Q3. Per-node drift
+### 🔄 Q3. Per-node drift — now a first-class axis, still an open question
 
 Is the interesting story "all agents drift together" (a shared $\theta$ stays
 correct) or "agents drift differently" (a shared $\theta$ becomes wrong,
 motivating the hierarchical shared/local extension)? `drift_scope` is
-configurable so this can be answered empirically. Decide before phase 4.
+configurable so this can be answered empirically.
+
+**No longer just configurable: `x8_per_node_drift` exists** and is the paired
+comparison against X2, which is the same run with `drift_scope: global` and
+nothing else changed. The prediction is that diffusion's advantage over
+`local_only` shrinks or reverses, because under global drift the neighbours have
+adapted to the *same* state and mixing is pure variance reduction, whereas under
+per-node drift mixing also drags each agent toward a state that is not its own.
+The question stays open until that run says so.
+
+### ❓ Q6. Repeated abrupt shifts, as the regime the filter should own
+
+X5 measures the transient after **one** 15° jump (F7). The obvious extension is
+a schedule that jumps *repeatedly* through a run, so the learner never gets to
+settle and the run measures recovery over and over rather than once.
+
+**Why this is worth doing, and worth doing with the filter.** Gradient methods
+recover from an abrupt shift only as fast as the step size allows, and the step
+size is tuned for the stationary regime; a filter can in principle respond
+faster because the covariance says how much to trust the new evidence. That
+makes repeated shifts the regime where Diff-EKF should show a real advantage
+rather than a marginal one — the piecewise schedule already supports several
+change points, so the environment side may need nothing new beyond a config.
+
+Raised by the user, 2026-08-15. Deliberately deferred to phase 5: it is a
+question about what the filter buys, and mixing it into the backpropagation
+benchmarks would answer it against the wrong baseline.
 
 ### ❓ Q4. CI environment
 

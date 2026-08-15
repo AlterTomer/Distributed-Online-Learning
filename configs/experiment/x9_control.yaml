@@ -1,0 +1,28 @@
+# X9's stationary twin. Identical in every respect except that nothing drifts.
+#
+# It exists because the gap to e* is dominated by the learner still converging,
+# not by drift. Measured on the existing runs, ATC's gap *falls* from 0.076 to
+# 0.046 over x2 while drift's actual cost at that rate is about 0.015 -- so a
+# threshold on the raw gap would fire at step 0 for every method, for reasons
+# that have nothing to do with tracking.
+#
+# Subtracting this run pairs by seed *and* by step, so the convergence trend and
+# the online-versus-offline penalty cancel exactly and what is left is drift
+# damage alone. The seeds, horizon, evaluation cadence and learner list must
+# therefore match x9_rate_ramp exactly; changing one of them here silently
+# breaks the pairing (design note D50).
+include:
+  env: mnist_stationary
+  graph: ring
+  model: mlp_small
+
+learners:
+  [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only, frozen_atc]
+
+run:
+  name: x9_control
+  horizon: 1500
+  eval_every: 10
+
+eval:
+  evalsets: [prequential, current]

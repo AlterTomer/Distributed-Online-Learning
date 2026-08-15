@@ -86,12 +86,17 @@ class BreakPoint:
         }
 
 
-def error_by_step(frame: pd.DataFrame, evalset: str = "current") -> pd.DataFrame:
-    """Counts-then-divide error per learner and step, pooled over agents and seeds.
+def error_by_step(
+    frame: pd.DataFrame, evalset: str = "current", by_seed: bool = False
+) -> pd.DataFrame:
+    """Counts-then-divide error per learner and step, pooled over agents.
 
     Never a mean of per-agent rates: an agent that saw two samples would weigh
     the same as one that saw eight, quietly reweighting the result toward
     whichever agent happened to idle.
+
+    With ``by_seed`` the seeds are kept apart, which is what the noise estimate
+    and the paired control both need.
     """
     rows = frame[(frame.evalset == evalset) & (frame.metric == "error_rate")]
     if rows.empty:
@@ -99,7 +104,8 @@ def error_by_step(frame: pd.DataFrame, evalset: str = "current") -> pd.DataFrame
             f"no {evalset!r} error_rate rows to locate a break in. The run must record "
             f"{evalset!r}; check eval.evalsets."
         )
-    grouped = rows.groupby(["learner", "t"])[["n_correct", "n_samples"]].sum()
+    keys = ["learner", "seed", "t"] if by_seed else ["learner", "t"]
+    grouped = rows.groupby(keys)[["n_correct", "n_samples"]].sum()
     grouped["error"] = 1.0 - grouped.n_correct / grouped.n_samples
     return grouped.reset_index()
 
@@ -122,6 +128,86 @@ def tracking_gap(
     errors["e_star"] = [reference.at(rotation) for rotation in errors.rotation]
     errors["gap"] = errors.error - errors.e_star
     return errors
+
+
+def paired_excess(
+    drifting: pd.DataFrame,
+    control: pd.DataFrame,
+    evalset: str = "current",
+) -> pd.DataFrame:
+    r"""Drift damage: the drifting run's error minus its stationary twin's.
+
+    **Why a control run rather than a threshold on the gap itself.** The gap to
+    $e^\star$ is dominated by the learner still converging, not by drift --
+    measured on the shipped runs, ATC's gap *falls* from 0.076 to 0.046 over
+    x2, while drift's cost at that rate is about 0.015. Thresholding the raw
+    gap would fire at step 0 for every method, for reasons unrelated to
+    tracking.
+
+    Subtracting a run identical except for the drift pairs by seed *and* by
+    step, so the convergence trend and the online-versus-offline penalty cancel
+    exactly. $e^\star$ drops out of the subtraction too, which is why this needs
+    no reference table.
+
+    Returns one row per (learner, seed, step) so the seed spread survives -- it
+    is what the threshold is derived from.
+    """
+    left = error_by_step(drifting, evalset, by_seed=True)
+    right = error_by_step(control, evalset, by_seed=True)
+    merged = left.merge(right, on=["learner", "seed", "t"], suffixes=("", "_control"), how="inner")
+    if merged.empty:
+        raise BreakError(
+            "the drifting run and its control share no (learner, seed, step) rows. The "
+            "control must match on seeds, horizon, evaluation cadence and learner list, "
+            "or the pairing that makes this subtraction exact does not hold."
+        )
+    for column, label in (("learner", "learners"), ("seed", "seeds"), ("t", "steps")):
+        missing = set(left[column]) - set(right[column])
+        if missing:
+            raise BreakError(
+                f"the control run is missing {label} {sorted(missing)!r} that the drifting "
+                "run has. Unpaired rows would be dropped silently and the excess would be "
+                "computed over a different population than it claims."
+            )
+    merged["excess"] = merged.error - merged.error_control
+    return merged
+
+
+def threshold_from_seed_noise(
+    excess: pd.DataFrame,
+    horizon: int,
+    multiple: float = 3.0,
+    control_fraction: float = 0.25,
+    statistic: str = "sem",
+) -> float:
+    """A threshold derived from the data rather than chosen.
+
+    Estimated over the opening ``control_fraction`` of the run, where an
+    accelerating schedule has barely moved: the excess there is essentially
+    zero by construction, so its spread is noise and nothing else.
+
+    ``sem`` is the noise of the *seed mean*, which is the quantity actually
+    thresholded; ``sd`` is the spread of a single run, which asks the more
+    conservative question of whether any given run would show it.
+    """
+    if statistic not in ("sem", "sd"):
+        raise BreakError(f"statistic must be 'sem' or 'sd', got {statistic!r}")
+    window = excess[excess.t <= control_fraction * horizon]
+    if window.empty:
+        raise BreakError(
+            f"no evaluation steps in the opening {control_fraction:.0%} of the run to "
+            "estimate noise from"
+        )
+    n_seeds = int(window.seed.nunique())
+    if n_seeds < 2:
+        raise BreakError(
+            f"noise cannot be estimated from {n_seeds} seed. Derive the threshold from a "
+            "run with several seeds, or pass one explicitly."
+        )
+    spread = float(window.groupby(["learner", "t"]).excess.std().mean())
+    if statistic == "sem":
+        spread /= n_seeds**0.5
+    return multiple * spread
 
 
 def _first_persistent(
@@ -166,6 +252,39 @@ def absolute_break(
         step=step,
         rate_at_break=float(drift.schedule.rate_at(step)),
         value_at_break=float(series.gap.to_numpy()[index]),
+        max_rate_probed=max_rate,
+    )
+
+
+def excess_break(
+    excess: pd.DataFrame,
+    learner: str,
+    drift: Any,
+    horizon: int,
+    threshold: float,
+    persistence: int = DEFAULT_PERSISTENCE,
+) -> BreakPoint:
+    """The absolute break, measured on drift damage against a paired control.
+
+    This is the definition to use when a control run exists. ``absolute_break``
+    thresholds the raw gap to $e^\\star$ and is kept for the case where no
+    control was run -- but on the shipped runs that gap is dominated by
+    convergence, so prefer this.
+    """
+    series = excess[excess.learner == learner].groupby("t").excess.mean().sort_index()
+    if series.empty:
+        raise BreakError(f"no rows for learner {learner!r}")
+    found = _first_persistent(series.index.to_numpy(), (series.to_numpy() > threshold), persistence)
+    max_rate = _rate_summary(drift, horizon)
+    if found is None:
+        return BreakPoint(learner, "absolute", None, None, None, max_rate)
+    step, index = found
+    return BreakPoint(
+        learner=learner,
+        definition="absolute",
+        step=step,
+        rate_at_break=float(drift.schedule.rate_at(step)),
+        value_at_break=float(series.to_numpy()[index]),
         max_rate_probed=max_rate,
     )
 

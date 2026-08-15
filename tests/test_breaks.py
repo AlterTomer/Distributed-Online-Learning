@@ -18,7 +18,10 @@ from dekf_bench.metrics.breaks import (
     absolute_break,
     comparative_break,
     error_by_step,
+    excess_break,
     locate_breaks,
+    paired_excess,
+    threshold_from_seed_noise,
     tracking_gap,
 )
 
@@ -217,6 +220,87 @@ def test_the_definitions_can_disagree_and_both_are_reported() -> None:
     comparative = table[(table.learner == "a") & (table.definition == "comparative")].iloc[0]
     assert bool(absolute.broke)
     assert not bool(comparative.broke)
+
+
+# =========================================================================== #
+# 5. the paired control, and the threshold derived from it
+# =========================================================================== #
+
+
+def seeded_frame(curves: dict[str, list[float]], seeds=(0, 1, 2, 3, 4), jitter=0.004):
+    """Recorded rows with a per-seed offset, so a seed spread exists to measure."""
+    rows = []
+    for index, seed in enumerate(seeds):
+        offset = jitter * (index - (len(seeds) - 1) / 2)
+        for learner, errors in curves.items():
+            for step, error in zip(STEPS, errors, strict=True):
+                value = min(max(error + offset, 0.0), 1.0)
+                rows.append(
+                    {
+                        "learner": learner,
+                        "seed": seed,
+                        "t": step,
+                        "evalset": "current",
+                        "metric": "error_rate",
+                        "n_samples": 1000,
+                        "n_correct": round(1000 * (1.0 - value)),
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def test_the_control_cancels_a_trend_shared_by_both_runs() -> None:
+    """The reason for pairing. Both runs are converging hard; only the drifting
+    one is also being damaged, and only that difference should survive."""
+    converging = ramp_curve(0.30, 0.05)
+    damaged = [value + 0.02 for value in converging]
+    excess = paired_excess(seeded_frame({"a": damaged}), seeded_frame({"a": converging}))
+    assert excess.excess.mean() == pytest.approx(0.02, abs=0.002)
+
+
+def test_a_control_missing_a_seed_is_refused() -> None:
+    """Unpaired rows would be dropped silently, and the excess would then be
+    computed over a different population than it claims."""
+    drifting = seeded_frame({"a": ramp_curve(0.3, 0.1)})
+    control = seeded_frame({"a": ramp_curve(0.3, 0.1)}, seeds=(0, 1, 2))
+    with pytest.raises(BreakError, match="missing seeds"):
+        paired_excess(drifting, control)
+
+
+def test_the_threshold_comes_from_the_quiet_opening_of_the_run() -> None:
+    """Where an accelerating schedule has barely moved, so the excess is zero by
+    construction and its spread is noise and nothing else."""
+    flat = ramp_curve(0.2, 0.2)
+    excess = paired_excess(seeded_frame({"a": flat}), seeded_frame({"a": flat}, jitter=0.0))
+    threshold = threshold_from_seed_noise(excess, HORIZON, multiple=3.0)
+    assert threshold > 0
+    # sem is the sd shrunk by sqrt(5), so it must be the tighter of the two.
+    conservative = threshold_from_seed_noise(excess, HORIZON, multiple=3.0, statistic="sd")
+    assert threshold < conservative
+    assert conservative / threshold == pytest.approx(5**0.5, rel=0.01)
+
+
+def test_one_seed_cannot_produce_a_threshold() -> None:
+    """Better to refuse than to return zero and call everything a break."""
+    flat = ramp_curve(0.2, 0.2)
+    excess = paired_excess(
+        seeded_frame({"a": flat}, seeds=(0,)), seeded_frame({"a": flat}, seeds=(0,))
+    )
+    with pytest.raises(BreakError, match="cannot be estimated"):
+        threshold_from_seed_noise(excess, HORIZON)
+
+
+def test_the_excess_break_fires_on_damage_not_on_convergence() -> None:
+    """The failure the control exists to prevent: a learner whose raw gap is
+    large and falling is *not* breaking, and must not be reported as such."""
+    converging = ramp_curve(0.40, 0.05)
+    excess = paired_excess(seeded_frame({"a": converging}), seeded_frame({"a": converging}))
+    point = excess_break(excess, "a", drift_of(), HORIZON, threshold=0.02)
+    assert not point.broke
+
+    damaged = [value + 0.05 * index / (len(STEPS) - 1) for index, value in enumerate(converging)]
+    hurt = paired_excess(seeded_frame({"a": damaged}), seeded_frame({"a": converging}))
+    assert excess_break(hurt, "a", drift_of(), HORIZON, threshold=0.02).broke
 
 
 def test_the_baseline_is_not_compared_against_itself() -> None:
