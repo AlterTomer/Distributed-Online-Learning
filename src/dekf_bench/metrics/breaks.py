@@ -69,6 +69,11 @@ class BreakPoint:
     #: The largest rate the run actually reached. What "did not break" is
     #: relative to -- without it the null result is uninterpretable.
     max_rate_probed: float
+    #: Why there is no break, when the reason is not "it kept tracking". A
+    #: learner that was never ahead of the baseline cannot stop being ahead of
+    #: it, and recording that as a break at the first eligible step would blame
+    #: the drift for a gap that was there before any drift happened.
+    note: str | None = None
 
     @property
     def broke(self) -> bool:
@@ -83,6 +88,7 @@ class BreakPoint:
             "rate_at_break": self.rate_at_break,
             "value_at_break": self.value_at_break,
             "max_rate_probed": self.max_rate_probed,
+            "note": self.note,
         }
 
 
@@ -189,6 +195,14 @@ def threshold_from_seed_noise(
     ``sem`` is the noise of the *seed mean*, which is the quantity actually
     thresholded; ``sd`` is the spread of a single run, which asks the more
     conservative question of whether any given run would show it.
+
+    **Degenerate under an exact pairing, and it refuses rather than returning
+    zero.** When the drifting run and its control are still *identical* -- which
+    is what an accelerating schedule's opening quarter gives, since it has
+    barely rotated -- the excess is zero seed for seed and its spread is zero
+    too. A threshold of 0 would then call every later step a break. Prefer
+    :func:`excess_break`, which tests each step against the seed spread *at that
+    step* and needs no quiet window at all.
     """
     if statistic not in ("sem", "sd"):
         raise BreakError(f"statistic must be 'sem' or 'sd', got {statistic!r}")
@@ -205,6 +219,13 @@ def threshold_from_seed_noise(
             "run with several seeds, or pass one explicitly."
         )
     spread = float(window.groupby(["learner", "t"]).excess.std().mean())
+    if spread <= 0.0:
+        raise BreakError(
+            "the excess has no spread over the estimation window: the drifting run and "
+            "its control are still identical there, so there is no noise to measure and "
+            "a threshold of 0 would call every later step a break. Use excess_break, "
+            "which tests each step against the seed spread at that step."
+        )
     if statistic == "sem":
         spread /= n_seeds**0.5
     return multiple * spread
@@ -261,20 +282,36 @@ def excess_break(
     learner: str,
     drift: Any,
     horizon: int,
-    threshold: float,
+    multiple: float = 3.0,
     persistence: int = DEFAULT_PERSISTENCE,
 ) -> BreakPoint:
-    """The absolute break, measured on drift damage against a paired control.
+    r"""The absolute break: drift damage significantly above zero.
 
-    This is the definition to use when a control run exists. ``absolute_break``
-    thresholds the raw gap to $e^\\star$ and is kept for the case where no
-    control was run -- but on the shipped runs that gap is dominated by
-    convergence, so prefer this.
+    **Tested step by step against the seed spread at that step**, not against
+    one threshold fixed in advance. A global threshold needs a quiet window to
+    calibrate on, and an exact pairing does not provide one: while the schedule
+    has barely moved, the drifting run and its control are the *same run* seed
+    for seed, so the excess is identically zero and has no spread to measure.
+    The step-wise test needs no such window -- where the runs are identical the
+    mean is zero and cannot exceed anything, which is the right answer for the
+    right reason rather than by luck.
+
+    The null is "no drift damage", which the paired design makes exactly zero,
+    so this is a one-sided test of the seed mean against ``multiple`` standard
+    errors of that mean.
     """
-    series = excess[excess.learner == learner].groupby("t").excess.mean().sort_index()
-    if series.empty:
+    rows = excess[excess.learner == learner]
+    if rows.empty:
         raise BreakError(f"no rows for learner {learner!r}")
-    found = _first_persistent(series.index.to_numpy(), (series.to_numpy() > threshold), persistence)
+
+    grouped = rows.groupby("t").excess
+    mean = grouped.mean().sort_index()
+    n_seeds = rows.groupby("t").seed.nunique().sort_index()
+    sem = (grouped.std().sort_index() / n_seeds.pow(0.5)).fillna(0.0)
+
+    values = mean.to_numpy()
+    condition = (values > multiple * sem.to_numpy()) & (values > 0.0)
+    found = _first_persistent(mean.index.to_numpy(), condition, persistence)
     max_rate = _rate_summary(drift, horizon)
     if found is None:
         return BreakPoint(learner, "absolute", None, None, None, max_rate)
@@ -284,7 +321,7 @@ def excess_break(
         definition="absolute",
         step=step,
         rate_at_break=float(drift.schedule.rate_at(step)),
-        value_at_break=float(series.to_numpy()[index]),
+        value_at_break=float(values[index]),
         max_rate_probed=max_rate,
     )
 
@@ -296,12 +333,28 @@ def comparative_break(
     drift: Any,
     horizon: int,
     persistence: int = DEFAULT_PERSISTENCE,
+    start_step: int = 0,
 ) -> BreakPoint:
     """First step where ``learner`` stops beating the non-adapting ``baseline``.
 
     Threshold-free, which is its advantage: it asks whether continuing to adapt
     is buying anything, and the answer does not depend on a number anyone chose.
+
+    **``start_step`` must be the baseline's freeze point.** Before it, the
+    baseline is running the very algorithm it is the baseline for -- identical
+    parameters, identical predictions -- so the margin is zero and "the learner
+    stopped beating it" fires immediately and means nothing. Passing 0 against a
+    baseline that freezes later reports a break at step 0 for every learner,
+    which is how this was found.
     """
+    if start_step > 0:
+        errors = errors[errors.t >= start_step]
+        if errors.empty:
+            raise BreakError(
+                f"no evaluations at or after the baseline's freeze point ({start_step}). "
+                "The run ends before the baseline stops adapting, so there is nothing to "
+                "compare against."
+            )
     wide = errors.pivot_table(index="t", columns="learner", values="error")
     for name in (learner, baseline):
         if name not in wide.columns:
@@ -317,6 +370,20 @@ def comparative_break(
     if found is None:
         return BreakPoint(learner, "comparative", None, None, None, max_rate)
     step, index = found
+    if index == 0:
+        # Behind from the first eligible evaluation: it never led, so it cannot
+        # have stopped leading. Calling this a break would blame the drift for a
+        # gap that predates it -- `local_only` is simply worse than an ATC model
+        # frozen mid-run, and always was.
+        return BreakPoint(
+            learner,
+            "comparative",
+            None,
+            None,
+            None,
+            max_rate,
+            note="never ahead of the baseline",
+        )
     return BreakPoint(
         learner=learner,
         definition="comparative",

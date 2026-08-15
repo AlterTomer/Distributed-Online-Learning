@@ -280,6 +280,26 @@ def test_the_threshold_comes_from_the_quiet_opening_of_the_run() -> None:
     assert conservative / threshold == pytest.approx(5**0.5, rel=0.01)
 
 
+def test_an_exactly_paired_opening_refuses_to_produce_a_threshold() -> None:
+    """Found by running it. A ramp has barely rotated over its first quarter,
+    so the drifting run and its control are the *same run* seed for seed: the
+    excess is identically zero and has no spread. Returning 0 would have made
+    every later step a break, which is what the first x9 report did."""
+    flat = ramp_curve(0.2, 0.2)
+    identical = paired_excess(seeded_frame({"a": flat}), seeded_frame({"a": flat}))
+    with pytest.raises(BreakError, match="no spread"):
+        threshold_from_seed_noise(identical, HORIZON)
+
+
+def test_the_step_wise_test_needs_no_quiet_window() -> None:
+    """The replacement: where the runs are identical the mean excess is zero
+    and cannot exceed anything, so it reports no break for the right reason
+    rather than dividing by a spread that does not exist."""
+    flat = ramp_curve(0.2, 0.2)
+    identical = paired_excess(seeded_frame({"a": flat}), seeded_frame({"a": flat}))
+    assert not excess_break(identical, "a", drift_of(), HORIZON).broke
+
+
 def test_one_seed_cannot_produce_a_threshold() -> None:
     """Better to refuse than to return zero and call everything a break."""
     flat = ramp_curve(0.2, 0.2)
@@ -295,12 +315,58 @@ def test_the_excess_break_fires_on_damage_not_on_convergence() -> None:
     large and falling is *not* breaking, and must not be reported as such."""
     converging = ramp_curve(0.40, 0.05)
     excess = paired_excess(seeded_frame({"a": converging}), seeded_frame({"a": converging}))
-    point = excess_break(excess, "a", drift_of(), HORIZON, threshold=0.02)
+    point = excess_break(excess, "a", drift_of(), HORIZON)
     assert not point.broke
 
     damaged = [value + 0.05 * index / (len(STEPS) - 1) for index, value in enumerate(converging)]
     hurt = paired_excess(seeded_frame({"a": damaged}), seeded_frame({"a": converging}))
-    assert excess_break(hurt, "a", drift_of(), HORIZON, threshold=0.02).broke
+    assert excess_break(hurt, "a", drift_of(), HORIZON).broke
+
+
+# =========================================================================== #
+# 6. the baseline is only a baseline once it has frozen
+# =========================================================================== #
+
+
+def test_the_comparison_must_start_at_the_freeze_point() -> None:
+    """Found by running it. Before freezing, `frozen_atc` *is* the learner it is
+    the baseline for: identical parameters, identical predictions, margin zero.
+
+    The failure that causes is subtler than it first looked. The zero-margin
+    prefix satisfies "no longer ahead" at the very first evaluation, which the
+    never-ahead guard then reads as "it never led" -- so a real break later in
+    the run is *hidden*, not merely mislocated. Only starting the window at the
+    freeze point gets both halves right.
+    """
+    freeze_index = len(STEPS) // 3
+    tail = len(STEPS) - freeze_index
+    # Identical until the freeze. Then the learner starts ahead and degrades
+    # past the frozen baseline, which is a genuine break that must be found.
+    learner = [0.30] * freeze_index + [0.20 + 0.20 * i / (tail - 1) for i in range(tail)]
+    baseline = [0.30] * freeze_index + [0.25] * tail
+    errors = error_by_step(frame_of({"a": learner, "frozen_atc": baseline}))
+
+    naive = comparative_break(errors, "a", "frozen_atc", drift_of(), HORIZON)
+    assert not naive.broke
+    assert naive.note == "never ahead of the baseline", "the shared prefix masks the real break"
+
+    guarded = comparative_break(
+        errors, "a", "frozen_atc", drift_of(), HORIZON, start_step=STEPS[freeze_index]
+    )
+    assert guarded.broke
+    assert guarded.step > STEPS[freeze_index]
+
+
+def test_a_learner_never_ahead_is_reported_as_such_not_as_a_break() -> None:
+    """`local_only` is simply worse than an ATC model frozen mid-run, and always
+    was. Recording that as a break would blame the drift for a gap that predates
+    it."""
+    errors = error_by_step(
+        frame_of({"a": ramp_curve(0.40, 0.45), "frozen_atc": ramp_curve(0.10, 0.20)})
+    )
+    point = comparative_break(errors, "a", "frozen_atc", drift_of(), HORIZON)
+    assert not point.broke
+    assert point.note == "never ahead of the baseline"
 
 
 def test_the_baseline_is_not_compared_against_itself() -> None:
