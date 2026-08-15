@@ -49,7 +49,7 @@ TOPOLOGIES = (
 )
 WEIGHT_RULES = ("metropolis", "relative_degree", "uniform")
 PARTITIONS = ("iid", "dirichlet")
-SCHEDULES = ("stationary", "linear", "ramp", "piecewise", "sinusoidal")
+SCHEDULES = ("stationary", "linear", "ramp", "recurring", "piecewise", "sinusoidal")
 DRIFT_SCOPES = ("global", "per_node")
 OPTIMIZERS = ("sgd", "sgd_momentum", "adamw")
 MIX_POLICIES = ("none", "momentum", "all")
@@ -166,6 +166,14 @@ class DriftConfig:
     #: the same ground, so it is the width of the rate sweep. Must exceed 1:
     #: at 1 the ramp is the linear schedule under another name.
     ramp_exponent: float = 2.0
+    #: `recurring` only. Steps between abrupt jumps; `jump_degrees / jump_every`
+    #: is the average speed, which is what makes a recurring run comparable to a
+    #: linear one at matched speed.
+    jump_every: int = 50
+    #: `recurring` only. Fixes the jump *directions*, which are unpredictable
+    #: but must be reproducible. Separate from the run seeds so the shift
+    #: pattern can be held while the data varies, and vice versa.
+    jump_seed: int = 0
     #: Under `drift_scope: per_node`, agents drift at rates spread over
     #: [1 - spread, 1] times the configured rate. See env/drift.py for why the
     #: multipliers top out at 1 rather than straddling it.
@@ -201,6 +209,21 @@ class DriftConfig:
             raise ConfigError(
                 f"env.drift.per_node_spread must lie in [0, 1), got {self.per_node_spread}"
             )
+        if self.schedule == "recurring":
+            if self.jump_every < 1:
+                raise ConfigError(f"env.drift.jump_every must be >= 1, got {self.jump_every}")
+            if self.jump_degrees <= 0:
+                raise ConfigError(
+                    f"env.drift.jump_degrees must be > 0 under the recurring schedule, "
+                    f"got {self.jump_degrees}"
+                )
+            if self.jump_degrees > self.MAX_WELL_POSED_DEGREES:
+                raise ConfigError(
+                    f"env.drift.jump_degrees is {self.jump_degrees}, above the "
+                    f"{self.MAX_WELL_POSED_DEGREES} degree cap. From a rotation of 0 "
+                    "neither direction would land inside the well-posed band, so no jump "
+                    "of that size is possible."
+                )
         if self.schedule == "ramp" and self.ramp_exponent <= 1.0:
             raise ConfigError(
                 f"env.drift.ramp_exponent must be > 1, got {self.ramp_exponent}. At 1.0 "
@@ -552,6 +575,11 @@ class Config:
             return drift.total_degrees
         if drift.schedule == "piecewise":
             return drift.jump_degrees * max(len(drift.change_points), 1)
+        if drift.schedule == "recurring":
+            # Reflected at the band edge, so the furthest reachable rotation is
+            # the largest whole number of jumps that still fits inside the cap.
+            steps_out = max(int(self.env.drift.MAX_WELL_POSED_DEGREES // drift.jump_degrees), 1)
+            return min(drift.jump_degrees * steps_out, self.env.drift.MAX_WELL_POSED_DEGREES)
         return 2.0 * abs(drift.amplitude_degrees)
 
     def learner(self, name: str) -> LearnerConfig:

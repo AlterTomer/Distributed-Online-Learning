@@ -147,14 +147,30 @@ shard-budget check, and is a real trade rather than a convenience.
 
 | Field | Type | Default | Legal values | Applies to |
 |---|---|---|---|---|
-| `schedule` | str | `stationary` | `stationary`, `linear`, `ramp`, `piecewise`, `sinusoidal` | all |
+| `schedule` | str | `stationary` | `stationary`, `linear`, `ramp`, `recurring`, `piecewise`, `sinusoidal` | all |
 | `total_degrees` | float | `45.0` | $[0, 45]$ | `linear`, `ramp` |
 | `ramp_exponent` | float | `2.0` | > 1 | `ramp` |
 | `change_points` | list[int] | `[]` | non-negative, sorted | `piecewise` |
-| `jump_degrees` | float | `15.0` | any | `piecewise` |
+| `jump_degrees` | float | `15.0` | any; $(0, 45]$ under `recurring` | `piecewise`, `recurring` |
+| `jump_every` | int | `50` | ≥ 1 | `recurring` |
+| `jump_seed` | int | `0` | any | `recurring` |
 | `amplitude_degrees` | float | `30.0` | $\lvert\cdot\rvert \le 45$ | `sinusoidal` |
 | `period` | int | `500` | ≥ 1 | `sinusoidal` |
 | `per_node_spread` | float | `0.5` | $[0, 1)$ | all, under `drift_scope: per_node` |
+
+**`recurring` repeats X5's single jump.** Every `jump_every` steps the rotation
+jumps by exactly `jump_degrees` in an unpredictable but seeded direction,
+**reflected** at the 45° cap rather than clipped — clipping would shorten the
+jumps at the band edge and quietly make those transients incomparable with the
+rest, which is the one property the schedule exists to provide. Between jumps
+nothing moves, so each transient is attributable to one event.
+
+`jump_degrees / jump_every` is the average speed, which is what lets a recurring
+run be compared with a `linear` one at matched speed — separating "the
+distribution moved" from "it moved *abruptly*". Because the rotation must stay
+inside a band it necessarily revisits states; the direction is randomised so a
+learner cannot pre-position for the next shift, and `jump_seed` is separate from
+the run seeds so the shift pattern can be held fixed while the data varies.
 
 **`ramp` accelerates; use it to find a break, `linear` to confirm one.** Under a
 constant rate a tracker settles to a steady-state lag and then stops degrading,

@@ -1608,23 +1608,43 @@ adapted to the *same* state and mixing is pure variance reduction, whereas under
 per-node drift mixing also drags each agent toward a state that is not its own.
 The question stays open until that run says so.
 
-### ❓ Q6. Repeated abrupt shifts, as the regime the filter should own
+### ✅ D51. Repeated abrupt shifts: the SGD baseline is measured *before* the filter
 
-X5 measures the transient after **one** 15° jump (F7). The obvious extension is
-a schedule that jumps *repeatedly* through a run, so the learner never gets to
-settle and the run measures recovery over and over rather than once.
+X5 measures the transient after **one** 15° jump (F7). `recurring` repeats it
+every $t'$ steps, so the learner never settles and the run measures recovery
+over and over. X11 sweeps $t' \in \{25, 50, 100, 200\}$ against $J \in \{5, 15,
+30\}$, five seeds.
 
-**Why this is worth doing, and worth doing with the filter.** Gradient methods
-recover from an abrupt shift only as fast as the step size allows, and the step
-size is tuned for the stationary regime; a filter can in principle respond
-faster because the covariance says how much to trust the new evidence. That
-makes repeated shifts the regime where Diff-EKF should show a real advantage
-rather than a marginal one — the piecewise schedule already supports several
-change points, so the environment side may need nothing new beyond a config.
+**Why measure it now rather than alongside the filter.** Gradient methods
+recover only as fast as a step size allows, and that step size is tuned for the
+stationary regime — so shifts arriving faster than the recovery time should
+compound into a standing error. A filter can respond faster in principle,
+because its covariance says how much to trust new evidence rather than applying
+a fixed gain. That makes this the regime where Diff-EKF should show a real
+advantage, which is precisely why the SGD numbers must exist *first*: measuring
+them after the filter exists would invite tuning one against the other.
 
-Raised by the user, 2026-08-15. Deliberately deferred to phase 5: it is a
-question about what the filter buys, and mixing it into the backpropagation
-benchmarks would answer it against the wrong baseline.
+**The grid is two-dimensional because $J/t'$ is only the average speed.** The
+same average can arrive as rare-large or frequent-small shifts, and those are
+different problems — one asks whether recovery finishes before the next shift,
+the other whether many small perturbations accumulate. Matched-speed cells are
+the ones to read against each other: $(t'{=}50, J{=}15)$ and $(t'{=}100,
+J{=}30)$ both average 0.300°/step, confirmed measured.
+
+**Reflected, not clipped, at the band edge.** The rotation must stay inside
+$\pm45°$, so repeated jumps necessarily revisit states. What is controlled
+instead is that every jump has *exactly* magnitude $J$ — clipping at the edge
+would shorten those jumps and make their transients incomparable with the rest,
+destroying the one property the schedule exists to provide. The direction is
+randomised so a learner cannot pre-position, and `jump_seed` is separate from
+the run seeds so the pattern can be held while the data varies.
+
+**Evaluation runs at `eval_every: 5`.** A transient is a few tens of steps wide,
+so at $t' = 25$ the default cadence of 25 would sample roughly once per shift —
+measuring the standing error and missing the recovery entirely.
+
+Raised by the user, 2026-08-15, and brought forward from phase 5 at their
+request.
 
 ### ❓ Q4. CI environment
 

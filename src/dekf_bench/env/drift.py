@@ -53,6 +53,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
+
 #: Beyond roughly this much rotation, MNIST labels stop being well defined --
 #: a 6 becomes a 9. Duplicated from the config schema, where it is enforced.
 MAX_WELL_POSED_DEGREES = 45.0
@@ -275,6 +277,93 @@ class Piecewise(DriftSchedule):
 
 
 @dataclass(frozen=True)
+class Recurring(DriftSchedule):
+    r"""Abrupt jumps of fixed magnitude at a fixed interval, direction unpredictable.
+
+    X5 measures the transient after *one* jump. This repeats it, so the learner
+    never gets to settle and the run measures recovery over and over rather than
+    once. That is the regime a filter should own: a gradient method recovers
+    only as fast as a step size tuned for the stationary regime allows, while a
+    filter's covariance says how much to trust the new evidence.
+
+    **The jumps cannot march in one direction.** Rotation is capped at
+    ``MAX_WELL_POSED_DEGREES``, so a repeated shift must stay inside a band and
+    therefore revisits states. What is controlled instead is that every jump has
+    *exactly* the same magnitude -- so every transient is comparable -- and that
+    the direction is unpredictable, so a learner cannot pre-position for the
+    next one. At the band edge the direction is **reflected rather than
+    clipped**: clipping would shorten that jump and quietly make the transients
+    incomparable, which is the property the schedule exists to provide.
+
+    ``jump_degrees / jump_every`` is the average speed, so this schedule and
+    ``linear`` can be compared at matched speed -- which separates "the
+    distribution moved" from "it moved *abruptly*".
+    """
+
+    jump_degrees: float
+    jump_every: int
+    horizon: int
+    seed: int = 0
+    cap: float = MAX_WELL_POSED_DEGREES
+
+    def __post_init__(self) -> None:
+        if self.horizon < 1:
+            raise DriftError(f"recurring drift needs horizon >= 1, got {self.horizon}")
+        if self.jump_every < 1:
+            raise DriftError(f"jump_every must be >= 1, got {self.jump_every}")
+        if self.jump_degrees <= 0:
+            raise DriftError(f"jump_degrees must be > 0, got {self.jump_degrees}")
+        if self.jump_degrees > self.cap:
+            raise DriftError(
+                f"jump_degrees {self.jump_degrees} exceeds the {self.cap} degree cap, so "
+                "from a rotation of 0 neither direction lands inside the well-posed band "
+                "and no jump of that size is possible."
+            )
+        object.__setattr__(self, "_rotations", self._plan())
+
+    def _plan(self) -> tuple[float, ...]:
+        """Every rotation the run visits, one per jump, decided up front.
+
+        Precomputed rather than drawn per step so ``rotation_at`` stays a pure
+        function of the step -- the same property that lets the evaluation sets
+        ask about step 900 without walking there.
+        """
+        rng = np.random.default_rng(self.seed)
+        n_jumps = self.horizon // self.jump_every
+        current = 0.0
+        rotations = [current]
+        for _ in range(n_jumps):
+            direction = 1.0 if rng.random() < 0.5 else -1.0
+            proposed = current + direction * self.jump_degrees
+            if abs(proposed) > self.cap + 1e-9:
+                proposed = current - direction * self.jump_degrees
+            current = round(proposed, 9)
+            rotations.append(current)
+        return tuple(rotations)
+
+    @property
+    def rotations(self) -> tuple[float, ...]:
+        """The planned rotation after each jump, starting from the initial one."""
+        return self._rotations  # type: ignore[attr-defined]
+
+    def progress_at(self, step: int) -> float:
+        index = min(max(step, 0) // self.jump_every, len(self.rotations) - 1)
+        return self.rotations[index] / self.cap
+
+    @property
+    def degrees_scale(self) -> float:
+        return self.cap
+
+    @property
+    def n_jumps(self) -> int:
+        return len(self.rotations) - 1
+
+    @property
+    def name(self) -> str:
+        return "recurring"
+
+
+@dataclass(frozen=True)
 class Sinusoidal(DriftSchedule):
     """Oscillation of amplitude ``amplitude_degrees`` and the given period."""
 
@@ -416,6 +505,13 @@ def build_schedule(drift_config: Any, horizon: int) -> DriftSchedule:
             total_degrees=drift_config.total_degrees,
             horizon=horizon,
             exponent=drift_config.ramp_exponent,
+        )
+    if kind == "recurring":
+        return Recurring(
+            jump_degrees=drift_config.jump_degrees,
+            jump_every=drift_config.jump_every,
+            horizon=horizon,
+            seed=drift_config.jump_seed,
         )
     if kind == "piecewise":
         return Piecewise(

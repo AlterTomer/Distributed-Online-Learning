@@ -20,6 +20,7 @@ from dekf_bench.env.drift import (
     Linear,
     Piecewise,
     Ramp,
+    Recurring,
     Sinusoidal,
     Stationary,
     build_drift,
@@ -353,6 +354,70 @@ def test_the_ramp_obeys_the_well_posedness_cap() -> None:
     the acceleration buys rate, never extra travel."""
     ramp = Ramp(total_degrees=MAX_WELL_POSED_DEGREES, horizon=HORIZON, exponent=3.0)
     assert ramp.total_travel(HORIZON) <= MAX_WELL_POSED_DEGREES + 1e-9
+
+
+# =========================================================================== #
+# 5c. recurring abrupt shifts
+# =========================================================================== #
+
+
+def test_every_jump_has_exactly_the_configured_magnitude() -> None:
+    """The property the schedule exists for. If jumps at the band edge were
+    clipped instead of reflected, those transients would be smaller and no
+    longer comparable with the rest -- and comparing recovery across jumps is
+    the whole measurement."""
+    schedule = Recurring(jump_degrees=30.0, jump_every=50, horizon=HORIZON)
+    rotations = schedule.rotations
+    sizes = {round(abs(rotations[i + 1] - rotations[i]), 6) for i in range(len(rotations) - 1)}
+    assert sizes == {30.0}
+
+
+def test_the_rotation_never_leaves_the_well_posed_band() -> None:
+    for jump in (5.0, 15.0, 30.0, 45.0):
+        schedule = Recurring(jump_degrees=jump, jump_every=25, horizon=HORIZON)
+        assert schedule.total_travel(HORIZON) <= MAX_WELL_POSED_DEGREES + 1e-9
+
+
+def test_the_rotation_is_flat_between_jumps() -> None:
+    """Abrupt means abrupt: nothing moves until the next change point, so the
+    transient is attributable to one event rather than to a trend."""
+    schedule = Recurring(jump_degrees=15.0, jump_every=50, horizon=HORIZON)
+    assert schedule.rotation_at(10) == schedule.rotation_at(49)
+    assert schedule.rotation_at(50) != schedule.rotation_at(49)
+    assert schedule.rate_at(25) == 0.0
+    assert abs(schedule.rate_at(50)) == pytest.approx(15.0)
+
+
+def test_the_average_speed_is_the_jump_over_the_interval() -> None:
+    """What makes a recurring run comparable with a linear one at matched
+    speed, which is what separates 'the distribution moved' from 'it moved
+    abruptly'."""
+    schedule = Recurring(jump_degrees=15.0, jump_every=50, horizon=HORIZON)
+    assert schedule.mean_rate(HORIZON) == pytest.approx(15.0 / 50, rel=0.02)
+    assert schedule.peak_rate(HORIZON) == pytest.approx(15.0)
+
+
+def test_the_direction_sequence_is_reproducible_but_not_constant() -> None:
+    """Unpredictable so the learner cannot pre-position; seeded so a run can be
+    reproduced."""
+    first = Recurring(jump_degrees=15.0, jump_every=50, horizon=HORIZON, seed=0)
+    same = Recurring(jump_degrees=15.0, jump_every=50, horizon=HORIZON, seed=0)
+    other = Recurring(jump_degrees=15.0, jump_every=50, horizon=HORIZON, seed=1)
+    assert first.rotations == same.rotations
+    assert first.rotations != other.rotations
+    assert len(set(first.rotations)) > 2  # not a two-state square wave
+
+
+def test_the_number_of_jumps_follows_the_interval() -> None:
+    for interval, expected in ((25, 60), (50, 30), (100, 15)):
+        schedule = Recurring(jump_degrees=15.0, jump_every=interval, horizon=1500)
+        assert schedule.n_jumps == expected
+
+
+def test_a_jump_larger_than_the_cap_is_rejected() -> None:
+    """From a rotation of 0 neither direction would land inside the band."""
+    with pytest.raises(DriftError, match="neither direction lands inside"):
+        Recurring(jump_degrees=50.0, jump_every=50, horizon=HORIZON)
 
 
 def test_summary_reports_the_derived_rate() -> None:
