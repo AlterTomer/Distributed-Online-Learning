@@ -1,0 +1,27 @@
+# X8 -- heterogeneous drift: where does consensus stop paying?
+#
+# The paired comparison is against X2, which is this run with drift_scope
+# global and nothing else changed. Under global drift every agent faces the
+# same rotation, so combining is pure variance reduction. Here the agents face
+# different rotations, so combining also drags each agent toward a state that
+# is not its own, and the prediction is that diffusion's advantage over
+# local_only shrinks or reverses.
+#
+# Evaluation is current-only: the question is tracking, not forgetting, and a
+# canonical set would score a distribution no agent has faced since step 0.
+# `current_mean` is appended automatically under per-node drift, which is what
+# separates "this agent learned worse" from "this agent is further from the
+# mean rotation".
+include:
+  env: mnist_per_node_linear
+  graph: ring
+  model: mlp_small
+
+learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
+
+run:
+  name: x8_per_node_drift
+  horizon: 1500
+
+eval:
+  evalsets: [prequential, current]

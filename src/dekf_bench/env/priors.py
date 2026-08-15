@@ -154,6 +154,11 @@ class ClassPlan:
 
     classes: torch.Tensor
     n_classes: int
+    #: The path the classes were drawn from. Carried so the *evaluation* sets
+    #: can be composed to match -- otherwise a run would train on a drifting
+    #: prior and be scored on a uniform one, and the gap to the reference would
+    #: measure that mismatch rather than tracking.
+    priors: ClassPriors | None = None
 
     def __post_init__(self) -> None:
         if self.classes.ndim != 3:
@@ -264,7 +269,7 @@ def build_class_plan(
         probabilities, samples_per_step, replacement=True, generator=generator
     )
     classes = draws.reshape(priors.n_nodes, horizon, samples_per_step).to(torch.int64)
-    return ClassPlan(classes=classes, n_classes=priors.n_classes)
+    return ClassPlan(classes=classes, n_classes=priors.n_classes, priors=priors)
 
 
 def build_class_plan_from_config(

@@ -1,4 +1,4 @@
-"""The held-out evaluation sets, and the drift state each carries.
+﻿"""The held-out evaluation sets, and the drift state each carries.
 
 **This module is the single place that guarantees train and eval see the same
 rotation.** It does not compute a rotation of its own: it asks the environment's
@@ -47,6 +47,7 @@ import torch
 from dekf_bench.data.mnist import MnistSplit
 from dekf_bench.data.transforms import ImageTransform
 from dekf_bench.env.drift import Drift, DriftState
+from dekf_bench.env.partition import largest_remainder
 
 #: Rotations closer than this are treated as the same state for caching, and as
 #: indistinguishable when checking that the backward probe is separated.
@@ -71,6 +72,10 @@ class EvalSet:
     rotation_degrees: float
     step: int
     source_step: int | None = None
+    #: The class composition this set was built to, when prior drift is on.
+    #: Carried for the same reason as `rotation_degrees`: so a score can be
+    #: checked against the distribution it claims to be measured on.
+    class_prior: tuple[float, ...] | None = None
 
     def __len__(self) -> int:
         return int(self.labels.shape[0])
@@ -100,6 +105,8 @@ class EvalSetBuilder:
         drift: Drift,
         horizon: int,
         backward_separation_degrees: float = 15.0,
+        priors: Any = None,
+        n_classes: int = 10,
     ) -> None:
         if backward_separation_degrees <= 0:
             raise EvalSetError(
@@ -110,19 +117,98 @@ class EvalSetBuilder:
         self.drift = drift
         self.horizon = horizon
         self.separation = backward_separation_degrees
+        self.priors = priors
+        self.n_classes = n_classes
         self._cache: dict[int, torch.Tensor] = {}
+        self._by_class = [
+            torch.nonzero(test.labels == c, as_tuple=True)[0] for c in range(n_classes)
+        ]
+        self._matched_size = self._plan_matched_size()
+
+    # -- composition matching ----------------------------------------------- #
+
+    def _plan_matched_size(self) -> int | None:
+        """One evaluation-set size for the whole run, or ``None`` without priors.
+
+        **Fixed for the run on purpose.** A composition-matched set can only be
+        as large as its scarcest class allows, and that limit moves as the prior
+        drifts. Letting the size follow it would make the sampling noise floor
+        drift too -- and a break threshold read off a curve whose noise floor is
+        changing is measuring the evaluation, not the learner.
+
+        The maximum of a linear function over a segment is attained at an
+        endpoint, so scanning the two endpoints bounds the whole path exactly;
+        no step-by-step search is needed.
+        """
+        if self.priors is None:
+            return None
+        available = torch.tensor([len(pool) for pool in self._by_class], dtype=torch.float64)
+        feasible = []
+        for progress in (0.0, 1.0):
+            table = self.priors.at(progress)
+            for node in range(table.shape[0]):
+                share = table[node]
+                positive = share > 0
+                feasible.append(float((available[positive] / share[positive]).min()))
+        return max(1, int(min(feasible)))
+
+    def _matched_indices(self, share: torch.Tensor) -> torch.Tensor:
+        """Test indices whose class composition realises ``share``.
+
+        Deterministic -- a fixed prefix of each class pool -- so two runs at the
+        same drift state score against the *same* images and a difference
+        between them cannot be sampling noise.
+        """
+        size = self._matched_size or len(self.test)
+        counts = largest_remainder(share, size)
+        parts = [self._by_class[c][: int(counts[c])] for c in range(self.n_classes)]
+        return torch.cat([part for part in parts if len(part)])
+
+    def _prior_at(self, step: int, node: int | None) -> torch.Tensor | None:
+        if self.priors is None:
+            return None
+        table = self.priors.at(self.drift.progress_at(step, node or 0))
+        return table[node or 0]
 
     # -- the sets ----------------------------------------------------------- #
 
     def current(self, step: int, node: int | None = None) -> EvalSet:
-        """The test split at the rotation the data carries at ``step``."""
+        """The test split at the drift state the data carries at ``step``.
+
+        Under class-prior drift this means the *composition* too, not only the
+        rotation: an agent trained on a drifting prior and scored on a uniform
+        split would show a gap that is the mismatch rather than its tracking.
+        """
         rotation = self._rotation(step, node)
+        return self._compose("current", step, rotation, self._prior_at(step, node))
+
+    def _compose(
+        self,
+        name: str,
+        step: int,
+        rotation: float,
+        share: torch.Tensor | None,
+        source_step: int | None = None,
+    ) -> EvalSet:
+        images = self._images_at(rotation)
+        if share is None:
+            return EvalSet(
+                name=name,
+                images=images,
+                labels=self.test.labels,
+                rotation_degrees=rotation,
+                step=step,
+                source_step=source_step,
+            )
+        indices = self._matched_indices(share)
         return EvalSet(
-            name="current",
-            images=self._images_at(rotation),
-            labels=self.test.labels,
+            name=name,
+            images=images[indices],
+            labels=self.test.labels[indices],
             rotation_degrees=rotation,
             step=step,
+            source_step=source_step,
+            class_prior=tuple(float(value) for value in share),
         )
 
     def canonical(self, step: int) -> EvalSet:
@@ -145,13 +231,14 @@ class EvalSetBuilder:
         source = self.backward_step(step, node)
         if source is None:
             return None
-        rotation = self._rotation(source, node)
-        return EvalSet(
-            name="backward",
-            images=self._images_at(rotation),
-            labels=self.test.labels,
-            rotation_degrees=rotation,
-            step=step,
+        # Composed at the *source* state, prior included: the probe asks how the
+        # model does on a distribution it has already seen, and that means the
+        # whole distribution, not its rotation with a present-day composition.
+        return self._compose(
+            "backward",
+            step,
+            self._rotation(source, node),
+            self._prior_at(source, node),
             source_step=source,
         )
 
@@ -187,14 +274,18 @@ class EvalSetBuilder:
         Scoring everyone at the mean too separates the two, at the cost of a
         second evaluation pass in that regime only.
         """
-        rotation = self.mean_rotation(step)
-        return EvalSet(
-            name="current_mean",
-            images=self._images_at(rotation),
-            labels=self.test.labels,
-            rotation_degrees=rotation,
-            step=step,
-        )
+        share = None
+        if self.priors is not None:
+            # The network-mean composition, matching the network-mean rotation:
+            # a single reference state no agent occupies, which is the point.
+            table = torch.stack(
+                [
+                    self.priors.at(self.drift.progress_at(step, node))[node]
+                    for node in range(self.priors.n_nodes)
+                ]
+            )
+            share = table.mean(dim=0)
+        return self._compose("current_mean", step, self.mean_rotation(step), share)
 
     def at(self, name: str, step: int, node: int | None = None) -> EvalSet | None:
         if name == "current":
@@ -233,15 +324,26 @@ class EvalSetBuilder:
         return len(self.drift.distinct_rotations(self.horizon, step_every))
 
     def summary(self) -> dict[str, Any]:
-        first = self.first_backward_step()
+        # Under per-node drift there is no network-wide state, and `state_at`
+        # rightly refuses to invent one. A *diagnostic* may still name a
+        # representative agent, so long as it says which -- that licence does
+        # not extend to the metric path, where agent 0's rotation standing in
+        # for everyone's is precisely the silent lie the error prevents.
+        representative = 0 if self.drift.scope == "per_node" else None
+        first = self.first_backward_step(representative)
         return {
             "n_test": len(self.test),
             "input_size": self.transform.size,
             "separation_degrees": self.separation,
             "backward_first_available_at": first,
+            "backward_first_available_for_node": representative,
             "backward_ever_available": first is not None,
             "distinct_rotations": self.distinct_rotations(),
             "cached_sets": len(self._cache),
+            "prior_matched": self.priors is not None,
+            # The evaluation sample size, which sets the floor on how finely a
+            # break threshold can be located. Worth reporting before a run.
+            "evalset_size": self._matched_size or len(self.test),
         }
 
     # -- internals ---------------------------------------------------------- #
@@ -274,10 +376,13 @@ def build_evalsets(config: Any, environment: Any, test: MnistSplit) -> EvalSetBu
     if test.images.dtype != dtype:
         test = test.to(dtype=dtype)
 
+    plan = getattr(environment, "class_plan", None)
     return EvalSetBuilder(
         test=test,
         transform=environment.transform,
         drift=environment.drift,
         horizon=config.run.horizon,
         backward_separation_degrees=config.eval.backward_separation_degrees,
+        priors=None if plan is None else plan.priors,
+        n_classes=config.model.output_dim,
     )

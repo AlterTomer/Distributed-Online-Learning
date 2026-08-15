@@ -36,8 +36,16 @@ env:
     jump_degrees: 15.0
     amplitude_degrees: 30.0
     period: 500
+    ramp_exponent: 2.0          # only under schedule: ramp -- the width of the
+                                # rate sweep; the run ends at this multiple of
+                                # the constant rate covering the same ground
     per_node_spread: 0.5        # only under drift_scope: per_node
   drift_scope: global
+  prior_drift:                  # the label-shift channel; no 45-degree ceiling
+    enabled: false              # off means absent, not uniform
+    beta: 0.5                   # endpoint concentration; smaller travels further
+    total_shift: 1.0            # how far along the path to go -- the magnitude knob
+    uniform_start: true         # so progress 0 is the ordinary experiment
   allow_epochs: false
 
 model:

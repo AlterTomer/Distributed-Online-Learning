@@ -1,0 +1,18 @@
+# Heterogeneous drift: every agent rotates, but at its own rate.
+#
+# This is the regime where a single shared theta starts to be the wrong object
+# to estimate, and therefore where consensus stops being free. Under global
+# drift neighbours have adapted to the *same* state, so mixing is pure variance
+# reduction and diffusion can essentially only help. Here neighbours sit at
+# different rotations, so mixing injects bias as well -- which is the mechanism
+# that should make diffusion break, and the one that motivates the hierarchical
+# shared/local extension.
+#
+# Multipliers are spread over [1 - per_node_spread, 1] and top out at 1, so the
+# spread slows the laggards rather than carrying the leaders past the 45-degree
+# cap the schedule was validated against.
+drift:
+  schedule: linear
+  total_degrees: 45.0
+  per_node_spread: 0.5   # slowest agent travels 22.5 deg, fastest 45
+drift_scope: per_node

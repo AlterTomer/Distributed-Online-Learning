@@ -1,0 +1,34 @@
+# X10 -- label shift, the channel rotation's 45-degree cap forecloses.
+#
+# Rotation is held at zero so a break here is attributable to the prior alone.
+# The evaluation sets are composed to the same drifting distribution the agents
+# train on, so the gap measures tracking rather than a train/test mismatch.
+#
+# Under `global` scope every agent's prior travels the same path, so this is a
+# pure tracking question. Pair it with drift_scope per_node to ask the
+# consensus question in the label-shift channel too.
+include:
+  env: mnist_prior_drift
+  graph: ring
+  model: mlp_small
+
+learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
+
+run:
+  name: x10_prior_drift
+  # Half the usual horizon, and this is forced rather than chosen. At the
+  # default N*n*T = 60000 the run consumes the *entire* training set, so every
+  # class pool is exactly exhausted by uniform demand and there is no headroom
+  # for a non-uniform one: measured, the worst class wants 1.11x to 1.29x the
+  # pool at every beta tried, and the feasibility check refuses all of them.
+  # At 30000 the worst class sits near 0.6 of its pool, comfortably inside.
+  #
+  # Halving T rather than n keeps the per-step data budget identical to the
+  # other experiments -- n governs how fast a learner can adapt, so changing it
+  # would confound the tracking question this experiment exists to ask. The
+  # prior drift rate is total_shift / T, so a shorter run drifts *faster*,
+  # which is the useful direction for finding a break.
+  horizon: 750
+
+eval:
+  evalsets: [prequential, current]

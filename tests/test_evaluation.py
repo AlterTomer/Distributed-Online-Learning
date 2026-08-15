@@ -1,4 +1,4 @@
-"""Evaluation sets and the scoring protocol.
+﻿"""Evaluation sets and the scoring protocol.
 
 The two properties that carry weight: the evaluation set must carry the *same*
 rotation as the training data at that step, and the backward probe must be
@@ -56,6 +56,90 @@ def builder_for(experiment: str = "x2_rotating", **overrides) -> EvalSetBuilder:
         horizon=config.run.horizon,
         backward_separation_degrees=SEPARATION,
     )
+
+
+# =========================================================================== #
+# 0. per-node drift, and the distribution the sets are composed to
+# =========================================================================== #
+
+
+def test_summary_survives_per_node_drift() -> None:
+    """A regression. `summary` asked for a network-wide drift state, which
+    per-node drift rightly refuses to invent, so it raised for every per-node
+    config -- unnoticed until one existed. A diagnostic may name a
+    representative agent; it must say which."""
+    builder = builder_for("x8_per_node_drift")
+    summary = builder.summary()
+    assert summary["backward_first_available_for_node"] == 0
+
+
+def test_a_global_run_names_no_representative_agent() -> None:
+    """The other half: under global drift every agent shares one state, so
+    reporting agent 0's would be true but would suggest a choice was made."""
+    assert builder_for("x2_rotating").summary()["backward_first_available_for_node"] is None
+
+
+def test_current_is_built_at_each_agents_own_rotation() -> None:
+    """Under per-node drift the agents sit at different states, so a single
+    shared `current` would score most of them against data they never saw."""
+    builder = builder_for("x8_per_node_drift")
+    rotations = {builder.current(HORIZON - 1, node).rotation_degrees for node in range(10)}
+    assert len(rotations) == 10
+
+
+def test_current_mean_sits_between_the_agents() -> None:
+    """The state no agent occupies -- which is what separates 'this agent
+    learned worse' from 'this agent is further from the mean rotation'."""
+    builder = builder_for("x8_per_node_drift")
+    step = HORIZON - 1
+    per_agent = [builder.current(step, node).rotation_degrees for node in range(10)]
+    mean = builder.current_at_mean(step).rotation_degrees
+    assert min(per_agent) < mean < max(per_agent)
+
+
+def test_prior_drift_composes_the_evalset_to_the_training_distribution() -> None:
+    """Otherwise the gap to the reference measures a train/test mismatch rather
+    than tracking -- the learner would look broken for the wrong reason."""
+    config = load_config(
+        "x10_prior_drift", overrides={"run": {"horizon": HORIZON}, "graph": {"n_nodes": 4}}
+    )
+    # Deliberate slack: a concentrated prior needs more of some classes than an
+    # exactly-sized split holds, which is the feasibility constraint working.
+    train = split(4 * config.graph.n_nodes * config.env.samples_per_node_per_step * HORIZON)
+    environment = build_environment(config, 0, train)
+    builder = build_evalsets(config, environment, split(2000, seed=2))
+
+    evalset = builder.current(HORIZON - 1, 0)
+    assert evalset.class_prior is not None
+    observed = torch.bincount(evalset.labels, minlength=10).to(torch.float64)
+    observed = observed / observed.sum()
+    intended = torch.tensor(evalset.class_prior, dtype=torch.float64)
+    assert float(0.5 * (observed - intended).abs().sum()) < 0.02
+
+
+def test_the_prior_matched_evalset_size_is_constant_across_the_run() -> None:
+    """A composition-matched set is limited by its scarcest class, and that
+    limit moves as the prior drifts. If the size followed it, the sampling
+    noise floor would drift too -- and a break threshold read off a curve whose
+    noise floor is changing measures the evaluation, not the learner."""
+    config = load_config(
+        "x10_prior_drift", overrides={"run": {"horizon": HORIZON}, "graph": {"n_nodes": 4}}
+    )
+    # Deliberate slack: a concentrated prior needs more of some classes than an
+    # exactly-sized split holds, which is the feasibility constraint working.
+    train = split(4 * config.graph.n_nodes * config.env.samples_per_node_per_step * HORIZON)
+    environment = build_environment(config, 0, train)
+    builder = build_evalsets(config, environment, split(2000, seed=2))
+    sizes = {len(builder.current(step, 0)) for step in (0, HORIZON // 2, HORIZON - 1)}
+    assert len(sizes) == 1
+
+
+def test_without_prior_drift_the_evalset_is_the_whole_split() -> None:
+    """The negative control: composing costs samples, so it must not happen
+    when the channel is off."""
+    builder = builder_for("x2_rotating")
+    assert builder.current(0).class_prior is None
+    assert len(builder.current(0)) == len(builder.test)
 
 
 # =========================================================================== #

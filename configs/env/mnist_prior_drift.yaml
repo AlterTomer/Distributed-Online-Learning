@@ -1,0 +1,16 @@
+# Label shift: the drift channel with no well-posedness ceiling.
+#
+# Rotation is held at zero here so the two channels can be told apart. Rotation
+# is capped at 45 degrees because past it a 6 is a 9; class-prior drift has no
+# analogous limit, because the Bayes-optimal classifier moves the whole way
+# without any label becoming ambiguous. Setting both at once is legitimate --
+# they ride the same schedule -- but then a break cannot be attributed to
+# either one.
+drift:
+  schedule: linear
+  total_degrees: 0.0     # isolate the prior channel
+prior_drift:
+  enabled: true
+  beta: 0.5              # endpoint concentration; smaller travels further
+  total_shift: 1.0       # the magnitude knob, in total-variation terms
+  uniform_start: true    # progress 0 is the ordinary experiment

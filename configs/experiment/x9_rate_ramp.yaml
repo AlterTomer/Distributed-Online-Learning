@@ -1,0 +1,26 @@
+# X9 -- locate the critical drift rate.
+#
+# The rate climbs from 0 to 0.18 deg/step over the run while ending at exactly
+# the same 45 degrees as X2, so the two runs traverse an identical
+# distributional path and differ only in speed along it. The step at which the
+# tracking gap takes off therefore names a *rate* rather than a step count.
+#
+# Read the answer as an upper bound. A tracker lags, so it crosses threshold
+# after the rate that would break it in steady state; X9 says where to look and
+# linear runs bracketing that value are what confirm it (design note D47).
+include:
+  env: mnist_rotating_ramp
+  graph: ring
+  model: mlp_small
+
+learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
+
+run:
+  name: x9_rate_ramp
+  horizon: 1500
+  # Denser than the default 25: the whole point is to locate a takeoff in t,
+  # and the resolution of that estimate is the evaluation cadence.
+  eval_every: 10
+
+eval:
+  evalsets: [prequential, current]

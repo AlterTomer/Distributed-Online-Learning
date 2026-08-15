@@ -138,6 +138,11 @@ class Environment:
     stream: Stream
     drift: Drift
     transform: ImageTransform
+    #: The class-prior plan, when that channel is on. Retained rather than
+    #: discarded after the shards are built, because the *evaluation* sets need
+    #: the same priors: scoring a prior-drifted learner on a uniform split would
+    #: report the mismatch as though it were tracking error.
+    class_plan: Any = None
 
     # -- what the runner needs -------------------------------------------- #
 
@@ -302,4 +307,5 @@ def build_environment(config: Any, master_seed: int, train: MnistSplit) -> Envir
         stream=stream,
         drift=drift,
         transform=transform,
+        class_plan=plan,
     )

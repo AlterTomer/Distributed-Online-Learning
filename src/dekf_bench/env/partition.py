@@ -1,4 +1,4 @@
-"""Assigning disjoint shards of the training set to agents.
+﻿"""Assigning disjoint shards of the training set to agents.
 
 Each agent owns a shard nobody else touches. This module decides *which* indices
 go where; it never sees an image, only labels and indices.
@@ -159,7 +159,7 @@ def _target_sizes(n_samples: int, n_nodes: int) -> list[int]:
     return [base + (1 if node < remainder else 0) for node in range(n_nodes)]
 
 
-def _largest_remainder(weights: torch.Tensor, total: int) -> torch.Tensor:
+def largest_remainder(weights: torch.Tensor, total: int) -> torch.Tensor:
     """Apportion ``total`` items across ``weights``, summing exactly to ``total``.
 
     Plain rounding does not sum to ``total``; the largest-remainder method
@@ -225,7 +225,7 @@ def dirichlet_partition(
     shards: list[list[torch.Tensor]] = [[] for _ in range(n_nodes)]
 
     for node in order:
-        wanted = _largest_remainder(preferences[node], targets[node])
+        wanted = largest_remainder(preferences[node], targets[node])
         taken = 0
         for c in range(n_classes):
             take = min(int(wanted[c]), len(pools[c]))
@@ -315,7 +315,7 @@ def demand_partition(
         remaining = shortfall.copy()
         if not len(pools[c]) or not sum(remaining):
             continue
-        share = _largest_remainder(
+        share = largest_remainder(
             torch.tensor(remaining, dtype=torch.float64) / sum(remaining),
             min(len(pools[c]), sum(remaining)),
         )
@@ -352,7 +352,7 @@ def _classical_dirichlet(
     proportions_per_class = _dirichlet(beta, n_nodes, len(pools), generator)
     shards: list[list[torch.Tensor]] = [[] for _ in range(n_nodes)]
     for pool, proportions in zip(pools, proportions_per_class, strict=True):
-        counts = _largest_remainder(proportions, int(pool.numel()))
+        counts = largest_remainder(proportions, int(pool.numel()))
         start = 0
         for node in range(n_nodes):
             take = int(counts[node])

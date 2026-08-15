@@ -1,0 +1,12 @@
+# Accelerating rotation: the rate starts at zero and grows, ending at
+# ramp_exponent times the constant rate that would cover the same ground.
+#
+# Use this to *locate* a break, not to confirm one. Under a constant rate a
+# tracker settles to a steady-state lag and stops degrading, so "after how many
+# steps" only has an answer when the rate is changing. Read the located rate as
+# an upper bound -- the learner lags, so it crosses threshold late -- and
+# confirm with linear runs bracketing it (design note D47).
+drift:
+  schedule: ramp
+  total_degrees: 45.0    # the same endpoint as mnist_rotating_linear
+  ramp_exponent: 6.0     # peak 0.18 deg/step at T=1500: 6x the linear default
