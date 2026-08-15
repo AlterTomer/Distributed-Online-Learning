@@ -49,6 +49,7 @@ class _SGDBase:
         optimizer: Optimizer,
         n_nodes: int,
         mix_policy: str = "none",
+        freeze_after: int | None = None,
     ) -> None:
         self._name = name
         self.model = model
@@ -58,6 +59,12 @@ class _SGDBase:
         self.mix_policy = mix_policy
         self.mixed = mixed_entries(optimizer, mix_policy)
         self._states: dict[int, LearnerState] = {}
+        #: Stop adapting at this step. The non-adapting baseline the comparative
+        #: break is measured against: it learned from the same data, with the
+        #: same optimizer, up to the same point, and then simply stopped -- so
+        #: the comparison isolates *continued adaptation* from initial learning.
+        self.freeze_after = freeze_after
+        self._last_step = 0
 
     @property
     def name(self) -> str:
@@ -110,6 +117,12 @@ class _SGDBase:
     def _gradient(self, theta: torch.Tensor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         return loss_gradient(self.model, theta, x, y, self.likelihood)
 
+    def is_frozen(self, step: int | None = None) -> bool:
+        """Whether adaptation has stopped by ``step`` (default: the last seen)."""
+        if self.freeze_after is None:
+            return False
+        return (self._last_step if step is None else step) >= self.freeze_after
+
     def _local_step(self, node: int, observation: Any) -> torch.Tensor:
         r"""One optimizer step on agent ``node``'s own data, returning $\bm\psi$.
 
@@ -118,8 +131,12 @@ class _SGDBase:
         from the combine step, which is one of diffusion's more attractive
         properties.
         """
+        self._last_step = int(observation.step)
         state = self.state(node)
-        if not observation.has_label:
+        # A frozen learner takes no step for the same structural reason an idle
+        # one does not: it contributes no update, and its estimate passes
+        # through unchanged.
+        if self.is_frozen(observation.step) or not observation.has_label:
             return state.theta.clone()
         gradient = self._gradient(state.theta, observation.x, observation.y)
         return self.optimizer.step(state.theta, gradient, state.extras)
@@ -206,9 +223,20 @@ class DiffusionSGDATC(_SGDBase):
         )
 
     def combine(self, intermediates: dict[int, Intermediate], weights: torch.Tensor) -> None:
+        # A frozen learner stops communicating as well as stepping. Averaging
+        # already-identical estimates would be a no-op numerically, but it would
+        # still be *counted* by the ledger -- and a baseline that keeps paying
+        # bandwidth to change nothing would distort every plot against cost.
+        if self.is_frozen():
+            return
         _combine_states(self._states, intermediates, weights, self.mixed)
 
     def comm_scalars_per_step(self, n_edges: int) -> int:
+        # Asked once per step, so this reports the warmup cost honestly and
+        # drops to zero only once the learner has actually stopped -- rather
+        # than crediting the whole run with silence it did not keep.
+        if self.is_frozen():
+            return 0
         vectors = 1 + len(self.mixed)
         return vectors * self.model.num_params * 2 * n_edges
 

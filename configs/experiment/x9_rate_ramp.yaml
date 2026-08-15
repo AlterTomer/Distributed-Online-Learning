@@ -13,7 +13,11 @@ include:
   graph: ring
   model: mlp_small
 
-learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
+# frozen_atc rides along so the *comparative* break is paired by construction:
+# it shares this run's environment and theta_0 with the learners it is the
+# baseline for, rather than being a separate run with its own seeds.
+learners:
+  [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only, frozen_atc]
 
 run:
   name: x9_rate_ramp

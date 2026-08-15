@@ -68,6 +68,7 @@ def make(name: str, model: MLP, likelihood: Categorical, **optimizer):
     settings = {"kind": "sgd", "lr": 0.05, "momentum": 0.0}
     settings.update(optimizer)
     mix = settings.pop("mix_policy", "none")
+    freeze_after = settings.pop("freeze_after", None)
     learner = BUILDERS[name](
         name=name,
         model=model,
@@ -75,6 +76,7 @@ def make(name: str, model: MLP, likelihood: Categorical, **optimizer):
         optimizer=Optimizer(**settings),
         n_nodes=N_NODES,
         mix_policy=mix,
+        freeze_after=freeze_after,
     )
     learner.init(model.flatten(model.init_params(torch.Generator().manual_seed(0))))
     return learner
@@ -86,6 +88,65 @@ def uniform_weights(n: int = N_NODES) -> torch.Tensor:
 
 DIFFUSION_NAMES = ["diffusion_sgd_atc", "diffusion_sgd_atc_plain", "diffusion_sgd_cta"]
 ALL_NAMES = [*DIFFUSION_NAMES, "local_only"]
+
+
+# =========================================================================== #
+# the non-adapting baseline
+# =========================================================================== #
+
+
+def at_step(model: MLP, step: int) -> Observation:
+    import dataclasses
+
+    return dataclasses.replace(observation(model), step=step)
+
+
+def run_steps(learner, model: MLP, steps: range) -> torch.Tensor:
+    """Drive the learner over exactly ``steps`` and return agent 0's parameters.
+
+    A range rather than a step count: replaying from 0 would re-run the warmup
+    every time and a frozen learner would appear to keep moving.
+    """
+    for step in steps:
+        nodes = range(N_NODES)
+        learner.combine(
+            {v: learner.adapt(v, at_step(model, step)) for v in nodes}, uniform_weights()
+        )
+    return learner.flat_params(0).clone()
+
+
+def test_a_frozen_learner_learns_first_and_then_stops(model: MLP, likelihood: Categorical) -> None:
+    """Both halves matter. Freezing from the start would leave it at its random
+    initialisation, which measures nothing about whether adaptation pays; never
+    freezing would make it the very learner it is the baseline for."""
+    learner = make("frozen_atc", model, likelihood, freeze_after=5)
+    start = learner.flat_params(0).clone()
+    at_freeze = run_steps(learner, model, range(0, 5))
+    later = run_steps(learner, model, range(5, 13))
+
+    assert float((at_freeze - start).abs().max()) > 0, "it must learn during warmup"
+    assert float((later - at_freeze).abs().max()) == 0.0, "it must not move once frozen"
+
+
+def test_an_unfrozen_learner_is_unaffected(model: MLP, likelihood: Categorical) -> None:
+    """The negative control: `freeze_after=None` must change nothing at all, so
+    the same schedule of steps keeps moving it."""
+    learner = make("diffusion_sgd_atc", model, likelihood)
+    early = run_steps(learner, model, range(0, 5))
+    late = run_steps(learner, model, range(5, 13))
+    assert float((late - early).abs().max()) > 0
+
+
+def test_a_frozen_learner_stops_paying_bandwidth(model: MLP, likelihood: Categorical) -> None:
+    """It stops transmitting as well as stepping. Averaging identical estimates
+    would be a numerical no-op but would still be counted by the ledger, and a
+    baseline paying for silence would distort every plot against cost."""
+    learner = make("frozen_atc", model, likelihood, freeze_after=5)
+    run_steps(learner, model, range(0, 4))
+    during_warmup = learner.comm_scalars_per_step(10)
+    run_steps(learner, model, range(4, 10))
+    assert during_warmup > 0
+    assert learner.comm_scalars_per_step(10) == 0
 
 
 # =========================================================================== #

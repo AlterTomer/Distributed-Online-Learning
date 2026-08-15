@@ -1477,6 +1477,60 @@ right, and only looking at it catches that.
 agent idles and consumes nothing, so taking its plan entry anyway would slide
 every later class one step out of step with the drift schedule that chose it.
 
+### ✅ D49. Two break definitions, kept separate because they disagree
+
+**Decision.** A break is recorded under both an absolute and a comparative
+definition, and neither is reduced to the other.
+
+*Absolute*: the tracking gap $e_v(t) - e^\star(\varphi_v(t))$ stays above a
+threshold. *Comparative*: the learner stops beating `frozen_atc` — the same
+algorithm, same optimizer, same data, which adapted for a warmup and then
+stopped.
+
+**Why both, rather than picking one.** They answer different questions and can
+disagree in both directions, and each disagreement is informative:
+
+| absolute | comparative | what it means |
+|---|---|---|
+| broke | did not | adaptation is helping and still not keeping up |
+| did not | broke | drift is slow enough that standing still was fine; the online updates add more variance than they remove |
+
+One number cannot say both. The comparative definition also needs **no
+threshold**, which is its real advantage — the absolute one requires someone to
+choose 0.05, and that choice is not measurable.
+
+**The rate is the answer; the step is how it was found.** Every located step is
+converted immediately to `schedule.rate_at(step)`. Under a constant rate the
+step is nearly meaningless (D47), and under a ramp the instantaneous rate at the
+crossing is not the run's average — reporting the step alone would invite
+reading it as though it were.
+
+**Three things the locator refuses to do.**
+
+*Call a single excursion a break.* One evaluation over the line is sampling
+noise, so the condition must hold for three consecutive evaluations. There is a
+positive control asserting that with `persistence=1` the excursion **is**
+located, so the guard is known to be doing work rather than passing vacuously.
+
+*Report the end of the run when nothing broke.* `step=None` survives as an
+outcome, carried alongside `max_rate_probed` so "did not break" is interpretable
+— without the rate actually reached, a null result says nothing.
+
+*Compare across runs.* The frozen baseline rides inside the same experiment as
+the learners it is compared with, so it shares one environment and one
+$\bm\theta_0$ (D4) and the comparison is paired by construction. A missing
+baseline raises rather than falling back to a separate run.
+
+**The frozen baseline stops transmitting, not only stepping.** Averaging
+identical estimates is a numerical no-op but would still be *counted* by the
+ledger, and a baseline paying bandwidth to change nothing would distort every
+plot against cost. `comm_scalars_per_step` is asked once per step, so it reports
+the warmup cost honestly and drops to zero only once the learner has stopped.
+
+**`centralized_sgd` cannot be frozen**, and this is rejected rather than
+silently ignored: it adapts through `adapt_pooled()`, which the runner calls
+without a step, so the freeze point could not be honoured.
+
 ---
 
 ## Open questions

@@ -75,6 +75,10 @@ BUILDERS = {
     "diffusion_sgd_atc_plain": DiffusionSGDATC,
     "diffusion_sgd_cta": DiffusionSGDCTA,
     "diffusion_ekf": DiffusionEKF,
+    # The non-adapting baseline. Shares the ATC implementation and differs only
+    # in carrying a `freeze_after`, so "what does continuing to adapt buy?" is
+    # answered against the same algorithm rather than against a different one.
+    "frozen_atc": DiffusionSGDATC,
 }
 
 #: Learners whose combine step actually transmits. `centralized_sgd` and
@@ -97,6 +101,7 @@ def build_learner(learner_config: Any, model: Model, likelihood: Any, n_nodes: i
         optimizer=build_optimizer(learner_config),
         n_nodes=n_nodes,
         mix_policy=getattr(learner_config, "mix_optimizer_state", "none"),
+        freeze_after=getattr(learner_config, "freeze_after", None),
     )
 
 

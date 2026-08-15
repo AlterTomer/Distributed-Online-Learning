@@ -301,6 +301,12 @@ class LearnerConfig:
     momentum: float = 0.9
     mix_optimizer_state: str = "momentum"
     adapt_scope: str = "local"
+    #: Stop adapting at this step, and stop transmitting with it. The
+    #: non-adapting baseline the *comparative* break is measured against: it saw
+    #: the same data with the same optimizer up to the same point and then
+    #: stopped, so the comparison isolates continued adaptation from initial
+    #: learning. `None` means never freeze.
+    freeze_after: int | None = None
 
     # --- phase 5 state model; inert for the SGD learners ------------------- #
     #: F_t. "identity" is a driftless random walk; "scalar" makes F_t = gamma*I,
@@ -320,6 +326,20 @@ class LearnerConfig:
     prior_scale: float = 1.0
 
     def __post_init__(self) -> None:
+        if self.freeze_after is not None:
+            if self.freeze_after < 1:
+                raise ConfigError(
+                    f"learner[{self.name}].freeze_after must be >= 1, got {self.freeze_after}. "
+                    "A learner frozen at step 0 never leaves its random initialisation, which "
+                    "measures nothing about whether adaptation pays."
+                )
+            if self.name == "centralized_sgd":
+                raise ConfigError(
+                    "learner[centralized_sgd].freeze_after is not supported: it adapts through "
+                    "adapt_pooled(), which the runner calls without a step, so the freeze point "
+                    "could not be honoured. Freeze a diffusion or local learner instead -- "
+                    "'frozen_atc' is the intended baseline."
+                )
         _one_of(self.optimizer, OPTIMIZERS, f"learner[{self.name}].optimizer")
         _one_of(self.mix_optimizer_state, MIX_POLICIES, f"learner[{self.name}].mix_optimizer_state")
         _one_of(self.adapt_scope, ADAPT_SCOPES, f"learner[{self.name}].adapt_scope")

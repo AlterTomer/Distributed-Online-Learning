@@ -484,12 +484,31 @@ Shared fields:
 | `momentum` | float | `0.9` | $[0,1)$ | Must be 0 for X0 |
 | `mix_optimizer_state` | str | `momentum` | `none`, `momentum`, `all` | Whether the combine step mixes optimizer moments as well as parameters |
 | `adapt_scope` | str | `local` | `local`, `one_hop` | Phase 5; `one_hop` raises today |
+| `freeze_after` | int \| null | `null` | ≥ 1 | Stop adapting *and* transmitting at this step |
 | `transition` | str | `identity` | `identity`, `scalar` | Phase 5; $\bm F_t$ |
 | `gamma` | float | `1.0` | $(0,1]$ | Phase 5; $\bm F_t = \gamma\bm I$ under `scalar` |
 | `forgetting` | str | `lambda` | `lambda`, `process_noise` | Phase 5; how $\bm P$ is loosened |
 | `lambda_forget` | float | `0.997` | $(0,1]$ | Phase 5; memory $\approx 1/(1-\lambda)$ |
 | `process_noise_q` | float | `1e-6` | > 0 | Phase 5; used under `forgetting: process_noise` |
 | `prior_scale` | float | `1.0` | > 0 | Phase 5; $P_0 = \text{prior\_scale}\cdot I$ |
+
+### `freeze_after` and the `frozen_atc` baseline
+
+`frozen_atc` shares the ATC implementation and differs only in carrying a
+`freeze_after`. It is the non-adapting baseline the **comparative** break is
+measured against: same optimizer, same learning rate, same data, up to the
+freeze point, and then nothing — no gradient step, no combine, no bandwidth.
+"When does the learner stop beating this?" therefore isolates *continued*
+adaptation from initial learning, and needs no threshold anyone had to choose
+(design note D49).
+
+It must be listed in the **same experiment** as the learners it is compared
+with, not run separately: they then share one environment and one $\bm\theta_0$,
+so the comparison is paired by construction rather than by seed (D4).
+
+`centralized_sgd` cannot be frozen and the config says so rather than ignoring
+it — that learner adapts through `adapt_pooled()`, which the runner calls
+without a step, so the freeze point could not be honoured.
 
 ### The state model has two independent axes
 

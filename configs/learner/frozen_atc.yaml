@@ -1,0 +1,22 @@
+# The non-adapting baseline the *comparative* break is measured against.
+#
+# Identical to diffusion_sgd_atc -- same optimizer, same learning rate, same
+# mixing -- up to `freeze_after`, and then it stops: no gradient step, no
+# combine, no bandwidth. So "when does the learner stop beating this?" isolates
+# *continued* adaptation from initial learning, and needs no threshold anyone
+# had to choose.
+#
+# It must run inside the same experiment as the learners it is compared with,
+# not as a separate run: they then share one environment and one theta_0, so
+# the comparison is paired by construction rather than by seed (design note D4).
+#
+# freeze_after 300 at the default T=1500 gives it a fifth of the run to learn.
+# Long enough to be a fair model of the initial distribution, early enough that
+# most of the run is spent measuring whether standing still was a mistake.
+name: frozen_atc
+optimizer: sgd_momentum
+lr: 0.05
+momentum: 0.9
+mix_optimizer_state: momentum
+adapt_scope: local
+freeze_after: 300

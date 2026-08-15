@@ -12,7 +12,8 @@ include:
   graph: ring
   model: mlp_small
 
-learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
+learners:
+  [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only, frozen_atc]
 
 run:
   name: x10_prior_drift
