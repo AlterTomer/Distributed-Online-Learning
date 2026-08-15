@@ -13,9 +13,15 @@
 # freeze_after 300 at the default T=1500 gives it a fifth of the run to learn.
 # Long enough to be a fair model of the initial distribution, early enough that
 # most of the run is spent measuring whether standing still was a mistake.
+# These must stay identical to configs/learner/diffusion_sgd_atc.yaml. They were
+# not, at first -- written from memory as lr 0.05 against ATC's tuned 0.01, which
+# made the baseline a *different* algorithm with five times the step size and
+# quietly falsified the claim above. It happened to err safely (a larger warmup
+# step froze it at a better point, so it was a stronger baseline and adapting
+# still beat it sevenfold), but "safe by luck" is not the property wanted here.
 name: frozen_atc
 optimizer: sgd_momentum
-lr: 0.05
+lr: 0.01
 momentum: 0.9
 mix_optimizer_state: momentum
 adapt_scope: local

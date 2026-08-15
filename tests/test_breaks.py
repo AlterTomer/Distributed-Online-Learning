@@ -17,10 +17,12 @@ from dekf_bench.metrics.breaks import (
     BreakError,
     absolute_break,
     comparative_break,
+    damage_at_rate,
     error_by_step,
     excess_break,
     locate_breaks,
     paired_excess,
+    pooled_sem,
     threshold_from_seed_noise,
     tracking_gap,
 )
@@ -355,6 +357,49 @@ def test_the_comparison_must_start_at_the_freeze_point() -> None:
     )
     assert guarded.broke
     assert guarded.step > STEPS[freeze_index]
+
+
+def test_a_pooled_bar_stops_a_noisy_learner_looking_robust() -> None:
+    """The x9 artifact, pinned. Two learners with the *same* damage but very
+    different seed spread: tested against their own noise the noisy one appears
+    to survive longer, and against a pooled bar they break together."""
+    damaged = [0.20 + 0.10 * i / (len(STEPS) - 1) for i in range(len(STEPS))]
+    flat = [0.20] * len(STEPS)
+    quiet = paired_excess(seeded_frame({"q": damaged}, jitter=0.001), seeded_frame({"q": flat}))
+    noisy = paired_excess(seeded_frame({"n": damaged}, jitter=0.030), seeded_frame({"n": flat}))
+    both = pd.concat([quiet, noisy], ignore_index=True)
+
+    own = {name: excess_break(both, name, drift_of(), HORIZON).step for name in ("q", "n")}
+    assert own["n"] > own["q"], "against its own noise the noisy learner survives longer"
+
+    pooled = pooled_sem(both)
+    together = {
+        name: excess_break(both, name, drift_of(), HORIZON, noise=pooled).step
+        for name in ("q", "n")
+    }
+    assert together["n"] == together["q"], "against one bar, equal damage breaks equally"
+
+
+def test_damage_at_a_matched_rate_needs_no_noise_estimate() -> None:
+    """The threshold-free companion: it compares methods at a speed both faced,
+    so it cannot be gamed by one being noisier than the other."""
+    worse = [0.30] * len(STEPS)
+    better = [0.20] * len(STEPS)
+    flat = [0.20] * len(STEPS)
+    excess = paired_excess(
+        seeded_frame({"worse": worse, "better": better}),
+        seeded_frame({"worse": flat, "better": flat}),
+    )
+    at_rate = damage_at_rate(excess, drift_of(), HORIZON, rate=0.15)
+    assert at_rate["worse"] > at_rate["better"]
+
+
+def test_a_rate_outside_the_probed_range_is_refused() -> None:
+    """Returning the closest step would silently answer a different question."""
+    flat = [0.2] * len(STEPS)
+    excess = paired_excess(seeded_frame({"a": flat}), seeded_frame({"a": flat}, jitter=0.0))
+    with pytest.raises(BreakError, match="never reaches"):
+        damage_at_rate(excess, drift_of(), HORIZON, rate=99.0)
 
 
 def test_a_learner_never_ahead_is_reported_as_such_not_as_a_break() -> None:

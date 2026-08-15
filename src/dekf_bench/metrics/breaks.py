@@ -231,6 +231,52 @@ def threshold_from_seed_noise(
     return multiple * spread
 
 
+def pooled_sem(excess: pd.DataFrame, learners: list[str] | None = None) -> pd.Series:
+    r"""One noise estimate per step, pooled across learners.
+
+    **Why cross-learner comparison needs this.** Testing each learner against
+    its own seed spread answers "is *this* method damaged", correctly. It does
+    not give comparable break rates, because a noisier method clears a laxer
+    bar: measured on x9, ``atc_plain`` is 2.7x noisier than momentum ATC in the
+    break region (0.0024 against 0.0009), so it needed 2.7x the damage to
+    trigger and appeared to survive longer while in fact being *more* damaged at
+    every step.
+
+    Pooling gives every method the same bar, so the ordering of break rates
+    means something.
+    """
+    rows = excess if learners is None else excess[excess.learner.isin(learners)]
+    if rows.empty:
+        raise BreakError("no rows to pool a noise estimate from")
+    counts = rows.groupby(["learner", "t"]).seed.nunique()
+    spread = rows.groupby(["learner", "t"]).excess.std() / counts.pow(0.5)
+    return spread.groupby("t").mean().fillna(0.0)
+
+
+def damage_at_rate(
+    excess: pd.DataFrame,
+    drift: Any,
+    horizon: int,
+    rate: float,
+) -> pd.Series:
+    """Mean excess at the step where the schedule first reaches ``rate``.
+
+    The threshold-free companion to the break rate: it asks how damaged each
+    method is at a drift speed everyone faced, which needs no noise estimate
+    and cannot be gamed by variance. Where the two orderings disagree, the
+    disagreement is itself worth reporting.
+    """
+    steps = sorted(excess.t.unique())
+    reached = [step for step in steps if drift.schedule.rate_at(int(step)) >= rate]
+    if not reached:
+        raise BreakError(
+            f"the schedule never reaches {rate:.4f} deg/step (peak is "
+            f"{drift.schedule.peak_rate(horizon):.4f}), so there is no matched point to "
+            "compare at. Pick a rate inside the range the run actually probed."
+        )
+    return excess[excess.t == reached[0]].groupby("learner").excess.mean()
+
+
 def _first_persistent(
     steps: np.ndarray, condition: np.ndarray, persistence: int
 ) -> tuple[int, int] | None:
@@ -284,8 +330,14 @@ def excess_break(
     horizon: int,
     multiple: float = 3.0,
     persistence: int = DEFAULT_PERSISTENCE,
+    noise: pd.Series | None = None,
 ) -> BreakPoint:
     r"""The absolute break: drift damage significantly above zero.
+
+    ``noise`` supplies a per-step standard error to test against. Pass
+    :func:`pooled_sem` to give every learner the same bar, which is what makes
+    break *rates* comparable across methods; leave it ``None`` to use the
+    learner's own spread, which answers whether that one method is damaged.
 
     **Tested step by step against the seed spread at that step**, not against
     one threshold fixed in advance. A global threshold needs a quiet window to
@@ -306,8 +358,11 @@ def excess_break(
 
     grouped = rows.groupby("t").excess
     mean = grouped.mean().sort_index()
-    n_seeds = rows.groupby("t").seed.nunique().sort_index()
-    sem = (grouped.std().sort_index() / n_seeds.pow(0.5)).fillna(0.0)
+    if noise is None:
+        n_seeds = rows.groupby("t").seed.nunique().sort_index()
+        sem = (grouped.std().sort_index() / n_seeds.pow(0.5)).fillna(0.0)
+    else:
+        sem = noise.reindex(mean.index).fillna(0.0)
 
     values = mean.to_numpy()
     condition = (values > multiple * sem.to_numpy()) & (values > 0.0)

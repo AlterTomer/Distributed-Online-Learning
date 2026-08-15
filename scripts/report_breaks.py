@@ -52,9 +52,11 @@ from dekf_bench.env.drift import build_drift  # noqa: E402
 from dekf_bench.metrics.breaks import (  # noqa: E402
     BreakError,
     comparative_break,
+    damage_at_rate,
     error_by_step,
     excess_break,
     paired_excess,
+    pooled_sem,
 )
 from dekf_bench.utils.config import load_config  # noqa: E402
 
@@ -70,6 +72,10 @@ BASELINE = "frozen_atc"
 NOISE_MULTIPLE = 3.0
 #: Consecutive evaluations the condition must hold for. One crossing is noise.
 PERSISTENCE = 3
+#: A drift rate inside the range the run probed, at which every method is
+#: compared head to head. The threshold-free reading: it needs no noise
+#: estimate and cannot be gamed by a method being noisier than its rivals.
+MATCHED_RATE = 0.10
 
 
 def load(experiment: str) -> pd.DataFrame:
@@ -120,21 +126,30 @@ def main() -> int:
         f"  peak {schedule.peak_rate(horizon):.4f} deg/step"
     )
     print(
-        f"  absolute      excess > {NOISE_MULTIPLE:g}x its seed s.e.m. at that step,"
+        f"  absolute      excess > {NOISE_MULTIPLE:g}x a s.e.m. pooled across learners,"
         f" for {PERSISTENCE} consecutive evaluations"
     )
-    print(f"  comparative   vs {BASELINE}, from its freeze point t={freeze_after}\n")
+    print(f"  comparative   vs {BASELINE}, from its freeze point t={freeze_after}")
+    print(f"  matched rate  damage compared head to head at {MATCHED_RATE:g} deg/step\n")
+
+    # Pooled over the adapting methods only: the frozen baseline is an order of
+    # magnitude noisier, and letting it into the pool would raise the bar for
+    # everyone to accommodate a learner that is not competing.
+    noise = pooled_sem(excess, [name for name in excess.learner.unique() if name != BASELINE])
+    matched = damage_at_rate(excess, drift, horizon, MATCHED_RATE)
 
     header = (
-        f"{'learner':26s} {'absolute':>11} {'rate':>8} | {'comparative':>12} {'rate':>8} | "
-        f"{'excess@end':>10}"
+        f"{'learner':26s} {'absolute':>11} {'rate':>8} | {'comparative':>12} | "
+        f"{'@0.10':>8} {'excess@end':>10}"
     )
     print(header)
     print("-" * len(header))
 
     final = excess[excess.t >= 0.9 * horizon].groupby("learner").excess.mean()
     for learner in sorted(excess.learner.unique()):
-        absolute = excess_break(excess, learner, drift, horizon, NOISE_MULTIPLE, PERSISTENCE)
+        absolute = excess_break(
+            excess, learner, drift, horizon, NOISE_MULTIPLE, PERSISTENCE, noise=noise
+        )
         comparative = None
         if learner != BASELINE and freeze_after is not None:
             try:
@@ -151,9 +166,10 @@ def main() -> int:
                 comparative = None
 
         a_step, a_rate = cell(absolute)
-        c_step, c_rate = cell(comparative)
+        c_step, _c_rate = cell(comparative)
         print(
-            f"{learner:26s} {a_step:>11} {a_rate:>8} | {c_step:>12} {c_rate:>8} | "
+            f"{learner:26s} {a_step:>11} {a_rate:>8} | {c_step:>12} | "
+            f"{matched.get(learner, float('nan')):>8.4f} "
             f"{final.get(learner, float('nan')):>10.4f}"
         )
 
@@ -161,6 +177,11 @@ def main() -> int:
         f"\n'no break' means the condition never held for {PERSISTENCE} consecutive "
         f"evaluations up to {schedule.peak_rate(horizon):.4f} deg/step, which is the "
         "fastest this run went -- not that no rate would break it."
+    )
+    print(
+        "The break rate and the damage at a matched rate are independent readings. "
+        "They should agree on the ordering; where they do not, the break rate is the "
+        "one to distrust, since it depends on a noise estimate and the other does not."
     )
     return 0
 
