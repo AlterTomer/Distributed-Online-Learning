@@ -32,9 +32,10 @@ if TYPE_CHECKING:  # pragma: no cover - imported for type checking only
     import numpy as np
     import torch
 
-#: The four streams, in documentation order. Adding to this tuple is safe:
-#: derivation is by name, so existing streams keep their values.
-STREAM_NAMES = ("init", "partition", "stream", "graph")
+#: The streams, in documentation order. Adding to this tuple is safe:
+#: derivation is by name, so existing streams keep their values -- which is why
+#: `priors` could be appended without changing any run that predates it.
+STREAM_NAMES = ("init", "partition", "stream", "graph", "priors")
 
 #: Derived seeds are truncated to this width. 63 bits keeps them positive and
 #: inside the range every backend here accepts.
@@ -61,7 +62,7 @@ def derive_seed(master: int, name: str, *parts: int | str) -> int:
 
 @dataclass(frozen=True)
 class Seeds:
-    """The four seed streams for one run, derived from ``master``.
+    """The seed streams for one run, derived from ``master``.
 
     Frozen, because a seed that changes mid-run is not a seed.
     """
@@ -71,6 +72,11 @@ class Seeds:
     partition: int
     stream: int
     graph: int
+    #: The class-prior endpoints and plan. Separate from `partition` so the
+    #: prior path can be held fixed while the shards are redrawn, and vice
+    #: versa -- the two are otherwise easy to confound, since under prior drift
+    #: the plan is what sizes the shards.
+    priors: int
 
     @classmethod
     def from_master(cls, master: int) -> Seeds:

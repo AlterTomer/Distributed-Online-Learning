@@ -228,18 +228,19 @@ def test_different_seeds_give_different_shards(kind: str, beta: float) -> None:
 
 def test_partition_depends_only_on_the_partition_stream() -> None:
     """Holding the partition fixed while initialization varies is the ablation
-    the four separable seed streams exist to enable."""
+    the separable seed streams exist to enable.
+
+    Built with `replace` rather than field by field: naming every stream would
+    make this test fail whenever one is added, which says nothing about the
+    property under test (design note D41).
+    """
+    import dataclasses
+
     from dekf_bench.runner.seeding import Seeds, derive_seed
 
     labels = labels_of()
     base = Seeds.from_master(0)
-    other_init = Seeds(
-        master=0,
-        init=derive_seed(999, "init"),
-        partition=base.partition,
-        stream=base.stream,
-        graph=base.graph,
-    )
+    other_init = dataclasses.replace(base, init=derive_seed(999, "init"))
 
     first = build_partition(labels, 10, generator=base.torch_generator("partition"))
     second = build_partition(labels, 10, generator=other_init.torch_generator("partition"))

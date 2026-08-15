@@ -180,16 +180,17 @@ def test_numpy_rng_is_reproducible() -> None:
 
 
 def test_holding_partition_fixed_while_init_varies() -> None:
-    """The ablation the four streams exist to make possible."""
+    """The ablation the separable streams exist to make possible.
+
+    `replace` rather than naming every field: a test that lists the streams
+    breaks whenever one is added, which is a fact about the tuple rather than
+    about the independence being asserted (design note D41).
+    """
+    import dataclasses
+
     import numpy as np
 
     shards_a = seeds_for(0).numpy_rng("partition").permutation(50)
-    shards_b = Seeds(
-        master=0,
-        init=derive_seed(999, "init"),
-        partition=derive_seed(0, "partition"),
-        stream=derive_seed(0, "stream"),
-        graph=derive_seed(0, "graph"),
-    )
+    shards_b = dataclasses.replace(Seeds.from_master(0), init=derive_seed(999, "init"))
     assert np.array_equal(shards_a, shards_b.numpy_rng("partition").permutation(50))
     assert shards_b.init != seeds_for(0).init

@@ -250,6 +250,98 @@ def dirichlet_partition(
     return tuple(torch.cat(parts).sort().values for parts in shards)
 
 
+def demand_partition(
+    labels: torch.Tensor,
+    demand: torch.Tensor,
+    n_classes: int,
+    generator: torch.Generator | None = None,
+) -> tuple[torch.Tensor, ...]:
+    """Shards holding exactly the per-class counts a class-prior plan will ask for.
+
+    Under a drifting class prior the composition an agent needs is decided by
+    the plan, not by a one-off Dirichlet draw, so the shard is *sized from the
+    plan*. Each agent is first given precisely ``demand[v, k]`` samples of
+    class ``k``; the shards are then topped up from whatever is left so that
+    sizes stay equal and the partition still covers the training set.
+
+    The filler is never served -- ``build_stream`` pops only the classes the
+    plan names -- but it has to exist, because "shards partition the training
+    set" is what disjointness and the exactly-once accounting rest on.
+    """
+    if demand.shape[1] != n_classes:
+        raise PartitionError(f"demand has {demand.shape[1]} classes, expected {n_classes}")
+    if int(demand.min()) < 0:
+        raise PartitionError("demand counts must be non-negative")
+
+    n_nodes = int(demand.shape[0])
+    pools = [
+        _shuffled(torch.nonzero(labels == c, as_tuple=True)[0], generator) for c in range(n_classes)
+    ]
+    shards: list[list[torch.Tensor]] = [[] for _ in range(n_nodes)]
+
+    # Demand first, for every agent, before anyone is topped up: the filler is
+    # interchangeable but the demanded samples are not, and serving one agent
+    # completely before the next would let filler consume a class a later agent
+    # still needs.
+    for node in range(n_nodes):
+        for c in range(n_classes):
+            want = int(demand[node, c])
+            if want > len(pools[c]):
+                raise PartitionError(
+                    f"agent {node} needs {want} samples of class {c} but only "
+                    f"{len(pools[c])} remain. The plan should have been checked with "
+                    "priors.check_plan_is_feasible before the partition was built."
+                )
+            if want:
+                shards[node].append(pools[c][:want])
+                pools[c] = pools[c][want:]
+
+    targets = _target_sizes(int(labels.numel()), n_nodes)
+    shortfall = []
+    for node in range(n_nodes):
+        taken = int(sum(len(part) for part in shards[node]))
+        if taken > targets[node]:
+            raise PartitionError(
+                f"agent {node} is demanded {taken} samples but its equal-size share is "
+                f"{targets[node]}. Shorten the horizon or lower samples_per_node_per_step."
+            )
+        shortfall.append(targets[node] - taken)
+
+    # Spread the filler across classes rather than handing each agent its whole
+    # shortfall from whichever pool is currently largest. The filler is never
+    # served, but it lands in `partition.skew()`, and a lumpy remainder would
+    # report a skew the experiment does not have.
+    for c in range(n_classes):
+        remaining = shortfall.copy()
+        if not len(pools[c]) or not sum(remaining):
+            continue
+        share = _largest_remainder(
+            torch.tensor(remaining, dtype=torch.float64) / sum(remaining),
+            min(len(pools[c]), sum(remaining)),
+        )
+        for node in range(n_nodes):
+            take = min(int(share[node]), shortfall[node], len(pools[c]))
+            if take:
+                shards[node].append(pools[c][:take])
+                pools[c] = pools[c][take:]
+                shortfall[node] -= take
+
+    # Anything still short -- rounding, or a class pool that emptied -- is made
+    # up from whatever is left, which is now a small remainder rather than the
+    # bulk of the shard.
+    for node in range(n_nodes):
+        while shortfall[node] > 0:
+            fullest = max(range(n_classes), key=lambda c: len(pools[c]))
+            if not len(pools[fullest]):  # pragma: no cover - totals make this unreachable
+                raise PartitionError("ran out of samples while balancing shard sizes")
+            take = min(shortfall[node], len(pools[fullest]))
+            shards[node].append(pools[fullest][:take])
+            pools[fullest] = pools[fullest][take:]
+            shortfall[node] -= take
+
+    return tuple(torch.cat(parts).sort().values for parts in shards)
+
+
 def _classical_dirichlet(
     pools: list[torch.Tensor],
     n_nodes: int,
@@ -287,6 +379,7 @@ def build_partition(
     generator: torch.Generator | None = None,
     balance_sizes: bool = True,
     min_shard_size: int | None = None,
+    demand: torch.Tensor | None = None,
 ) -> Partition:
     """Assign disjoint shards.
 
@@ -304,12 +397,23 @@ def build_partition(
         min_shard_size: reject a partition that leaves any agent with fewer than
             this many samples. Pass ``n * T`` to guarantee the run cannot
             exhaust a shard.
+        demand: ``(N, K)`` per-class counts from a class-prior plan. When given
+            it overrides ``kind``: the composition is dictated by the plan, so
+            a Dirichlet draw would only fight it.
     """
     n_samples = int(labels.numel())
     if n_nodes < 1:
         raise PartitionError(f"n_nodes must be >= 1, got {n_nodes}")
     if n_nodes > n_samples:
         raise PartitionError(f"cannot split {n_samples} samples across {n_nodes} agents")
+
+    if demand is not None:
+        shards = demand_partition(labels, demand, n_classes, generator)
+        return _finish(
+            Partition(shards=shards, kind="prior_drift", beta=None, n_classes=n_classes),
+            n_samples,
+            min_shard_size,
+        )
 
     if kind == "iid":
         shards = iid_partition(n_samples, n_nodes, generator)
@@ -321,8 +425,12 @@ def build_partition(
         raise PartitionError(f"unknown partition kind {kind!r}; expected 'iid' or 'dirichlet'")
 
     partition = Partition(shards=shards, kind=kind, beta=beta_recorded, n_classes=n_classes)
-    _check_covers(partition, n_samples)
+    return _finish(partition, n_samples, min_shard_size)
 
+
+def _finish(partition: Partition, n_samples: int, min_shard_size: int | None) -> Partition:
+    """The checks every construction shares: coverage, then the shard budget."""
+    _check_covers(partition, n_samples)
     if min_shard_size is not None:
         smallest = int(partition.sizes.min())
         if smallest < min_shard_size:
@@ -352,6 +460,7 @@ def build_partition_from_config(
     config: Any,
     labels: torch.Tensor,
     generator: torch.Generator | None = None,
+    demand: torch.Tensor | None = None,
 ) -> Partition:
     """The partition a run's config asks for, with the shard budget enforced."""
     needed = config.env.samples_per_node_per_step * config.run.horizon
@@ -363,4 +472,5 @@ def build_partition_from_config(
         n_classes=config.model.output_dim,
         generator=generator,
         min_shard_size=None if config.env.allow_epochs else needed,
+        demand=demand,
     )

@@ -60,6 +60,12 @@ def describe(config: Config) -> str:
             f"                alpha={drift.schedule.alpha:.4f} deg/step  "
             f"(derived: {env.drift.total_degrees} deg / {run.horizon} steps)"
         )
+    elif env.drift.schedule == "ramp":
+        lines.append(
+            f"                rate 0 -> {drift.schedule.peak_rate(run.horizon):.4f} deg/step "
+            f"(exponent {env.drift.ramp_exponent}), mean "
+            f"{drift.schedule.mean_rate(run.horizon):.4f}"
+        )
     elif env.drift.schedule == "piecewise":
         lines.append(
             f"                {env.drift.jump_degrees} deg jumps at {env.drift.change_points}"

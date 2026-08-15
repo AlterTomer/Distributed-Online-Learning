@@ -49,7 +49,7 @@ TOPOLOGIES = (
 )
 WEIGHT_RULES = ("metropolis", "relative_degree", "uniform")
 PARTITIONS = ("iid", "dirichlet")
-SCHEDULES = ("stationary", "linear", "piecewise", "sinusoidal")
+SCHEDULES = ("stationary", "linear", "ramp", "piecewise", "sinusoidal")
 DRIFT_SCOPES = ("global", "per_node")
 OPTIMIZERS = ("sgd", "sgd_momentum", "adamw")
 MIX_POLICIES = ("none", "momentum", "all")
@@ -162,6 +162,10 @@ class DriftConfig:
     jump_degrees: float = 15.0
     amplitude_degrees: float = 30.0
     period: int = 500
+    #: `ramp` only. The run ends at this multiple of the constant rate covering
+    #: the same ground, so it is the width of the rate sweep. Must exceed 1:
+    #: at 1 the ramp is the linear schedule under another name.
+    ramp_exponent: float = 2.0
     #: Under `drift_scope: per_node`, agents drift at rates spread over
     #: [1 - spread, 1] times the configured rate. See env/drift.py for why the
     #: multipliers top out at 1 rather than straddling it.
@@ -197,10 +201,46 @@ class DriftConfig:
             raise ConfigError(
                 f"env.drift.per_node_spread must lie in [0, 1), got {self.per_node_spread}"
             )
+        if self.schedule == "ramp" and self.ramp_exponent <= 1.0:
+            raise ConfigError(
+                f"env.drift.ramp_exponent must be > 1, got {self.ramp_exponent}. At 1.0 "
+                "the ramp is exactly the linear schedule, and below it the drift "
+                "decelerates -- which measures nothing the ramp exists to measure."
+            )
 
     # Evaluating the schedule lives in env/drift.py, not here. This class
     # validates fields; turning a step into a rotation is behaviour, and having
     # two implementations of "where is the piecewise jump" is how they diverge.
+
+
+@dataclass
+class PriorDriftConfig:
+    """Class-prior drift: the label-shift channel.
+
+    Off by default. When on, it rides the *same* schedule as the rotation, so a
+    run drifts in both channels together unless ``env.drift.total_degrees`` is
+    set to 0 to isolate the prior.
+    """
+
+    enabled: bool = False
+    #: Dirichlet concentration of the endpoint the priors travel toward. Small
+    #: values concentrate an agent on a few classes, which makes the path long.
+    beta: float = 0.5
+    #: How far along the start-to-end path the run travels. The magnitude knob,
+    #: and unlike degrees of rotation it has no well-posedness ceiling.
+    total_shift: float = 1.0
+    #: Start from 1/K rather than a Dirichlet draw, so at progress 0 the run is
+    #: the same experiment as one without prior drift.
+    uniform_start: bool = True
+
+    def __post_init__(self) -> None:
+        if self.beta <= 0:
+            raise ConfigError(f"env.prior_drift.beta must be > 0, got {self.beta}")
+        if not 0.0 <= self.total_shift <= 1.0:
+            raise ConfigError(
+                f"env.prior_drift.total_shift must lie in [0, 1], got {self.total_shift}. "
+                "Past 1 the interpolation leaves the simplex and asks for negative mass."
+            )
 
 
 @dataclass
@@ -209,6 +249,7 @@ class EnvConfig:
     label_availability: float = 1.0
     partition: PartitionConfig = field(default_factory=PartitionConfig)
     drift: DriftConfig = field(default_factory=DriftConfig)
+    prior_drift: PriorDriftConfig = field(default_factory=PriorDriftConfig)
     drift_scope: str = "global"
     allow_epochs: bool = False
 
@@ -485,7 +526,9 @@ class Config:
         drift = self.env.drift
         if drift.schedule == "stationary":
             return 0.0
-        if drift.schedule == "linear":
+        if drift.schedule in ("linear", "ramp"):
+            # A ramp reaches the same place as the linear schedule; only the
+            # rate along the way differs.
             return drift.total_degrees
         if drift.schedule == "piecewise":
             return drift.jump_degrees * max(len(drift.change_points), 1)

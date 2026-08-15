@@ -34,6 +34,7 @@ from dekf_bench.data.transforms import ImageTransform, build_transform_from_conf
 from dekf_bench.env.drift import Drift, DriftState, build_drift
 from dekf_bench.env.graph import Graph, Graphs, build_graphs
 from dekf_bench.env.partition import Partition, build_partition_from_config
+from dekf_bench.env.priors import build_class_plan_from_config, check_plan_is_feasible
 from dekf_bench.env.stream import Stream, build_stream_from_config
 from dekf_bench.runner.seeding import Seeds
 
@@ -264,11 +265,28 @@ def build_environment(config: Any, master_seed: int, train: MnistSplit) -> Envir
     seeds = Seeds.from_master(master_seed)
 
     graphs = build_graphs(config, seeds.torch_generator("graph"))
-    partition = build_partition_from_config(
-        config, train.labels, seeds.torch_generator("partition")
-    )
-    stream = build_stream_from_config(config, partition, seeds.torch_generator("stream"))
     drift = build_drift(config)
+
+    # The class-prior plan comes first when it is on: it decides the per-class
+    # counts each shard must hold, so the partition is sized from it rather
+    # than drawn independently and hoped to fit.
+    plan = build_class_plan_from_config(config, drift, seeds.torch_generator("priors"))
+    if plan is not None:
+        check_plan_is_feasible(plan, train.labels)
+
+    partition = build_partition_from_config(
+        config,
+        train.labels,
+        seeds.torch_generator("partition"),
+        demand=None if plan is None else plan.demand(),
+    )
+    stream = build_stream_from_config(
+        config,
+        partition,
+        seeds.torch_generator("stream"),
+        class_plan=plan,
+        labels=train.labels,
+    )
     transform = build_transform_from_config(config, train.images)
 
     dtype = torch.float64 if config.run.dtype == "float64" else torch.float32

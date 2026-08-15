@@ -147,13 +147,23 @@ shard-budget check, and is a real trade rather than a convenience.
 
 | Field | Type | Default | Legal values | Applies to |
 |---|---|---|---|---|
-| `schedule` | str | `stationary` | `stationary`, `linear`, `piecewise`, `sinusoidal` | all |
-| `total_degrees` | float | `45.0` | $[0, 45]$ | `linear` |
+| `schedule` | str | `stationary` | `stationary`, `linear`, `ramp`, `piecewise`, `sinusoidal` | all |
+| `total_degrees` | float | `45.0` | $[0, 45]$ | `linear`, `ramp` |
+| `ramp_exponent` | float | `2.0` | > 1 | `ramp` |
 | `change_points` | list[int] | `[]` | non-negative, sorted | `piecewise` |
 | `jump_degrees` | float | `15.0` | any | `piecewise` |
 | `amplitude_degrees` | float | `30.0` | $\lvert\cdot\rvert \le 45$ | `sinusoidal` |
 | `period` | int | `500` | ≥ 1 | `sinusoidal` |
 | `per_node_spread` | float | `0.5` | $[0, 1)$ | all, under `drift_scope: per_node` |
+
+**`ramp` accelerates; use it to find a break, `linear` to confirm one.** Under a
+constant rate a tracker settles to a steady-state lag and then stops degrading,
+so "after how many steps does it break" only has an answer when the rate is
+changing. A ramp's progress is $(t/T)^p$, so it ends at $p$ times the constant
+rate covering the same ground while reaching exactly the same endpoint — one run
+sweeps the rate axis. `ramp_exponent: 1` is rejected because it would silently
+be the `linear` schedule. Read the located rate as an upper bound: the learner
+lags, so it crosses threshold late (design note D47).
 
 Under **`drift_scope: per_node`**, agent $v$'s rotation is scaled by a multiplier
 evenly spaced over $[1-\text{spread},\,1]$. The multipliers top out at **1, not
@@ -165,6 +175,38 @@ global drift.
 Note that per-node drift has **no single network-wide drift state**, so
 `Drift.state_at(t)` raises without a node argument — returning agent 0's state
 would be a silent lie. Use `states_at(t)` for all of them.
+
+The multiplier scales `progress_at` as well as `rotation_at`, so every channel
+moves together for a given agent: a laggard is equally behind in rotation and in
+class prior, rather than behind in one and current in the other.
+
+### `env.prior_drift`
+
+The label-shift channel. Each agent's class distribution travels from $1/K$ to a
+Dirichlet draw along the **same** schedule the rotation uses, so a run drifts in
+both channels at once unless `env.drift.total_degrees` is set to 0 to isolate the
+prior.
+
+| Field | Type | Default | Legal values | Notes |
+|---|---|---|---|---|
+| `enabled` | bool | `false` | — | off means *absent*, not uniform |
+| `beta` | float | `0.5` | > 0 | concentration of the endpoint; smaller travels further |
+| `total_shift` | float | `1.0` | $[0, 1]$ | how far along the path to go — the magnitude knob |
+| `uniform_start` | bool | `true` | — | begin at $1/K$ so progress 0 is the ordinary experiment |
+
+**Why this channel exists.** Rotation is capped at 45° by label ambiguity, which
+bounds displacement and therefore the mean rate. Label shift has no such
+ceiling: the Bayes-optimal classifier moves the whole way but no label ever
+becomes ambiguous, so the magnitude axis stays open (design note D48).
+
+**It costs shard composition, and an infeasible plan is refused up front.** The
+partition is *sized from the plan*, so agents compete for one disjoint pool per
+class. Concentrated endpoints over a long horizon can oversubscribe a class, and
+`check_plan_is_feasible` then names the class rather than letting a shard come up
+short mid-run. Lower `total_shift`, raise `beta`, shorten the horizon, or reduce
+`samples_per_node_per_step`.
+
+*Consumed by:* `env/priors.py`, `env/partition.py`, `env/stream.py`.
 
 **There is no `alpha` field, and supplying one is an error.** The per-step rate
 is derived as `total_degrees / run.horizon`, so changing the horizon cannot
@@ -591,8 +633,9 @@ graph.topology            complete | ring | path | grid2d | star |
                           erdos_renyi | watts_strogatz | disconnected
 graph.weights             metropolis | relative_degree | uniform
 env.partition.kind        iid | dirichlet
-env.drift.schedule        stationary | linear | piecewise | sinusoidal
+env.drift.schedule        stationary | linear | ramp | piecewise | sinusoidal
 env.drift_scope           global | per_node
+env.prior_drift.enabled   false | true
 learner.optimizer         sgd | sgd_momentum | adamw
 learner.mix_optimizer_state   none | momentum | all
 learner.adapt_scope       local | one_hop

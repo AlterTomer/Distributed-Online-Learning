@@ -188,6 +188,49 @@ def _label_mask(
     return draws < availability
 
 
+def _class_ordered(
+    shard: torch.Tensor,
+    labels: torch.Tensor,
+    wanted: torch.Tensor,
+    n_classes: int,
+    generator: torch.Generator | None,
+    node: int,
+) -> torch.Tensor:
+    """Order a shard so that consuming it front-to-back realises ``wanted``.
+
+    This is the whole of class-prior drift as far as the stream is concerned: a
+    permutation, computed up front. Each index is still popped from its class
+    queue exactly once, so disjointness and exactly-once are untouched, and the
+    prefix-sum offsets keep working because nothing about *how many* samples a
+    step consumes has changed -- only which.
+
+    Whatever the plan does not name is shuffled onto the end. It is never
+    served; it exists so the shard remains a partition of the training set.
+    """
+    shard_labels = labels[shard]
+    queues: dict[int, list[int]] = {}
+    for c in range(n_classes):
+        held = shard[shard_labels == c]
+        shuffled = held[torch.randperm(len(held), generator=generator)]
+        queues[c] = shuffled.tolist()
+
+    served: list[int] = []
+    for target in wanted.tolist():
+        queue = queues[int(target)]
+        if not queue:
+            raise StreamError(
+                f"agent {node} ran out of class {int(target)} while ordering its shard. "
+                "The partition must be built from the same plan the stream serves -- pass "
+                "the plan's demand() to build_partition."
+            )
+        served.append(queue.pop())
+    leftover = [index for queue in queues.values() for index in queue]
+    rest = torch.tensor(leftover, dtype=torch.int64)
+    if len(rest):
+        rest = rest[torch.randperm(len(rest), generator=generator)]
+    return torch.cat([torch.tensor(served, dtype=torch.int64), rest])
+
+
 def build_stream(
     partition: Partition,
     horizon: int,
@@ -195,6 +238,8 @@ def build_stream(
     label_availability: float = 1.0,
     generator: torch.Generator | None = None,
     allow_epochs: bool = False,
+    class_plan: Any = None,
+    labels: torch.Tensor | None = None,
 ) -> Stream:
     """Plan the whole run's sampling.
 
@@ -207,6 +252,10 @@ def build_stream(
         generator: from the ``stream`` seed stream, so sample order and label
             draws can vary while the partition is held fixed.
         allow_epochs: permit a shard to wrap and repeat. Forfeits exactly-once.
+        class_plan: a ``priors.ClassPlan``. When given, each shard is ordered so
+            that the classes served follow the plan -- which is how class-prior
+            drift reaches the learner.
+        labels: the training labels, needed only to sort a shard by class.
     """
     if horizon < 1:
         raise StreamError(f"horizon must be >= 1, got {horizon}")
@@ -220,9 +269,27 @@ def build_stream(
     before = torch.cumsum(labelled, dim=1) - labelled
     offsets = before * samples_per_step
 
-    order = tuple(
-        shard[torch.randperm(len(shard), generator=generator)] for shard in partition.shards
-    )
+    if class_plan is None:
+        order = tuple(
+            shard[torch.randperm(len(shard), generator=generator)] for shard in partition.shards
+        )
+    else:
+        if labels is None:
+            raise StreamError("a class plan needs labels to sort each shard by class")
+        # Only the labelled steps are drawn from. An idle agent consumes
+        # nothing, so taking its plan entry anyway would slide every later class
+        # one step out of step with the drift schedule that chose it.
+        order = tuple(
+            _class_ordered(
+                shard=shard,
+                labels=labels,
+                wanted=class_plan.classes[node][has_label[node]].reshape(-1),
+                n_classes=class_plan.n_classes,
+                generator=generator,
+                node=node,
+            )
+            for node, shard in enumerate(partition.shards)
+        )
     stream = Stream(
         order=order,
         has_label=has_label,
@@ -253,7 +320,11 @@ def _check_shards_last(stream: Stream, partition: Partition, allow_epochs: bool)
 
 
 def build_stream_from_config(
-    config: Any, partition: Partition, generator: torch.Generator | None = None
+    config: Any,
+    partition: Partition,
+    generator: torch.Generator | None = None,
+    class_plan: Any = None,
+    labels: torch.Tensor | None = None,
 ) -> Stream:
     """The stream a run's config asks for."""
     return build_stream(
@@ -263,4 +334,6 @@ def build_stream_from_config(
         label_availability=config.env.label_availability,
         generator=generator,
         allow_epochs=config.env.allow_epochs,
+        class_plan=class_plan,
+        labels=labels,
     )

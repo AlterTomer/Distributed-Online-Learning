@@ -19,6 +19,7 @@ from dekf_bench.env.drift import (
     DriftState,
     Linear,
     Piecewise,
+    Ramp,
     Sinusoidal,
     Stationary,
     build_drift,
@@ -295,11 +296,73 @@ def test_linear_runs_visit_a_rotation_per_step() -> None:
     assert len(drift.distinct_rotations(HORIZON)) == HORIZON + 1
 
 
+# =========================================================================== #
+# 5b. the ramp
+# =========================================================================== #
+
+
+def test_the_ramp_ends_where_the_linear_schedule_ends() -> None:
+    """Same distributional path, same endpoint -- only the speed along it
+    differs. That is what makes a ramp run comparable to a linear one instead
+    of a separate experiment."""
+    ramp = Ramp(total_degrees=45.0, horizon=HORIZON)
+    linear = Linear(total_degrees=45.0, horizon=HORIZON)
+    assert ramp.rotation_at(0) == pytest.approx(linear.rotation_at(0))
+    assert ramp.rotation_at(HORIZON) == pytest.approx(linear.rotation_at(HORIZON))
+    assert ramp.total_travel(HORIZON) == pytest.approx(linear.total_travel(HORIZON))
+
+
+def test_the_ramp_accelerates_monotonically() -> None:
+    """The property the schedule exists for: every step is at least as fast as
+    the one before, so the rate axis is swept once and a crossing is a crossing
+    rather than something the run wanders back and forth over."""
+    ramp = Ramp(total_degrees=45.0, horizon=HORIZON)
+    rates = [ramp.rate_at(t) for t in range(1, HORIZON + 1)]
+    assert all(rates[i] <= rates[i + 1] for i in range(len(rates) - 1))
+    assert rates[0] < rates[-1]
+
+
+@pytest.mark.parametrize("exponent", [1.5, 2.0, 4.0])
+def test_the_exponent_sets_the_top_of_the_swept_range(exponent: float) -> None:
+    """The run ends at `exponent` times the constant rate covering the same
+    ground -- which is how a rate grid is chosen without running anything."""
+    ramp = Ramp(total_degrees=45.0, horizon=HORIZON, exponent=exponent)
+    equivalent = Linear(total_degrees=45.0, horizon=HORIZON).alpha
+    assert ramp.final_rate == pytest.approx(exponent * equivalent, rel=0.01)
+
+
+def test_a_ramp_starts_from_rest() -> None:
+    """Progress is (t/T)^p with p > 1, so the first steps are nearly stationary
+    -- the run gets its baseline for free before the rate becomes interesting."""
+    ramp = Ramp(total_degrees=45.0, horizon=HORIZON, exponent=4.0)
+    assert ramp.rate_at(1) < 1e-6
+    assert ramp.mean_rate(HORIZON) < ramp.peak_rate(HORIZON)
+
+
+def test_an_exponent_of_one_is_rejected_as_an_alias() -> None:
+    """It would silently be the linear schedule, which is the kind of duplicate
+    that makes two experiments look independent when they are the same run."""
+    with pytest.raises(DriftError, match="exactly the linear schedule"):
+        Ramp(total_degrees=45.0, horizon=HORIZON, exponent=1.0)
+    with pytest.raises(DriftError, match="must be > 1"):
+        Ramp(total_degrees=45.0, horizon=HORIZON, exponent=0.5)
+
+
+def test_the_ramp_obeys_the_well_posedness_cap() -> None:
+    """It reaches the same endpoint as linear, so it is capped the same way --
+    the acceleration buys rate, never extra travel."""
+    ramp = Ramp(total_degrees=MAX_WELL_POSED_DEGREES, horizon=HORIZON, exponent=3.0)
+    assert ramp.total_travel(HORIZON) <= MAX_WELL_POSED_DEGREES + 1e-9
+
+
 def test_summary_reports_the_derived_rate() -> None:
+    """Mean and peak, not one alpha: they coincide only under a constant rate,
+    and their ratio is what says whether a run sweeps rates or sits at one."""
     drift = build_drift(load_config("x2_rotating"))
     summary = drift.summary(HORIZON)
     assert summary["schedule"] == "linear"
-    assert summary["alpha_per_step"] == pytest.approx(0.03)
+    assert summary["mean_rate_per_step"] == pytest.approx(0.03)
+    assert summary["peak_rate_per_step"] == pytest.approx(0.03)
     assert summary["rotation_at_end"] == pytest.approx(45.0)
 
 

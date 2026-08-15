@@ -5,7 +5,7 @@ applies the transform -- that is ``data/transforms.py``, and keeping the two
 apart is what lets the evaluation sets be built at an arbitrary drift state
 without duplicating the rotation code.
 
-Four schedules, one interface:
+Five schedules, one interface:
 
 ``stationary``
     Nothing moves. The baseline for X1.
@@ -14,12 +14,29 @@ Four schedules, one interface:
     horizon. The rate is **derived**, never configured: $\\alpha =
     \\text{total\\_degrees}/T$, so changing the horizon cannot silently change
     how far the distribution travels.
+``ramp``
+    Accelerating: the rate starts at zero and grows, so a single run sweeps a
+    range of rates and the step at which tracking gives way locates the
+    critical one. Under a constant rate a tracker settles to a steady-state lag
+    and stops degrading, so "after how many steps does it break" is only a
+    question when the rate is changing.
 ``piecewise``
     Abrupt jumps at known steps. An abrupt change is what makes the adaptation
     transient measurable, which is the cleanest test of tracking.
 ``sinusoidal``
     The distribution returns to states it has already visited, which is what
-    exposes forgetting.
+    exposes forgetting -- and therefore what to avoid when the question is
+    tracking, since a learner can score well by remembering rather than by
+    keeping up.
+
+**Rate is the axis, not displacement.** Rotation is capped at
+``MAX_WELL_POSED_DEGREES`` because past it a 6 is a 9 and a rising error would
+measure label ambiguity rather than tracking failure. That cap bounds *how far*
+the distribution can go, so "how much change breaks it" has to be asked as "how
+fast" -- ``rate_at`` and ``peak_rate`` are the quantities the break threshold is
+stated in. The cap also means rate and duration trade off against each other
+($\\alpha T \\le$ cap), which is why the class-prior channel exists: label shift
+has no such ceiling.
 
 **Global versus per-node.** By default every agent sees the same rotation, so a
 single shared parameter vector remains the correct object to estimate. Under
@@ -70,14 +87,59 @@ class DriftState:
 
 
 class DriftSchedule(ABC):
-    """Maps a step to a rotation in degrees."""
+    """Maps a step to a normalised progress, and thence to each drift channel.
+
+    **Progress is the primitive, not degrees.** A schedule says *how far along*
+    the run is; a channel says what that means. Rotation multiplies progress by
+    a scale in degrees; the class-prior channel interpolates between two
+    distributions by the same number. One schedule therefore drives every
+    channel coherently, and adding a channel does not touch this class.
+
+    Progress is normalised so that 1.0 is "fully travelled". It is not confined
+    to $[0, 1]$: ``sinusoidal`` runs over $[-1, 1]$, because it goes backwards.
+    """
 
     @abstractmethod
-    def rotation_at(self, step: int) -> float: ...
+    def progress_at(self, step: int) -> float: ...
+
+    @property
+    @abstractmethod
+    def degrees_scale(self) -> float:
+        """Degrees at progress 1.0."""
 
     @property
     @abstractmethod
     def name(self) -> str: ...
+
+    def rotation_at(self, step: int) -> float:
+        return self.degrees_scale * self.progress_at(step)
+
+    def rate_at(self, step: int) -> float:
+        """Degrees moved between ``step - 1`` and ``step``.
+
+        A difference rather than a derivative, deliberately: this is what a
+        learner actually experiences per update, it needs no special case for
+        ``piecewise`` (where the derivative is a delta function), and it is the
+        quantity the break threshold is a threshold *on*.
+        """
+        if step <= 0:
+            return 0.0
+        return self.rotation_at(step) - self.rotation_at(step - 1)
+
+    def peak_rate(self, horizon: int) -> float:
+        """The fastest the distribution ever moves over the run."""
+        return max((abs(self.rate_at(step)) for step in range(1, horizon + 1)), default=0.0)
+
+    def mean_rate(self, horizon: int) -> float:
+        """Path length per step -- distance travelled, not displacement.
+
+        For ``linear`` this is exactly ``alpha``. For ``sinusoidal`` it stays
+        positive across the turning point, which is the honest reading: the
+        learner has to chase the distribution back down again.
+        """
+        if horizon < 1:
+            return 0.0
+        return sum(abs(self.rate_at(step)) for step in range(1, horizon + 1)) / horizon
 
     def total_travel(self, horizon: int) -> float:
         """The largest rotation reached over the run, in absolute value.
@@ -90,7 +152,11 @@ class DriftSchedule(ABC):
 
 @dataclass(frozen=True)
 class Stationary(DriftSchedule):
-    def rotation_at(self, step: int) -> float:
+    def progress_at(self, step: int) -> float:
+        return 0.0
+
+    @property
+    def degrees_scale(self) -> float:
         return 0.0
 
     @property
@@ -114,12 +180,70 @@ class Linear(DriftSchedule):
         """Degrees per step. Derived, never configured."""
         return self.total_degrees / self.horizon
 
-    def rotation_at(self, step: int) -> float:
-        return self.alpha * step
+    def progress_at(self, step: int) -> float:
+        return step / self.horizon
+
+    @property
+    def degrees_scale(self) -> float:
+        return self.total_degrees
 
     @property
     def name(self) -> str:
         return "linear"
+
+
+@dataclass(frozen=True)
+class Ramp(DriftSchedule):
+    r"""Accelerating drift: progress is $(t/T)^{p}$, so the rate grows with $t$.
+
+    **Why this schedule exists.** Under a *constant* rate a tracking learner
+    settles to a steady-state lag and then stops degrading, so "after how many
+    steps does it break" has no non-trivial answer -- run it longer at the same
+    speed and nothing new happens. A ramp sweeps the rate within a single run:
+    it starts at zero and ends at $p$ times the constant rate that would cover
+    the same ground, so the step at which tracking gives way *locates* the
+    critical rate instead of merely confirming one.
+
+    The exponent is the width of that sweep. At $p = 2$ the run ends at twice
+    the equivalent linear rate; at $p = 4$, four times, at the cost of spending
+    most of the run barely moving. $p = 1$ is exactly ``linear`` and is
+    rejected, because a schedule that silently aliases another is a trap.
+
+    **Read the located rate as an upper bound.** The learner lags, so it crosses
+    the threshold slightly after the rate that would break it in steady state.
+    Confirm with constant-rate ``linear`` runs bracketing the located value --
+    the ramp is the cheap instrument that says where to look.
+    """
+
+    total_degrees: float
+    horizon: int
+    exponent: float = 2.0
+
+    def __post_init__(self) -> None:
+        if self.horizon < 1:
+            raise DriftError(f"ramp drift needs horizon >= 1, got {self.horizon}")
+        if self.exponent <= 1.0:
+            raise DriftError(
+                f"ramp exponent must be > 1, got {self.exponent}. At 1.0 the ramp is "
+                "exactly the linear schedule, and below it the drift decelerates -- "
+                "which measures nothing this schedule exists to measure."
+            )
+
+    def progress_at(self, step: int) -> float:
+        return float((step / self.horizon) ** self.exponent)
+
+    @property
+    def degrees_scale(self) -> float:
+        return self.total_degrees
+
+    @property
+    def final_rate(self) -> float:
+        """Degrees per step at the end of the run -- the top of the swept range."""
+        return self.rate_at(self.horizon)
+
+    @property
+    def name(self) -> str:
+        return "ramp"
 
 
 @dataclass(frozen=True)
@@ -135,8 +259,15 @@ class Piecewise(DriftSchedule):
         if list(self.change_points) != sorted(self.change_points):
             raise DriftError(f"change points must be sorted: {self.change_points}")
 
-    def rotation_at(self, step: int) -> float:
-        return self.jump_degrees * sum(1 for point in self.change_points if step >= point)
+    def progress_at(self, step: int) -> float:
+        if not self.change_points:
+            return 0.0
+        passed = sum(1 for point in self.change_points if step >= point)
+        return passed / len(self.change_points)
+
+    @property
+    def degrees_scale(self) -> float:
+        return self.jump_degrees * len(self.change_points)
 
     @property
     def name(self) -> str:
@@ -154,8 +285,12 @@ class Sinusoidal(DriftSchedule):
         if self.period < 1:
             raise DriftError(f"sinusoidal drift needs period >= 1, got {self.period}")
 
-    def rotation_at(self, step: int) -> float:
-        return self.amplitude_degrees * math.sin(2.0 * math.pi * step / self.period)
+    def progress_at(self, step: int) -> float:
+        return math.sin(2.0 * math.pi * step / self.period)
+
+    @property
+    def degrees_scale(self) -> float:
+        return self.amplitude_degrees
 
     @property
     def name(self) -> str:
@@ -207,6 +342,16 @@ class Drift:
     def rotation_at(self, step: int, node: int = 0) -> float:
         return self.multiplier(node) * self.schedule.rotation_at(step)
 
+    def progress_at(self, step: int, node: int = 0) -> float:
+        """Normalised progress for one agent.
+
+        Scaled by the same multiplier as the rotation, so every drift channel
+        moves together for a given agent: under ``per_node`` a laggard is
+        equally behind in rotation and in class prior, rather than behind in
+        one and current in the other.
+        """
+        return self.multiplier(node) * self.schedule.progress_at(step)
+
     def state_at(self, step: int, node: int | None = None) -> DriftState:
         """The drift state at ``step``, for one agent or for the network."""
         if node is None:
@@ -243,7 +388,11 @@ class Drift:
         return {
             "schedule": self.schedule.name,
             "scope": self.scope,
-            "alpha_per_step": (self.schedule.alpha if isinstance(self.schedule, Linear) else 0.0),
+            # Mean and peak rather than a single alpha: they coincide only for
+            # `linear`, and their ratio is what says whether a run sweeps a
+            # range of rates or sits at one.
+            "mean_rate_per_step": self.schedule.mean_rate(horizon),
+            "peak_rate_per_step": self.schedule.peak_rate(horizon),
             "total_travel": self.schedule.total_travel(horizon),
             "rotation_at_start": self.schedule.rotation_at(0),
             "rotation_at_end": self.schedule.rotation_at(horizon),
@@ -262,6 +411,12 @@ def build_schedule(drift_config: Any, horizon: int) -> DriftSchedule:
         return Stationary()
     if kind == "linear":
         return Linear(total_degrees=drift_config.total_degrees, horizon=horizon)
+    if kind == "ramp":
+        return Ramp(
+            total_degrees=drift_config.total_degrees,
+            horizon=horizon,
+            exponent=drift_config.ramp_exponent,
+        )
     if kind == "piecewise":
         return Piecewise(
             change_points=tuple(drift_config.change_points),

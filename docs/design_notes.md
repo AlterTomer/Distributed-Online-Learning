@@ -1371,6 +1371,114 @@ scripts together, and nothing can half-move.
 
 ---
 
+## 2026-08-14 — Phase 4b, benchmarks for tracking under drift
+
+### ✅ D47. Rate is the drift axis, not displacement — so the schedule accelerates
+
+**The question posed.** "After how many steps do the existing algorithms break,
+and how much does the distribution have to change?"
+
+**Why those are not two questions, and why the second is nearly closed.**
+Rotation is capped at `MAX_WELL_POSED_DEGREES = 45`, enforced against what a
+schedule *travels* rather than what it configures. Past that a 6 is a 9, the
+Bayes error itself moves, and a rising curve would measure label ambiguity —
+precisely the artifact the question is trying to avoid. The default
+`total_degrees` is already 45, so the displacement axis is at its ceiling.
+
+Worse, under a *constant* rate a tracking learner reaches a steady-state lag and
+then stops degrading. Run it longer at the same speed and nothing new happens,
+so "after how many steps" has no non-trivial answer either: an apparent break at
+large $t$ is the transient not having finished, or it is the 6↔9 degeneracy.
+
+What remains, and what actually governs tracking, is the **rate** $\alpha$ in
+degrees per step. `rate_at` is now defined for every schedule as a difference
+rather than a derivative — it is what a learner experiences per update, it needs
+no special case for `piecewise`, and it is the quantity a break threshold is a
+threshold *on*.
+
+**The bind, and how the ramp escapes it.** The cap makes rate and duration trade
+off: $\alpha T \le 45$. A constant-rate sweep therefore has to shorten the run
+to go faster, and the run must stay long enough to clear the transient. Holding
+$T \ge 500$ leaves $\alpha \le 0.09$ — a factor of three over the current
+default, which is very unlikely to contain a break.
+
+A `ramp` breaks the bind, because the cap constrains the *mean* rate while the
+peak is `exponent` times the mean:
+
+| $T$ | linear | ramp $p{=}2$ | ramp $p{=}4$ | ramp $p{=}6$ |
+|---|---|---|---|---|
+| 1500 | 0.030 | 0.060 | 0.120 | 0.180 |
+| 750 | 0.060 | 0.120 | 0.240 | 0.359 |
+| 500 | 0.090 | 0.180 | 0.359 | 0.537 |
+
+At full length, with no compromise on run duration and ending at exactly 45°, a
+$p = 6$ ramp reaches six times the default rate. **This revises a claim made
+earlier in the same discussion** — that rotation could reach only a factor of
+three and therefore probably could not break anything. That was true of
+constant-rate runs and false in general, because it reasoned about mean rate as
+if it were peak rate.
+
+**Progress became the primitive.** `DriftSchedule` now defines
+`progress_at(step)`, normalised so 1.0 is fully travelled, and rotation is
+`degrees_scale * progress`. One schedule therefore drives every channel
+coherently, and D48's channel needed no new schedule.
+
+**Read a ramp's answer as an upper bound.** The learner lags, so it crosses
+threshold slightly after the rate that would break it in steady state. The ramp
+is the cheap instrument that says where to look; constant-rate `linear` runs
+bracketing the located value are what confirm it.
+
+### ✅ D48. The class-prior channel exists because rotation has a ceiling and label shift does not
+
+**Decision.** A second drift channel: each agent's class distribution travels
+from $1/K$ to a Dirichlet draw along the schedule's progress. Off by default.
+
+**Why.** Everything in D47 is downstream of one fact — rotation is bounded by
+label ambiguity at 45°. Label shift has no analogous limit. The Bayes-optimal
+classifier moves the whole way, but no label ever becomes ambiguous, so the
+distribution can travel as far as total variation allows and the gap to the
+reference stays interpretable throughout. It also stresses a different part of
+the model than rotation does, which makes the pair a stronger benchmark than
+either alone.
+
+**The implementation turned out to be a permutation.** The obvious design —
+sample a class per step from $\bm q_v(t)$ — would make the stream stateful, and
+`stream.py` is deliberately a *pure function of (agent, step)* so that step 900
+can be answered without walking steps 0..899. Instead the whole $(N, T, n)$
+table of classes is drawn up front, exactly as the label-availability mask
+already is. Then:
+
+* the **partition** is sized from the plan's `demand()`, so a shard cannot run
+  dry part-way through a run;
+* the **stream** orders each shard so that consuming it front-to-back realises
+  the plan.
+
+The second point is the one worth keeping. Prior drift reaches the learner as a
+*serving order*, so offsets stay a prefix sum and exactly-once is untouched —
+each index is still popped from its class queue exactly once. `Stream` itself
+gained no new machinery.
+
+**Feasibility is a property of the plan, and is checked before a run starts.**
+The shards are disjoint, so the agents compete for one finite pool per class. A
+plan that oversubscribes a class has no valid partition at all — there is
+nothing to degrade into — so `check_plan_is_feasible` refuses it and names the
+class, rather than letting a shard come up short at step 1400.
+
+**A wart found by measuring rather than by reasoning.** The first version filled
+each shard to its target size by taking the whole shortfall from whichever class
+pool was largest. The served composition was correct, but `partition.skew()`
+read 0.545 — reporting a skew the experiment did not have, entirely from filler
+that is never served. Apportioning the filler across classes drops it to 0.128,
+the irreducible part that comes from the demand itself. The lesson is the
+recurring one: a derived diagnostic can be wrong while the thing it describes is
+right, and only looking at it catches that.
+
+**Only the labelled steps draw from the plan.** With $\pi_\text{lab} < 1$ an
+agent idles and consumes nothing, so taking its plan entry anyway would slide
+every later class one step out of step with the drift schedule that chose it.
+
+---
+
 ## Open questions
 
 ### ❓ Q1. Network size $N$
