@@ -77,6 +77,35 @@ JUMP_EVERY = [25, 50, 100, 200]
 JUMP_DEGREES = [5.0, 15.0, 30.0]
 HORIZON = 1500
 
+#: The order cells are run in, most informative first.
+#:
+#: A row-by-row sweep is the obvious order and the wrong one here. The grid
+#: takes about thirty hours, so for most of that only a prefix exists -- and a
+#: prefix of `itertools.product` is one corner of the grid, which supports no
+#: comparison at all. This order front-loads a *spanning* subset:
+#:
+#: 1. (50, 15) is the reference cell -- X5's jump size, at a middling interval.
+#: 2. (100, 30) has the same average speed as it, 0.30 deg/step, so the two
+#:    together are the frequent-small versus rare-large comparison the grid is
+#:    two-dimensional *for*. Two cells buy the headline.
+#: 3-4. the extreme corners, which bracket everything else.
+#:
+#: The remaining cells fill in and only sharpen what those five already show.
+CELL_ORDER = [
+    (50, 15.0),
+    (100, 30.0),
+    (25, 30.0),
+    (200, 5.0),
+    (25, 5.0),
+    (200, 30.0),
+    (50, 30.0),
+    (100, 15.0),
+    (25, 15.0),
+    (200, 15.0),
+    (50, 5.0),
+    (100, 5.0),
+]
+
 #: Held fixed across cells so the shift *pattern* is one less thing varying
 #: between them. The data still varies with the run seed.
 JUMP_SEED = 0
@@ -171,8 +200,17 @@ def main(fresh: bool = FRESH) -> int:
         return 1
     train, test = load_mnist(DATA_ROOT, download=False)
 
-    cells = list(itertools.product(JUMP_EVERY, JUMP_DEGREES))
-    print(f"X11: {len(cells)} cells x {len(SEEDS)} seeds, T={HORIZON}\n")
+    cells = list(CELL_ORDER)
+    expected = set(itertools.product(JUMP_EVERY, JUMP_DEGREES))
+    if set(cells) != expected:
+        raise SystemExit(
+            f"CELL_ORDER does not cover the grid: missing {sorted(expected - set(cells))}, "
+            f"extra {sorted(set(cells) - expected)}. A hand-written order is easy to get "
+            "wrong, and a silently skipped cell would leave a hole in the heatmap that "
+            "looks like a failed run."
+        )
+    print(f"X11: {len(cells)} cells x {len(SEEDS)} seeds, T={HORIZON}")
+    print("cells run most-informative first; a partial sweep still spans the grid\n")
 
     started = time.time()
     for index, (jump_every, jump_degrees) in enumerate(cells, start=1):
