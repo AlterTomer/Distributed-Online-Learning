@@ -1,0 +1,31 @@
+# X11's stationary twin. One control pairs with all twelve cells.
+#
+# The cells differ from each other only inside `env.drift`, which is exactly
+# the block `assert_paired_runs` exempts from its comparison -- so a single
+# stationary run is a valid control for every one of them, and there is no need
+# for twelve.
+#
+# It exists because the standing errors X11 reports are *raw*. Without a control
+# they cannot be compared with x9's smooth drift at matched average speed, which
+# is the comparison that would say whether repeated abrupt shifts cost more than
+# gradual movement -- the question the filter is meant to answer.
+#
+# Everything except the drift must match what run_recurring_sweep.py builds:
+# the same five learners, eval_every 5, horizon 1500, the default seeds, and
+# current-only evaluation. Any difference and the pairing is refused, which is
+# the point (design note D50).
+include:
+  env: mnist_stationary
+  graph: ring
+  model: mlp_small
+
+learners:
+  [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only, frozen_atc]
+
+run:
+  name: x11_control
+  horizon: 1500
+  eval_every: 5
+
+eval:
+  evalsets: [prequential, current]
