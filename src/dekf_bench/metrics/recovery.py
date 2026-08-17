@@ -40,6 +40,11 @@ class RecoveryError(ValueError):
 #: chosen, for the same reason the break threshold is.
 DEFAULT_TOLERANCE_SEM = 1.0
 
+#: An offset is kept only if this fraction of the typical number of shifts
+#: reached it. Half is generous -- the offsets this excludes carry a fiftieth of
+#: the samples, not half of them.
+MIN_OFFSET_SHARE = 0.5
+
 
 @dataclass(frozen=True)
 class RecoveryProfile:
@@ -133,7 +138,16 @@ def aligned_profile(
             "lower run.eval_every."
         )
     frame = pd.DataFrame(records)
-    return frame.groupby("offset").rise.agg(["mean", "std", "count"]).reset_index()
+    profile = frame.groupby("offset").rise.agg(["mean", "std", "count"]).reset_index()
+
+    # Drop offsets almost no shift reaches. The final evaluation is forced onto
+    # `horizon - 1`, which is not on the cadence, so it lands at an offset the
+    # other shifts never produce -- measured, 5 samples against a median of 295.
+    # Left in, those points are pure noise and appear as a spike at the right
+    # edge of every transient curve, exactly where a reader looks to judge
+    # whether the error came back.
+    typical = float(profile["count"].median())
+    return profile[profile["count"] >= MIN_OFFSET_SHARE * typical].reset_index(drop=True)
 
 
 def recovery_profile(

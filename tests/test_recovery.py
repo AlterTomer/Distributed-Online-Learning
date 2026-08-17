@@ -111,6 +111,37 @@ def test_every_shift_is_pooled_not_just_the_first() -> None:
     assert profile.n_shifts == 7 * len(SEEDS)
 
 
+def test_offsets_almost_no_shift_reaches_are_dropped() -> None:
+    """The final evaluation is forced onto horizon-1, which is off-cadence, so
+    it lands at an offset the other shifts never produce. Measured on X11 that
+    was 5 samples against a median of 295, and it showed as a spike at the right
+    edge of every transient curve -- exactly where a reader looks to judge
+    whether the error came back."""
+    rows = []
+    for index, seed in enumerate(SEEDS):
+        offset = 0.002 * index
+        # The cadence, plus one off-cadence evaluation at the very end.
+        for step in [*STEPS, HORIZON - 1]:
+            value = sawtooth(0.20, 0.10, decay=25)(step) + offset
+            rows.append(
+                {
+                    "learner": "a",
+                    "seed": seed,
+                    "t": step,
+                    "evalset": "current",
+                    "metric": "error_rate",
+                    "n_samples": 2000,
+                    "n_correct": round(2000 * (1.0 - value)),
+                }
+            )
+    errors = error_by_step(pd.DataFrame(rows), by_seed=True)
+    profile = aligned_profile(errors, "a", JUMP_EVERY, HORIZON)
+
+    odd = (HORIZON - 1) % JUMP_EVERY
+    assert odd not in set(profile.offset), "the off-cadence offset must not survive"
+    assert profile["count"].min() >= 0.5 * profile["count"].median()
+
+
 def test_a_cadence_too_coarse_to_see_a_transient_is_refused() -> None:
     """One evaluation per interval cannot show a recovery, and reporting 0 or 1
     would be an artefact of the cadence rather than a property of the learner."""
