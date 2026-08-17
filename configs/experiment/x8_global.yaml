@@ -1,0 +1,29 @@
+# X8's paired twin: the same run with every agent drifting together.
+#
+# The comparison X8 exists to make is per-node scope against global scope, so
+# the control differs in `drift_scope` and in nothing else -- same topology,
+# same seeds, same horizon, same cadence, same learners.
+#
+# X2 used to serve this role and no longer can: it is on ring while X8 moved to
+# Erdos-Renyi, so the difference would be scope *and* topology together, with
+# no way to attribute a result to either (design note D52).
+include:
+  env: mnist_per_node_linear
+  graph: erdos_renyi
+  model: mlp_small
+
+learners:
+  [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only, frozen_atc]
+
+run:
+  name: x8_global
+  horizon: 1500
+
+env:
+  # The one difference. Everything else is inherited from the same env block
+  # X8 uses, so the per_node_spread below is inert here rather than absent --
+  # which keeps the two configs comparable field by field.
+  drift_scope: global
+
+eval:
+  evalsets: [prequential, current]

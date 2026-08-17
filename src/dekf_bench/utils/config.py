@@ -120,9 +120,15 @@ class RunConfig:
 
 @dataclass
 class GraphConfig:
-    topology: str = "ring"
+    #: Kept in step with `configs/base.yaml`. Two defaults for one setting is a
+    #: trap: every shipped config is loaded through base.yaml so this one rarely
+    #: applies, which is exactly why a stale value here would go unnoticed until
+    #: something constructed a GraphConfig directly and silently got ring.
+    topology: str = "erdos_renyi"
     n_nodes: int = 10
     weights: str = "metropolis"
+    #: Empty for the reason `base.yaml` gives: `params` merges key by key, so a
+    #: density here would follow every other topology around and misdescribe it.
     params: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

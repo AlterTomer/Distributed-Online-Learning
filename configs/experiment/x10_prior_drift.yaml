@@ -9,7 +9,7 @@
 # consensus question in the label-shift channel too.
 include:
   env: mnist_prior_drift
-  graph: ring
+  graph: erdos_renyi
   model: mlp_small
 
 learners:

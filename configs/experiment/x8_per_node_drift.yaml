@@ -1,11 +1,16 @@
 # X8 -- heterogeneous drift: where does consensus stop paying?
 #
-# The paired comparison is against X2, which is this run with drift_scope
-# global and nothing else changed. Under global drift every agent faces the
-# same rotation, so combining is pure variance reduction. Here the agents face
-# different rotations, so combining also drags each agent toward a state that
-# is not its own, and the prediction is that diffusion's advantage over
-# local_only shrinks or reverses.
+# The paired comparison is against `x8_global`, which is this run with
+# drift_scope global and nothing else changed. Under global drift every agent
+# faces the same rotation, so combining is pure variance reduction. Here the
+# agents face different rotations, so combining also drags each agent toward a
+# state that is not its own, and the prediction is that diffusion's advantage
+# over local_only shrinks or reverses.
+#
+# It used to say the comparison was against X2. That stopped being true when
+# this run moved to Erdos-Renyi and X2 stayed on ring (design note D52): the
+# difference would then have been scope *and* topology, and no later step could
+# have separated them.
 #
 # Evaluation is current-only: the question is tracking, not forgetting, and a
 # canonical set would score a distribution no agent has faced since step 0.
@@ -14,7 +19,7 @@
 # mean rotation".
 include:
   env: mnist_per_node_linear
-  graph: ring
+  graph: erdos_renyi
   model: mlp_small
 
 learners:

@@ -14,9 +14,23 @@ run:
   out_dir: results
 
 graph:
-  topology: ring
+  # Erdos-Renyi(0.3) is the standard from 2026-08-17. Against ring it changes
+  # ATC's settled error by 0.0009 (X3, everything else fixed) -- about a fifth
+  # of the seed-noise floor -- so it is a choice about realism, not a change
+  # that moves results. The topologies that do move them are star (+0.0077) and
+  # path (+0.0035). See design note D52.
+  #
+  # Every shipped experiment pins its own graph, so this default reaches only
+  # new configs; x9 and X11 stay on ring deliberately, as a matched pair.
+  topology: erdos_renyi
   n_nodes: 10            # N
   weights: metropolis
+  # Deliberately empty. `params` merges key by key, so a `p: 0.3` here would
+  # ride along into grid2d and star configs where p means nothing -- a grid
+  # would report params {p: 0.3, rows: 5, cols: 2} and misdescribe itself.
+  # The density lives in configs/graph/erdos_renyi.yaml, which every experiment
+  # includes; a config that selects erdos_renyi without it fails loudly asking
+  # for p, which is the right failure.
   params: {}
 
 env:

@@ -1579,6 +1579,64 @@ dropped silently by the merge and the excess would then be computed over a
 different population than it claims, so a missing seed, step or learner is an
 error rather than a smaller intersection.
 
+### ✅ D52. Erdős–Rényi(0.3) becomes the standard topology, and x9/X11 stay on ring
+
+**Decision.** `erdos_renyi` with $p = 0.3$ is the default from 2026-08-17.
+x9 and X11 keep their ring, deliberately.
+
+**It is a choice about realism, not one that moves results.** X3 ran both with
+everything else held fixed:
+
+| topology | centralized | ATC | ATC − centralized |
+|---|---|---|---|
+| ring | 0.0754 | 0.0768 | 0.0014 |
+| **erdos_renyi (0.3)** | 0.0754 | **0.0759** | 0.0005 |
+| path | 0.0754 | 0.0789 | 0.0035 |
+| star | 0.0754 | 0.0831 | 0.0077 |
+
+ATC differs by **0.0009** between ring and ER — about a fifth of the seed-noise
+floor. They are close because at $N=10$ their average degrees are similar (2.7
+against 2). The topologies that do move results are star and path.
+
+**Why the finished runs stay on ring.** x9 and X11 are a *matched pair*: the
+whole point of `x11_control` is to compare repeated abrupt shifts against smooth
+drift at matched average speed, and that only means something if the graph is
+the same on both sides. Moving one would confound the comparison with topology;
+moving both costs ~47 hours to shift numbers by less than the noise.
+
+**Two topologies now live in the repo**, which is a real cost. It is paid down
+by `tests/test_topology_provenance.py`, which pins each experiment's graph — so
+a change to `base.yaml` cannot quietly move a finished experiment onto a
+different one and invalidate a comparison already drawn from it. X0's complete
+graph is pinned there too: the identity needs one combine step to reach full
+consensus, and a default that moved it would turn the highest-value test in the
+suite into a test of nothing.
+
+**Three things measuring turned up that reasoning had not.**
+
+*The density cannot live in `base.yaml`.* `params` merges key by key, so a
+`p: 0.3` there follows every other topology around — a grid2d config reported
+`{p: 0.3, rows: 5, cols: 2}` and misdescribed itself. It belongs in
+`configs/graph/erdos_renyi.yaml`, which the experiments include; a config that
+selects `erdos_renyi` without it fails loudly asking for `p`.
+
+*Seeds now vary in topology as well as data.* The mixing gap over the five run
+seeds spans 0.043 to 0.197, a 4.6× spread, and 8% of 200 draws fall below 0.06
+— worse than half the ring's 0.127. This matters less than it looks: the graph
+is derived from the seed, so in `paired_excess` the drifting run and its control
+share it and the variance cancels. It would only bite in unpaired cross-seed
+comparisons.
+
+*Disconnected draws are already handled.* `_erdos_renyi` defaults
+`ensure_connected=True` and retries, which is why all five seeds came out
+connected rather than by luck.
+
+**X8 needed a new twin.** Its config claimed the comparison was against X2,
+which was true on ring and false the moment X8 moved to ER — the difference
+would have been scope *and* topology. `x8_global` is now that twin: same
+topology, seeds, horizon, cadence and learners, differing only in
+`drift_scope`.
+
 ---
 
 ## Open questions
