@@ -46,7 +46,11 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import pandas as pd  # noqa: E402
 
-from dekf_bench.metrics.breaks import error_by_step  # noqa: E402
+from dekf_bench.metrics.breaks import (  # noqa: E402
+    assert_paired_runs,
+    error_by_step,
+    paired_excess,
+)
 from dekf_bench.metrics.recovery import RecoveryError, recovery_profile  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -55,6 +59,10 @@ from dekf_bench.metrics.recovery import RecoveryError, recovery_profile  # noqa:
 JUMP_EVERY = [25, 50, 100, 200]
 JUMP_DEGREES = [5.0, 15.0, 30.0]
 LEARNER = "diffusion_sgd_atc"
+#: The stationary twin. With it, the standing column becomes drift *damage*
+#: rather than raw error, which is the only form comparable with x9's smooth
+#: drift at matched average speed. Set to None to report raw error alone.
+CONTROL = "x11_control"
 #: A shift counts as recovered when the error comes back to within this many
 #: seed standard errors of its pre-shift level. Derived from the data rather
 #: than chosen, for the same reason the break threshold is (design note D50).
@@ -70,6 +78,21 @@ def load(experiment: str) -> pd.DataFrame | None:
     if not files:
         return None
     return pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+
+
+def standing_excess(cell: str, control_frame: pd.DataFrame, learner: str) -> float:
+    """Drift damage in the run's second half: the cell's error minus its twin's.
+
+    The standing *error* mixes the cost of the shifts with the error the method
+    would have had anyway. Subtracting a run identical except for the drift
+    leaves only what the shifts cost -- and puts X11 in the same units as x9,
+    so the two can be compared at matched average speed.
+    """
+    assert_paired_runs(ROOT / "results" / cell, ROOT / "results" / CONTROL)
+    excess = paired_excess(load(cell), control_frame)
+    rows = excess[excess.learner == learner]
+    horizon = int(rows.t.max()) + 1
+    return float(rows[rows.t >= horizon // 2].excess.mean())
 
 
 def jump_profile(frame: pd.DataFrame, learner: str, jump_every: int):
@@ -93,14 +116,22 @@ def main() -> int:
     if "--learner" in sys.argv:
         learner = sys.argv[sys.argv.index("--learner") + 1]
 
+    control_frame = load(CONTROL) if CONTROL else None
+    if CONTROL and control_frame is None:
+        print(f"note: no {CONTROL!r} on disk; the standing column stays raw error\n")
+
     results: dict[tuple[int, float], object] = {}
+    damage: dict[tuple[int, float], float] = {}
     missing: list[str] = []
     for jump_every, jump_degrees in itertools.product(JUMP_EVERY, JUMP_DEGREES):
-        frame = load(cell_name(jump_every, jump_degrees))
+        name = cell_name(jump_every, jump_degrees)
+        frame = load(name)
         if frame is None:
-            missing.append(cell_name(jump_every, jump_degrees))
+            missing.append(name)
             continue
         results[(jump_every, jump_degrees)] = jump_profile(frame, learner, jump_every)
+        if control_frame is not None:
+            damage[(jump_every, jump_degrees)] = standing_excess(name, control_frame, learner)
 
     if not results:
         raise SystemExit(
@@ -125,6 +156,21 @@ def main() -> int:
                 cells += "         -" if profile is None else f"{getattr(profile, field):>10.4f}"
             print(f"    {jump_every:<5}{cells}")
         print()
+
+    if damage:
+        print("  standing DAMAGE, second half (cell minus its stationary twin)")
+        header = "    t'\\J  " + "".join(f"{value:>10g}" for value in JUMP_DEGREES)
+        print(header)
+        for jump_every in JUMP_EVERY:
+            cells = ""
+            for jump_degrees in JUMP_DEGREES:
+                value = damage.get((jump_every, jump_degrees))
+                cells += "         -" if value is None else f"{value:>10.4f}"
+            print(f"    {jump_every:<5}{cells}")
+        print(
+            "    This is the column comparable with x9: raw error also contains what the\n"
+            "    method would have cost with no drift at all.\n"
+        )
 
     print("  matched average speed (deg/step), read these against each other")
     speeds: dict[float, list[tuple[int, float]]] = {}
