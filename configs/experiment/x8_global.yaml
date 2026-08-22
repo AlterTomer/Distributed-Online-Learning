@@ -20,10 +20,22 @@ run:
   horizon: 1500
 
 env:
-  # The one difference. Everything else is inherited from the same env block
-  # X8 uses, so the per_node_spread below is inert here rather than absent --
-  # which keeps the two configs comparable field by field.
   drift_scope: global
+  drift:
+    # 33.75, not 45, and this was a bug found by reading the results.
+    #
+    # Under per_node the multipliers run over [0.5, 1.0] and average 0.75, so
+    # the agents end at 22.5 to 45 degrees with a *mean* of 33.75. A global twin
+    # at 45 therefore drifts 33% further on average, and X8 compared
+    # heterogeneity and drift amount at once.
+    #
+    # The tell was frozen_atc: it stopped adapting, so its error tracks pure
+    # displacement, and it came out 0.10 *better* under per_node -- which no
+    # story about heterogeneity explains and "less drift" explains exactly.
+    #
+    # Matching the mean leaves the spread as the only difference, which is what
+    # X8 is asking about. Matching the maximum instead would keep the confound.
+    total_degrees: 33.75
 
 eval:
   evalsets: [prequential, current]
