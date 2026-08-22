@@ -1,0 +1,36 @@
+# X10's twin: the class-prior machinery running, but travelling nowhere.
+#
+# **`total_shift: 0`, not `enabled: false`.** Turning the channel off would
+# change more than the drift. With prior drift on, the partition is sized from
+# the class plan and the stream serves each shard in the plan's order; with it
+# off, the partition is IID and the stream is a plain shuffle. The two runs
+# would then differ in which samples each agent ever sees, and the subtraction
+# would mix the cost of the drift with the cost of a different sampling
+# mechanism.
+#
+# At `total_shift: 0` the priors stay at 1/K for the whole run, so the plan is
+# a uniform multinomial draw, the partition is still demand-sized, and the
+# stream still serves in plan order. Everything about the mechanism matches and
+# only the movement is removed -- which is what a control is for (design note
+# D50).
+#
+# Feasible by construction: uniform demand is N*n*T/K = 3000 of each class
+# against MNIST's ~6000, comfortably inside.
+include:
+  env: mnist_prior_drift
+  graph: erdos_renyi
+  model: mlp_small
+
+learners:
+  [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only, frozen_atc]
+
+run:
+  name: x10_control
+  horizon: 750
+
+env:
+  prior_drift:
+    total_shift: 0.0
+
+eval:
+  evalsets: [prequential, current]
