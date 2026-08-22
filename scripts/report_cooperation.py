@@ -119,12 +119,32 @@ def main() -> int:
     print(f"    {control_name:24s} {control_gap:>8.4f} +- {control_sem:.4f}")
     print(f"    {treatment_name:24s} {treated_gap:>8.4f} +- {treated_sem:.4f}")
     change = treated_gap - control_gap
-    combined = (control_sem**2 + treated_sem**2) ** 0.5
     verdict = "shrinks" if change < 0 else "widens"
-    significant = abs(change) > 3 * combined if combined else False
+
+    # The change in the gap is exactly damage(alone) - damage(together), and
+    # measuring it that way is far more sensitive: the two runs share a seed,
+    # hence a graph and a theta_0, so the paired subtraction cancels noise that
+    # comparing two independently-computed gaps leaves in. Differencing the two
+    # gap standard errors instead can call a real effect noise -- on X8 it did,
+    # by a factor of seven.
+    per_seed = (
+        late[late.learner == ALONE].groupby(["seed", "t"]).excess.mean()
+        - late[late.learner == TOGETHER].groupby(["seed", "t"]).excess.mean()
+    )
+    by_seed = per_seed.groupby("seed").mean()
+    paired_change = float(by_seed.mean())
+    paired_sem = float(by_seed.std() / len(by_seed) ** 0.5)
+
+    loose = (control_sem**2 + treated_sem**2) ** 0.5
+    print(f"    change {change:+.4f} ({verdict})")
     print(
-        f"    change {change:+.4f} ({verdict}), 3 s.e.m. of the difference is "
-        f"{3 * combined:.4f} -- {'clear of the noise' if significant else 'INSIDE the noise'}"
+        f"      as a paired difference: {paired_change:+.4f} +- {paired_sem:.4f} "
+        f"(3 s.e.m. {3 * paired_sem:.4f}) -- "
+        f"{'clear of the noise' if abs(paired_change) > 3 * paired_sem else 'inside the noise'}"
+    )
+    print(
+        f"      unpaired, for contrast:  3 s.e.m. {3 * loose:.4f} -- the weaker estimate, "
+        "and not the one to read"
     )
 
     if "current_mean" in {str(v) for v in treatment.evalset.unique()}:
