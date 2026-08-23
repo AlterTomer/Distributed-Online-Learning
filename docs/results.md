@@ -900,11 +900,163 @@ visible.
 
 ---
 
-## 12. What is not yet measured
+## 12. X9 — where tracking breaks under smooth drift
+
+Accelerating ramp, $p = 6$, reaching 0.1797°/step, against a stationary twin
+(`x9_control`). Ring, 5 seeds. Damage is error minus the twin's, paired by seed
+and step; the break is that damage clearing 3 s.e.m. of a bar **pooled across
+learners**, for three consecutive evaluations.
+
+| learner | break rate | comparative | damage @0.10 |
+|---|---|---|---|
+| centralized_sgd | 0.0381 | no break | 0.0343 |
+| diffusion_sgd_atc | 0.0436 | no break | 0.0363 |
+| diffusion_sgd_atc_plain | 0.0381 | never ahead | 0.0409 |
+| local_only | 0.0399 | never ahead | 0.0645 |
+| frozen_atc | 0.0236 | — | 0.1923 |
+
+**Everything breaks between 0.038 and 0.044°/step** — only 1.3–1.5× the rate the
+benchmark has been running at (0.030). The methods sit far closer to each other
+than any of them does to the frozen baseline, which reaches 0.192 damage where
+ATC reaches 0.036.
+
+**No method ever loses to the frozen baseline.** Adapting paid at every rate the
+run reached, so the two break definitions agree here rather than disagreeing.
+`local_only` and `atc_plain` read "never ahead": they were worse than a frozen
+ATC model from the start, so there was nothing for drift to take away.
+
+**Break rates are not comparable across learners unless the bar is pooled.**
+Tested against its own seed spread, `atc_plain` appeared to survive to 0.0497
+while being *more* damaged than ATC at every step — it is 2.7× noisier in the
+break region (0.0024 against 0.0009) and so cleared a laxer bar. Under the
+pooled bar the two orderings agree, and `damage @0.10` — a fixed rate everyone
+faced — needs no noise estimate at all and is the reading to prefer.
+
+## 13. X11, X12 — abrupt shifts against smooth drift
+
+X11: rotation jumps by exactly $J$ every $t'$ steps, direction unpredictable,
+reflected at the 45° cap so the magnitude is always $J$. Twelve cells, 5 seeds,
+against `x11_control`. X12: constant-rate linear drift at four matched speeds,
+each with its own stationary twin.
+
+### 13.1 Longer intervals produce *bigger* wounds
+
+| $t'$\\$J$ | 5 | 15 | 30 |
+|---|---|---|---|
+| 25 | 0.006 | 0.030 | 0.042 |
+| 50 | 0.010 | 0.050 | 0.084 |
+| 100 | 0.013 | 0.058 | 0.130 |
+| 200 | 0.012 | 0.069 | **0.209** |
+
+Monotone in both axes. At $J = 30$ the rise grows fivefold as the interval
+stretches: the learner specialises harder on the current state the longer it
+sits there, so the next shift costs more. That is the opposite of the naive
+expectation and it is the pressure a filter's covariance should relieve.
+
+### 13.2 Abrupt is mostly *cheaper* than smooth at the same average speed
+
+Both sides are damage against a stationary twin, read over the same step window
+— the second half of the *smooth* run, because the 45° cap makes it the shorter.
+
+| speed | smooth | abrupt | ratio | shifts in window |
+|---|---|---|---|---|
+| 0.025 | 0.0101 | 0.0044 | 0.43× | 4 |
+| 0.050 | 0.0158 | 0.0067 | 0.43× | 4 |
+| 0.100 | 0.0207 | 0.0098 | 0.47× | 4 |
+| 0.150 | 0.0253 | 0.0140 (J=15) | 0.55× | 1 |
+| 0.150 | 0.0253 | 0.0567 (J=30) | 2.24× | 1 |
+
+**It is not the average speed that hurts, it is the continuous motion.** Between
+shifts the distribution is exactly stationary, so the learner gets to settle;
+smooth drift never allows that. Three speeds give 0.43–0.47× consistently.
+
+**A crossover exists but is not measured.** At $J = 30$ the wound outgrows what
+one interval can heal and the ratio reverses to 2.24× — but that window holds
+**one** shift, so it is a single transient, not an average. It cannot be firmed
+up within this design: a longer window needs a longer smooth run, and the 45°
+cap forbids one ($T = 45/\alpha = 300$).
+
+### 13.3 The asymmetry is itself the result
+
+Smooth drift at 0.15°/step runs 300 steps before leaving the well-posed band;
+an abrupt cell at the same average speed runs 1500 and could run forever.
+**Repeated bounded shifts are the only regime that sustains a high average speed
+in a bounded state space.** That is an argument for `recurring` as the phase-5
+benchmark rather than a limitation of it.
+
+### 13.4 The `recovered` column is confounded along $J$
+
+The cap forces reflection, so larger jumps reach fewer states: $J = 5$ visits 11
+rotations, $J = 15$ visits 6, $J = 30$ visits **3**. At $J = 30$ the run cycles
+among $\{-30, 0, +30\}$, which this model can hold at once, so "recovered" there
+partly measures recall rather than re-adaptation — which is why $J = 15$ scores
+worse (0.52) than $J = 30$ (0.60) at $t' = 25$ despite a 3× smaller wound. The
+$t'$ axis is unaffected, since the state set is identical down a column.
+
+## 14. X8, X10 — where cooperation stops and starts paying
+
+Both on Erdős–Rényi(0.3), 5 seeds, against twins differing in one thing only.
+The **cooperation gap** is `local_only` minus `diffusion_sgd_atc` measured
+*inside* each run, where both share one environment, one graph and one
+$\bm\theta_0$.
+
+### 14.1 X8 — heterogeneous drift costs whoever shares information
+
+Agents drift at their own rates, ending at 22.5°–45.0°; the twin drifts globally
+to the **mean**, 33.75°.
+
+| learner | damage | ± s.e.m. |
+|---|---|---|
+| centralized_sgd | 0.0070 | 0.0004 |
+| diffusion_sgd_atc | 0.0068 | 0.0004 |
+| diffusion_sgd_atc_plain | 0.0064 | 0.0005 |
+| frozen_atc | 0.0050 | 0.0011 |
+| **local_only** | **−0.0002** | 0.0003 |
+
+`local_only` is *exactly* unaffected — it tracks its own rotation and does not
+care where its neighbours are. Everything that combines pays about 0.007, and
+**`centralized_sgd` pays the same as ATC**, so the mechanism is not about the
+graph: it is about merging information from agents in different states, whether
+by averaging parameters or by pooling batches.
+
+The gap narrows from 0.0698 to 0.0628, a change of **−0.0070 ± 0.0004**. Real,
+but modest against the baseline gap: at this spread cooperation still pays
+handsomely, about 10% less than when everyone drifts together. It has not
+reversed, and finding where it does would need a wider spread.
+
+### 14.2 X10 — label shift makes cooperation *more* valuable
+
+Rotation held at zero; each agent's class distribution travels from uniform to
+its own Dirichlet(0.5) draw. Evaluation is composition-matched, so each agent is
+scored on the mix it actually faces.
+
+| learner | control | treated | damage | ± s.e.m. |
+|---|---|---|---|---|
+| centralized_sgd | 0.0964 | 0.1126 | 0.0167 | 0.0058 |
+| diffusion_sgd_atc | 0.0982 | 0.1148 | 0.0175 | 0.0060 |
+| diffusion_sgd_atc_plain | 0.1095 | 0.1306 | 0.0217 | 0.0087 |
+| frozen_atc | 0.1130 | 0.1360 | 0.0240 | 0.0064 |
+| **local_only** | 0.1739 | 0.2343 | **0.0620** | 0.0116 |
+
+Label shift hurts `local_only` **3.5× more** than anyone else. The gap widens
+from 0.0757 to 0.1202, a change of **+0.0445 ± 0.0061** — a 59% widening. An
+agent alone loses the classes its own stream stops delivering; an agent with
+neighbours does not, because they still see them.
+
+**The two axes bracket the diffusion case with opposite signs.** Cooperation is
+worth *more* under label shift and *less* under heterogeneous drift, and both
+are clear of the noise.
+
+*The two evalsets differ in size — 1612 samples under prior drift against 8920
+in the control, since a composition-matched set is limited by its scarcest
+class. That does not bias the damage but makes the treated side noisier, which
+is why X10's error bars are an order of magnitude wider than X8's.*
+
+## 15. What is not yet measured
 
 | | |
 |---|---|
-| X3 topology sweep | phase 4, with lr **re-tuned per topology** — a denser graph averages more and may tolerate a larger step, so holding the ring's lr fixed would confound F3's connectivity axis |
-| X4 sparsity sweep | phase 4; the $(n, \pi_\text{lab})$ axes, which §2.2 shows matter more than expected |
-| X6 non-IID | phase 4 |
 | Diff-EKF | phase 5; its competitor is `atc_plain` at 0.1133, not momentum ATC |
+| The X11 crossover | needs a design that can sustain smooth drift past 300 steps at 0.15°/step, which the 45° cap forbids |
+| Where cooperation reverses | X8 at a wider `per_node_spread` than 0.5 |
+| X8/X10 for the other learners | recorded, not yet reported; `--learner` on the report scripts |

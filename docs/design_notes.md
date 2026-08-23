@@ -1637,6 +1637,75 @@ would have been scope *and* topology. `x8_global` is now that twin: same
 topology, seeds, horizon, cadence and learners, differing only in
 `drift_scope`.
 
+### ✅ D53. A control must match the *mean* of what the treatment does
+
+**The bug.** X8 compares per-node drift against global drift. Under `per_node`
+the multipliers run over $[0.5, 1.0]$ and average 0.75, so the agents end at
+22.5°–45.0° with a mean of 33.75. The global twin was set to 45 — the treatment's
+*maximum* — so it drifted 33% further on average, and X8 measured heterogeneity
+and drift amount at once.
+
+**What caught it.** `frozen_atc` came out **0.10 better** under per-node drift.
+It stops adapting, so its error tracks pure displacement; no account of
+heterogeneity explains that and "less drift" explains it exactly. The result had
+looked plausible — the cooperation gap appeared to shrink by 0.0106, in the
+predicted direction — and would have been reported as the headline.
+
+**The lesson.** Matching the maximum felt natural and was wrong. The control has
+to match whatever the treatment's own agents *average* to, since that is the
+quantity the treatment realises. With the twin at 33.75° the spread is the only
+difference, and `frozen_atc`'s damage falls to +0.0050.
+
+**A non-adapting baseline earns its place in every run.** It is the only learner
+whose error is a direct read-out of displacement, so it is the one that catches a
+control which does not match. Nothing else in the table looked wrong.
+
+### ✅ D54. The change in a cooperation gap is a paired difference
+
+**Decision.** Report $\text{damage}(\texttt{local\_only}) -
+\text{damage}(\texttt{diffusion\_sgd\_atc})$, estimated as a per-seed paired
+difference, rather than differencing two independently-computed gaps.
+
+**Why it matters, measured.** They are the same quantity and their standard
+errors differ by a factor of seven on X8: 3 s.e.m. of **0.0013** paired against
+**0.0110** unpaired. The unpaired estimate called a real −0.0070 shrinkage noise.
+
+The paired version is correct because the two runs share a seed, hence the same
+graph and the same $\bm\theta_0$; the subtraction cancels variation the unpaired
+comparison leaves in. Both are printed, the weaker one labelled as such, because
+the size of the discrepancy is itself worth seeing.
+
+### ✅ D55. What the drift benchmarks found
+
+The four axes, and what each says for phase 5.
+
+**Smooth drift breaks everything at 0.038–0.044°/step** (X9), only 1.3–1.5× the
+rate the benchmark has been running at. The methods sit far closer to each other
+than any does to a frozen baseline, and none ever loses to it.
+
+**Abrupt shifts are mostly *cheaper* than smooth drift at matched average speed**
+— 0.43–0.47× across three speeds (X11 against X12). Between shifts the
+distribution is exactly stationary, so the learner settles; smooth drift never
+allows it. It is not the average speed that hurts, it is the continuous motion.
+
+**Longer intervals produce bigger wounds**, monotone across the grid: the learner
+specialises harder the longer it sits, so the next shift costs more. That is the
+pressure a filter's covariance should relieve, and it is why `recurring` is the
+phase-5 benchmark.
+
+**Cooperation's value moves in opposite directions on the two axes.** Under
+heterogeneous drift the gap narrows 10% and everything that merges information
+pays about 0.007 while `local_only` pays exactly nothing (X8). Under label shift
+the gap widens 59% and `local_only` is hurt 3.5× more than anyone else (X10).
+The filter's cooperation story is therefore strongest under label shift and
+weakest under heterogeneous drift.
+
+**Two things remain out of reach in this design.** The X11 crossover at $J = 30$
+rests on one shift and cannot be firmed up, because a longer matched window needs
+a longer smooth run and the 45° cap forbids one. And the `recovered` column is
+confounded along $J$, since the cap forces reflection and larger jumps reach
+fewer states — 11, 6 and 3 rotations at $J = 5, 15, 30$.
+
 ---
 
 ## Open questions

@@ -681,7 +681,62 @@ learns too slowly to keep up, and cooperation is what fixes that.
 
 ---
 
-## 14. Still to come
+## 14. The drift-benchmark figures (23–25)
+
+These come from their own scripts rather than from `make_figures.py`, because
+each needs a *paired control run* and the F1–F10 pipeline is built around one
+experiment at a time. They write to the same folder and take the same
+`DEKF_FIGURES_DIR`.
+
+| id | file | script | source |
+|---|---|---|---|
+| 23 | `23_breaks_x9_rate_ramp.png` | `plot_breaks.py` | x9 + x9_control |
+| 24 | `24_x11_recovery_diffusion_sgd_atc.png` | `plot_recurring.py` | X11 grid + x11_control |
+| 25 | `25_abrupt_vs_smooth.png` | `plot_abrupt_vs_smooth.py` | X11 + X12 + both controls |
+
+### 23 — where tracking breaks
+
+Drift damage against **drift rate**, not against the step. Under a ramp the step
+is only an index into a rate sweep, and plotting against it invites reading a
+break as "it survived 1100 steps" when the claim is "it survived to 0.038°/step".
+
+Two panels because the frozen baseline ends an order of magnitude above
+everything else and flattens the rest on a shared axis. It is drawn purple and
+dashed rather than a second grey: on the shared axis it sits beside
+`centralized_sgd`, and those two are the one pair a reader must not confuse.
+
+Circles mark the located break, using the **same pooled bar** as
+`report_breaks.py`. If the figure used each learner's own noise its markers
+would disagree with the table and nothing would say which was right.
+
+### 24 — recovery under repeated shifts
+
+Three heatmaps across the $t' \times J$ grid, and two transient panels showing
+the shape the summary numbers come from. A grid alone leaves "recovered 0.2"
+ambiguous between a small wound that heals slowly and a large one that heals
+fast, and those are different problems.
+
+**Dark is worse in every panel.** `rise` and `standing` are costs so a plain
+ramp reads correctly; `recovered` is a good thing, so its ramp is reversed
+rather than its numbers negated — the annotated value stays the quantity
+`report_recurring.py` prints, and nobody has to reconcile a sign.
+
+Read the `recovered` panel along $t'$ only, not along $J$ — see results §13.4.
+
+### 25 — abrupt against smooth
+
+Two panels because two windows are in play and one axis would conflate them.
+Left is the controlled comparison, both regimes over the same steps. Right drops
+the smooth side and shows every abrupt cell over its own second half, with the
+shaded region marking where **no smooth counterpart can exist**, because
+constant drift leaves the 45° band. That gap is the finding, not missing data.
+
+Hollow markers mean the window holds one shift, so the point is a single
+transient rather than an average. This was first drawn as marker *size*, which
+looked fine until the legend swatch took its size from the first point plotted —
+making the key silently disagree with the data.
+
+## 15. Still to come
 
 **F11** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is
 `diffusion_sgd_atc_plain`, not the momentum variant, because the filter sends one
