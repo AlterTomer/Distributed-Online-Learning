@@ -1331,9 +1331,18 @@ and it costs 90 minutes of compute to answer.
 
 ### ✅ D46. The meeting-document builders live outside the repo
 
-`scripts/make_presentation.py` and `scripts/make_summary_docx.py` are untracked
-and `.gitignore`d. They stay on disk — they are rebuilt before every supervisor
-meeting — but they are not part of the published benchmark.
+Four scripts — `make_presentation.py`, `make_summary_docx.py`, and since
+2026-08-23 `make_drift_presentation.py` and `make_drift_docx.py` — are untracked
+and `.gitignore`d. They stay on disk, rebuilt before every supervisor meeting,
+but they are not part of the published benchmark.
+
+**The drift pair is separate rather than appended, and the originals are left
+untouched.** The stationary documents build toward "there is no accuracy gap
+left to close, so the filter must win somewhere else"; the drift documents *are*
+that somewhere else. Two arguments, each better told from its own beginning than
+as a seventh section of the other. The new pair imports the old pair's styling,
+layout and overflow guard, so they read as a set rather than as two house
+styles.
 
 **The criterion.** A file belongs in the repo if it helps someone else *run the
 models, check them, or understand the environment*. These two do neither: they

@@ -34,3 +34,5 @@ Thumbs.db
 # help nobody run or check the benchmark. Kept on disk, out of the repo.
 /scripts/make_presentation.py
 /scripts/make_summary_docx.py
+/scripts/make_drift_presentation.py
+/scripts/make_drift_docx.py
