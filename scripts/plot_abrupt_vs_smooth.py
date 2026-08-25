@@ -173,12 +173,20 @@ def main() -> int:
 
     limit = max(SMOOTH)
     axes[1].axvspan(limit, 1.4, color="#f2f2f2", zorder=0)
+    # "Leaves the band" overstated it: smooth drift at these speeds is not
+    # impossible, it is too *short* to compare. A constant rate reaches the 45
+    # degree cap at T = 45/alpha, so 0.3 allows 150 steps and 1.2 allows 37 --
+    # shorter than one interval of the abrupt cell it would be compared with.
+    fastest = max(jump_degrees / jump_every for jump_every in JUMP_EVERY for jump_degrees in [30.0])
     axes[1].annotate(
-        "no smooth counterpart exists here:\nconstant drift leaves the 45deg band",
-        xy=(limit * 1.15, axes[1].get_ylim()[1] * 0.92),
+        "no smooth counterpart here:\nthe 45deg cap allows only T = 45/alpha steps,\n"
+        f"down to {45 / fastest:.0f} at the fastest cell",
+        xy=(0.985, 0.97),
+        xycoords="axes fraction",
+        ha="right",
+        va="top",
         fontsize=7.5,
         color="#777777",
-        va="top",
     )
     axes[1].set_title("Every abrupt cell, over its own second half", fontsize=10)
 
