@@ -1715,6 +1715,77 @@ a longer smooth run and the 45° cap forbids one. And the `recovered` column is
 confounded along $J$, since the cap forces reflection and larger jumps reach
 fewer states — 11, 6 and 3 rotations at $J = 5, 15, 30$.
 
+## 2026-08-25 — Phase 5, the centralised filter
+
+### ✅ D56. The centralised EKF has two variants, not four
+
+**The request was four**: the γ and λ state models, each with "sending only the
+mean" and "sending mean and covariance". The last axis does not exist here.
+Equations 45–46 are the *combine* step of the **diffusion** filter; a
+centralised filter has one processor and one belief and sends nothing. So the
+centralised filter has only the state-model axis, and the four variants appear
+when the combine step does.
+
+**γ = 1 is not a third model.** It gives $\bm F=\bm I$ and
+$\bm P\leftarrow\bm P+\bm Q$ — the random walk — so it is the boundary of the γ
+grid, and `transition: identity` is already how the config expresses it. Putting
+it *in* the sweep is worth doing, because it separates the γ family's two
+effects and yields two clean comparisons: γ=1 against γ<1 isolates whether
+shrinking the mean helps, and γ=1 against λ compares additive with multiplicative
+loosening **on equal hyperparameter budgets**.
+
+That last point dissolves a concern about fairness. γ<1 needs three knobs
+(σ₀, γ, **Q**) against λ's two (σ₀, λ), but not because the comparison is
+rigged — it is asking a strictly additional question. At γ=1 the budgets match.
+
+**The γ family requires $\bm Q\succ\bm 0$**, which follows from the algebra
+rather than from taste: γ² *contracts* the covariance, so with $\bm Q=\bm 0$ the
+filter's confidence grows monotonically and it stops learning. Only one of
+λ<1 and $\bm Q\succ\bm 0$ may be active at a time; both together are
+unidentifiable.
+
+### ✅ D57. A step's samples are stacked, not applied sequentially
+
+**Decision.** The $n=4$ samples an agent receives at step $t$ enter as one
+update, $\bar{\bm H}$ of shape $(nK)\times p$ with block-diagonal
+$\bar{\bm\Lambda}$ — equation 34 applied within an agent.
+
+**Why not four sequential rank-9 updates.** They are not the same operation:
+sequential updates relinearise between samples, which would give the filter four
+linearisation points per step where every SGD baseline gets one. The filter
+would then look better partly because it was granted a larger budget of the very
+resource under comparison. Stacking keeps the per-step budget identical and
+matches what `centralized_sgd` does with its pooled batch.
+
+### ✅ D58. float64 on CUDA, and D43's guard comes off
+
+**Decision.** The filter runs in float64 on CUDA, and `run.device` accepts
+`cuda`.
+
+D43 measured CUDA at **0.69×** on the SGD path — slower, because $p=2908$ cannot
+amortise a kernel launch — and **14×** on dense covariance operations, then
+closed the device to `cpu` with the note that phase 5 would reopen it when the
+dense covariance made it a win. This is that moment, and the guard coming off is
+the plan working rather than a plan changing.
+
+float64 costs 68 MB per covariance and buys a clean failure mode: the paper
+reports positive definiteness lost within a few hundred steps in single
+precision, against runs of 1500. In float64, with the Joseph form and per-step
+symmetrisation, a PD failure means a real bug rather than accumulated rounding —
+which is worth more than the memory.
+
+### ✅ D59. Woodbury is required, not an optimisation
+
+$\bm\Lambda=\operatorname{diag}(\bm\pi)-\bm\pi\bm\pi^\top$ has rank at most
+$K-1=9$, so stacked over ten agents and four samples the information increment
+has rank 360 against $p=2908$. Inverting directly is $O(p^3)\approx2.5\times
+10^{10}$ flops per step — roughly an hour of inversion per seed, before any
+sweep. Woodbury inverts $360\times360$ instead for the same answer.
+
+Recorded as a design note rather than left as an implementation detail because
+"the filter is too slow to sweep" would otherwise look like a property of the
+method rather than of one avoidable choice.
+
 ---
 
 ## Open questions

@@ -267,6 +267,13 @@ state[v] = {
 That is `IMPLEMENTATION.md` §13.6, and it is why the covariance can be added
 without touching `simulate.py`.
 
+**The filter has its own document: [`filter.md`](filter.md).** It differs from
+the four methods here in kind rather than in degree — it carries a covariance,
+derives its step size instead of taking one as a hyperparameter, and rests on a
+correctness argument about moments rather than about averaging commuting with a
+linear map. The centralised version has two variants (the γ and λ state models);
+the combine-step axis that makes four arrives with the diffusion filter.
+
 Two smaller decisions that guard silent failures:
 
 - **`init()` clones $\bm\theta_0$ per agent** rather than sharing one tensor. Sharing would make the first in-place update change every agent at once, and the run would show perfect consensus for a reason unconnected to the combine step.

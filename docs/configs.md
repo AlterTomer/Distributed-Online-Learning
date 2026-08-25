@@ -64,7 +64,7 @@ needs to restate them.
 | `horizon` | int | `1500` | ≥ 1 | $T$. Bounded by the shard budget (§6) |
 | `eval_every` | int | `25` | ≥ 1 | $K$. Full evaluation cadence; prequential runs every step regardless |
 | `dtype` | str | `float32` | `float32`, `float64` | `float64` is required for X0, where the identity must hold to $10^{-12}$ |
-| `device` | str | `cpu` | `cpu`, `cuda`, `auto` | `auto` resolves at runtime. Phases 1–4 are CPU-sized |
+| `device` | str | `cpu` | `cpu`, `cuda`, `auto` | `auto` resolves at runtime. Phases 1–4 are CPU-sized; the filter wants `cuda` (D43, D58) |
 | `out_dir` | str | `results` | any path | Gitignored |
 
 *Consumed by:* `runner/simulate.py` (phase 3), `recording/` (phase 3),

@@ -106,9 +106,11 @@ python tasks.py clean         # caches and build artefacts; leaves data/ and res
 Experiment targets (`x0`–`x7`, `reference`, `sweep`, `figures`) are listed but
 report which phase introduces them until the corresponding scripts exist.
 
-`run.device` accepts only `cpu`. CUDA is *measurably slower* at this model size
--- 0.69x at batch 4, since p=2908 cannot amortise a kernel launch -- and phase 5
-lifts the guard when the dense covariance makes it a 14x win (design note D43).
+`run.device` was CPU-only through phases 1-4, because CUDA is *measurably
+slower* at this model size -- 0.69x at batch 4, since p=2908 cannot amortise a
+kernel launch. Phase 5 lifts the guard, as design note D43 said it would: the
+filter is dominated by dense covariance operations, where CUDA is a 14x win
+(D58). The SGD baselines stay on CPU, which is still the faster choice for them.
 
 ## Layout
 
