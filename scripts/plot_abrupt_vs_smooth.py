@@ -178,13 +178,17 @@ def main() -> int:
     # degree cap at T = 45/alpha, so 0.3 allows 150 steps and 1.2 allows 37 --
     # shorter than one interval of the abrupt cell it would be compared with.
     fastest = max(jump_degrees / jump_every for jump_every in JUMP_EVERY for jump_degrees in [30.0])
+    # Short in-panel, with the reasoning carried by the caption below the
+    # figure: the annotation has to survive being read at a glance, and the
+    # arithmetic behind it does not fit anywhere a glance would look.
+    # Low and centred inside the shaded band. Top-right is where the J=30 line
+    # ends, and the label sat on top of its final marker.
     axes[1].annotate(
-        "no smooth counterpart here:\nthe 45deg cap allows only T = 45/alpha steps,\n"
-        f"down to {45 / fastest:.0f} at the fastest cell",
-        xy=(0.985, 0.97),
+        "smooth drift cannot be\nmeasured here — see caption",
+        xy=(0.74, 0.06),
         xycoords="axes fraction",
-        ha="right",
-        va="top",
+        ha="center",
+        va="bottom",
         fontsize=7.5,
         color="#777777",
     )
@@ -210,7 +214,19 @@ def main() -> int:
         fontsize=11,
         color=INK,
     )
-    figure.tight_layout(rect=(0, 0, 1, 0.94))
+    figure.text(
+        0.5,
+        0.035,
+        "Shaded: smooth drift cannot be measured here. The 45° cap allows only T = 45/α steps, "
+        f"so a constant-rate run at these speeds ends before the learner converges\n"
+        f"({45 / fastest:.0f} steps at {fastest:g}°/step, where it is still 41 % of the way from "
+        "random initialisation). Abrupt shifts stay inside the band and have no such limit.",
+        ha="center",
+        va="bottom",
+        fontsize=8,
+        color="#555555",
+    )
+    figure.tight_layout(rect=(0, 0.10, 1, 0.94))
 
     out_dir = figures_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
