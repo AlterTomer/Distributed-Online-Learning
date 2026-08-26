@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import torch
 import yaml
 
 from dekf_bench.utils.config import (
@@ -293,9 +294,25 @@ def test_out_of_range_gamma_is_rejected() -> None:
         LearnerConfig(name="ekf", transition="scalar", gamma=1.5)
 
 
-def test_non_positive_process_noise_is_rejected() -> None:
-    with pytest.raises(ConfigError, match="process_noise_q must be > 0"):
-        LearnerConfig(name="ekf", process_noise_q=0.0)
+def test_negative_process_noise_is_rejected() -> None:
+    with pytest.raises(ConfigError, match="process_noise_q must be >= 0"):
+        LearnerConfig(name="ekf", process_noise_q=-1e-6)
+
+
+def test_zero_process_noise_is_allowed() -> None:
+    """Zero is what the lambda family sets, so it cannot be an error.
+
+    It was rejected until the filter existed, on the reasoning that a zero here
+    meant a forgotten field. The lambda family inflates by 1/lambda instead and
+    must set Q = 0, since running both mechanisms at once leaves neither
+    hyperparameter interpretable (design note D61).
+    """
+    assert LearnerConfig(name="ekf", process_noise_q=0.0).process_noise_q == 0.0
+
+
+def test_non_positive_prior_scale_is_rejected() -> None:
+    with pytest.raises(ConfigError, match="prior_scale must be > 0"):
+        LearnerConfig(name="ekf", prior_scale=0.0)
 
 
 def test_grid_dimensions_must_match_the_node_count() -> None:
@@ -398,23 +415,29 @@ def write_experiment(root: Path, body: dict) -> Path:
     return path
 
 
-def test_a_cuda_device_is_refused_while_it_would_be_ignored() -> None:
-    """`run.device` is validated but nothing in phases 1-4 acts on it, so
-    accepting `cuda` would silently run on CPU while the config claimed
-    otherwise.
+def test_a_device_is_accepted_now_that_it_is_honoured() -> None:
+    """The phase-5 guard is off, because the runner moves tensors now.
 
-    Refusing is not a limitation being papered over: CUDA is *measurably slower*
-    for this workload (design note D43). The guard comes off in phase 5, where a
-    dense covariance makes it a 14x win.
+    Phases 1-4 validated `run.device` and then acted on none of it, so accepting
+    `cuda` would have run on CPU while the config claimed otherwise -- and CUDA
+    was *slower* for the SGD workload anyway (design note D43). The filter is
+    what reverses that: a dense p x p covariance is the operation the GPU wins,
+    and the measured difference is 561s per seed against 123s (D58).
     """
-    with pytest.raises(ConfigError, match="silently ignored"):
+    assert load_config("x1_stationary", overrides={"run": {"device": "auto"}}).run.device == "auto"
+
+
+def test_an_unavailable_cuda_device_is_still_refused() -> None:
+    """`auto` resolves; an explicit `cuda` on a machine without one is an error.
+
+    The distinction matters: `auto` is a preference and `cuda` is a claim, and a
+    claim that silently degrades to CPU turns a two-hour sweep into a ten-hour
+    one with nothing in the log to say why.
+    """
+    if torch.cuda.is_available():
+        pytest.skip("CUDA is present, so the refusal cannot be exercised here")
+    with pytest.raises(ConfigError, match="CUDA is not available"):
         load_config("x1_stationary", overrides={"run": {"device": "cuda"}})
-
-
-def test_the_refusal_explains_where_cuda_does_pay() -> None:
-    """A rejection that only says 'no' invites working around it."""
-    with pytest.raises(ConfigError, match="Phase 5"):
-        load_config("x1_stationary", overrides={"run": {"device": "auto"}})
 
 
 def test_cpu_is_accepted() -> None:

@@ -173,10 +173,35 @@ together:
 * **float64.** In single precision the paper reports PD lost within a few
   hundred steps; the benchmark's runs are 1500. At $p=2908$ a covariance is
   68 MB in float64, which is affordable for one belief.
-* **Joseph form** for the covariance update, which is stable where the short
-  form is not.
 * **Symmetrise every step**: $\bm P\leftarrow\tfrac12(\bm P+\bm P^{\top})$.
   Without it the recursion drifts out of symmetry within a few hundred steps.
+* **A per-step $O(p)$ guard** on the mean staying finite and the variances
+  staying positive, so divergence stops the run instead of reaching the metrics
+  as NaN.
+
+**The Joseph form is not among them, and the reason is worth stating.** Written
+the usual way,
+
+$$\bm P^+ = (\bm I-\bm K\bar{\bm B}^{\top})\,\bm P\,
+            (\bm I-\bm K\bar{\bm B}^{\top})^{\top} + \bm K\bm K^{\top},$$
+
+it forms the $p\times p$ matrix $\bm I-\bm K\bar{\bm B}^{\top}$ and multiplies it
+by $\bm P$ — which is $O(p^3)$, exactly the cost §4 used Woodbury to avoid.
+Expanding the product instead keeps every term $O(p^2q')$, but the expansion
+telescopes:
+
+$$\bm P - \bm K\bm A^{\top} - \bm A\bm K^{\top} + \bm K\bm S\bm K^{\top}
+  = \bm P - \bm A\bm S^{-1}\bm A^{\top},$$
+
+with $\bm A=\bm P\bar{\bm B}$ and $\bm K=\bm A\bm S^{-1}$ — the short form again.
+That is not a coincidence; the two are algebraically identical and always were.
+The Joseph form's value is **numerical**, and it comes precisely from evaluating
+the un-expanded product, which is the version that costs $O(p^3)$. So the choice
+here is not "Joseph or short form" but "Joseph or Woodbury", and at $p=2908$ over
+1500 steps the cheap form plus float64 plus symmetrisation is what makes the
+sweep affordable. Positive definiteness then becomes an empirical claim rather
+than a structural one — which is why it is soaked over a full-length run rather
+than asserted (design note D62).
 
 With these, a loss of positive definiteness means a genuine bug rather than
 accumulated rounding — which is the point of paying for float64.

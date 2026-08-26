@@ -373,8 +373,12 @@ def build_evalsets(config: Any, environment: Any, test: MnistSplit) -> EvalSetBu
     promotion changing the numbers the exactness check is asserted against.
     """
     dtype = environment.train.images.dtype
-    if test.images.dtype != dtype:
-        test = test.to(dtype=dtype)
+    device = str(environment.train.images.device)
+    if test.images.dtype != dtype or str(test.images.device) != device:
+        # Device for the same reason as dtype, and with the same failure modes:
+        # the loud one is a device mismatch on the first eval, the quiet one is
+        # a per-eval copy that makes CUDA look slower than it is.
+        test = test.to(dtype=dtype, device=device)
 
     plan = getattr(environment, "class_plan", None)
     return EvalSetBuilder(

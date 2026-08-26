@@ -135,6 +135,36 @@ def jacobian(
     return torch.stack(rows).view(*output.shape, -1)
 
 
+def per_sample_jacobian(
+    module: nn.Module, params: ParamDict, x: torch.Tensor, names: tuple[str, ...]
+) -> torch.Tensor:
+    r"""Every sample's $\bm H$ at once, shape ``(n, q, p)``.
+
+    The filter needs $\bm H_i$ **per sample**, because the information increment
+    is $\sum_i \bm H_i^{\mathsf T}\bm\Lambda_i\bm H_i$ with a different
+    $\bm\Lambda_i$ for each. :func:`vector_jacobian_product` sums over the batch
+    and so cannot supply that, and :func:`jacobian` builds the same thing with a
+    Python loop of $nq$ reverse sweeps -- fine for a test, but at 40 sweeps a
+    step over a 1500-step run it is the difference between minutes and hours.
+
+    ``vmap`` over the batch with ``jacrev`` inside computes all $n$ Jacobians in
+    one vectorised pass. Still $O(nqp)$ memory, so this shares
+    :func:`jacobian`'s restriction to models where materialising $\bm H$ is
+    affordable: at $p=2908$, $n=40$, $q=10$ it is 1.2 M entries, and at
+    $p\sim10^5$ it would not be.
+    """
+    from torch.func import jacrev, vmap
+
+    def single(parameters: ParamDict, sample: torch.Tensor) -> torch.Tensor:
+        return call(module, parameters, sample.unsqueeze(0)).squeeze(0)
+
+    jacobians = vmap(jacrev(single, argnums=0), in_dims=(None, 0))(params, x)
+    batch, outputs = x.shape[0], jacobians[names[0]].shape[1]
+    return torch.cat(
+        [jacobians[name].reshape(batch, outputs, -1) for name in names], dim=-1
+    )
+
+
 def build_param_groups(module: nn.Module, names: tuple[str, ...]) -> tuple[ParamGroup, ...]:
     """Group the flat vector by layer.
 

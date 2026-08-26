@@ -66,7 +66,12 @@ def run_seed(config, seed: int, train, test, out_dir: Path) -> tuple[int, float]
 
     # Every learner starts from the same theta_0: the filter needs a common
     # prior, and it removes a confound from the SGD comparison.
+    #
+    # Drawn on the CPU and moved, rather than drawn on the device: the same seed
+    # then gives the same theta_0 on either, so a CUDA run and a CPU run of one
+    # config are comparable rather than merely both valid.
     theta0 = model.flatten(model.init_params(environment.seeds.torch_generator("init")))
+    theta0 = theta0.to(environment.train.images.device)
 
     sha, _dirty = git_revision(REPO)
     context = RunContext.from_config(

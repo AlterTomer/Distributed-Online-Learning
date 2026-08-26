@@ -135,10 +135,16 @@ def loss_gradient(
 ) -> torch.Tensor:
     r"""$\nabla L(\bm\theta; \mathcal D)$ with **mean** reduction, as a flat vector.
 
-    Computed as $-\bm H^{\mathsf T}\bm\nu / n$ rather than through autograd on
-    the loss. The two are equal -- ``test_likelihoods.py`` asserts it -- and this
-    route reuses the ``vjp`` the filter will need, so phase 5 shares the code
-    path rather than acquiring a second one.
+    Computed as $-\bm H^{\mathsf T}\bm s / n$ from the likelihood's **score**
+    rather than through autograd on the loss. The two are equal --
+    ``test_likelihoods.py`` asserts it -- and this route reuses the ``vjp`` the
+    filter will need, so phase 5 shares the code path rather than acquiring a
+    second one.
+
+    The score, not the innovation: under softmax they are the same vector, so
+    every experiment run so far is unaffected, but under a Gaussian they differ
+    by $\sigma^{-2}$ and this would be the gradient of a *different* loss than
+    ``nll`` reports (design note D60).
 
     **Mean, not sum, and this is a precondition of X0.** The identity
 
@@ -156,6 +162,6 @@ def loss_gradient(
 
     params = model.unflatten(theta)
     logits = model.forward(params, x)
-    innovation = likelihood.innovation(logits, y)
-    # vjp with the innovation gives -grad; divide by n for the mean reduction.
-    return -model.vjp(params, x, innovation) / x.shape[0]
+    score = likelihood.score(logits, y)
+    # vjp with the score gives -grad; divide by n for the mean reduction.
+    return -model.vjp(params, x, score) / x.shape[0]

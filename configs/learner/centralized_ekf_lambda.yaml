@@ -1,0 +1,32 @@
+# The centralised EKF, lambda family: F_t = I (research note eqs 13-14).
+#
+#   m <- m                    P <- P / lambda
+#
+# The same recursion as centralized_ekf_gamma under a different transition, and
+# the same class implements both -- so a run naming both gets a genuine
+# comparison rather than two implementations that might disagree for
+# uninteresting reasons.
+#
+# This is the family that actually forgets. Multiplicative inflation loosens
+# every direction of the covariance equally each step, which is what lets the
+# filter keep tracking after the information from early steps would otherwise
+# have made it certain. Effective memory is about 1/(1 - lambda) steps.
+#
+# MEASURED BOUND: lambda = 0.99 (memory 100 steps) inflates without limit --
+# trace/p runs 0.01 -> 898 over 1500 steps and ||m|| reaches 733, because
+# forgetting outruns the information arriving at n=4 per agent. lambda = 0.999
+# is stable (trace/p 0.0095 -> 0.038). The usable range is therefore ABOVE
+# ~0.995, and the sweep brackets it rather than assuming it.
+name: centralized_ekf_lambda
+
+transition: identity        # required: F_t = I fixes gamma = 1
+gamma: 1.0                  # must stay 1 under this transition
+
+forgetting: lambda          # the lambda family loosens P multiplicatively
+lambda_forget: 0.999        # memory ~ 1000 steps ~ 30 deg at the capped drift rate
+process_noise_q: 0.0        # must stay 0: 1/lambda is already the inflation
+
+# sigma_0^2 -- a trust region. See centralized_ekf_gamma.yaml and design note
+# D61: above 1e-1 the Gauss-Newton step overshoots the linearisation on step one
+# and the run diverges rather than converging slowly.
+prior_scale: 0.01

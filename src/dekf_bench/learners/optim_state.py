@@ -99,9 +99,22 @@ class Optimizer:
     def is_stateful(self) -> bool:
         return bool(self.state_names)
 
-    def init_state(self, num_params: int, dtype: torch.dtype) -> dict[str, torch.Tensor]:
-        """Zeroed buffers, one per state entry this optimizer carries."""
-        return {name: torch.zeros(num_params, dtype=dtype) for name in self.state_names}
+    def init_state(
+        self,
+        num_params: int,
+        dtype: torch.dtype,
+        device: torch.device | str | None = None,
+    ) -> dict[str, torch.Tensor]:
+        """Zeroed buffers, one per state entry this optimizer carries.
+
+        ``device`` defaults to the CPU rather than being required, so the SGD
+        learners that predate phase 5 keep working unchanged; callers that hold
+        parameters elsewhere pass ``theta.device``.
+        """
+        return {
+            name: torch.zeros(num_params, dtype=dtype, device=device)
+            for name in self.state_names
+        }
 
     def step(
         self, theta: torch.Tensor, gradient: torch.Tensor, state: dict[str, torch.Tensor]

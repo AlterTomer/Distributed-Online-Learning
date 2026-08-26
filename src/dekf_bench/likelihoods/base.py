@@ -8,8 +8,22 @@ covariance:
 ``mu``           the mean parameter $\\bm\\mu = \\nabla A(\\bm h)$
 ``fisher``       $\\bm\\Lambda = \\nabla^2 A(\\bm h) \\succeq \\bm 0$
 ``innovation``   $\\bm\\nu = \\bm y - \\bm\\mu$
+``score``        $\\partial\\log p/\\partial\\bm h$ -- what the update multiplies
 ``nll``          the negative log-likelihood, for training and calibration
 ===============  ==========================================================
+
+**``innovation`` and ``score`` are not the same quantity**, and conflating them
+is a bug the categorical likelihood cannot expose. Under softmax the logits *are*
+the natural parameter, so $\\partial\\log p/\\partial\\bm h = \\bm y-\\bm\\pi =
+\\bm\\nu$ and the two coincide. Under a Gaussian the logits are the *mean*
+parameter, and the score picks up the noise covariance:
+$\\partial\\log p/\\partial\\bm h = \\bm R^{-1}(\\bm y-\\bm h) = \\bm\\Lambda\\bm\\nu$.
+Gradient training never notices -- $\\sigma^{-2}$ is absorbed by the learning rate
+-- but the filter does, because $\\bm P$ carries absolute units and has nothing
+to absorb it into. The mean update takes the **score** (design note D60).
+
+The two are tied together by an identity that holds in both families and is
+worth testing: $\\bm\\Lambda = \\operatorname{Cov}(\\text{score})$.
 
 That split is what lets classification, regression and next-token prediction run
 through one update (research note §3.3).
@@ -80,6 +94,9 @@ class Likelihood(Protocol):
 
     def innovation(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         """$\\bm\\nu = \\bm y - \\bm\\mu$ -- the only channel data enters the filter by."""
+
+    def score(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """$\\partial\\log p/\\partial\\bm h$. Equals $\\bm\\nu$ only in canonical form."""
 
     def nll(
         self, logits: torch.Tensor, targets: torch.Tensor, reduction: Reduction

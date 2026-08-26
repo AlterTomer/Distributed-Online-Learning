@@ -37,6 +37,7 @@ from dekf_bench.env.partition import Partition, build_partition_from_config
 from dekf_bench.env.priors import build_class_plan_from_config, check_plan_is_feasible
 from dekf_bench.env.stream import Stream, build_stream_from_config
 from dekf_bench.runner.seeding import Seeds
+from dekf_bench.utils.determinism import resolve_device
 
 
 class EnvironmentError(RuntimeError):
@@ -117,9 +118,13 @@ def pool(observations: dict[int, Observation]) -> tuple[torch.Tensor, torch.Tens
     labelled = [obs for obs in observations.values() if obs.has_label]
     if not labelled:
         example = next(iter(observations.values()))
+        # The device is carried from the example rather than defaulted: an empty
+        # batch that lands on the CPU while the belief is on CUDA fails only on
+        # the steps where nothing is labelled, which is the hardest kind of bug
+        # to reproduce.
         return (
-            torch.empty((0, *example.x.shape[1:]), dtype=example.x.dtype),
-            torch.empty(0, dtype=torch.int64),
+            torch.empty((0, *example.x.shape[1:]), dtype=example.x.dtype, device=example.x.device),
+            torch.empty(0, dtype=torch.int64, device=example.x.device),
         )
     xs = torch.cat([obs.x for obs in labelled])
     ys = torch.cat([obs.y for obs in labelled])  # type: ignore[misc]
@@ -187,6 +192,7 @@ class Environment:
             empty = torch.empty(
                 (0, 1, self.transform.size, self.transform.size),
                 dtype=self.train.images.dtype,
+                device=self.train.images.device,
             )
             return Observation(
                 x=empty,
@@ -295,8 +301,12 @@ def build_environment(config: Any, master_seed: int, train: MnistSplit) -> Envir
     transform = build_transform_from_config(config, train.images)
 
     dtype = torch.float64 if config.run.dtype == "float64" else torch.float32
-    if train.images.dtype != dtype:
-        train = train.to(dtype=dtype)
+    device = resolve_device(config.run.device)
+    if train.images.dtype != dtype or str(train.images.device) != device:
+        # Moved once here rather than per batch. The images are the only large
+        # tensor in a run, and copying a shard to the device 1500 times would
+        # cost more than the filter step it feeds (design note D58).
+        train = train.to(dtype=dtype, device=device)
 
     return Environment(
         config=config,

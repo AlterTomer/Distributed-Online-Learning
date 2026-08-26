@@ -106,6 +106,14 @@ class Model(Protocol):
         increment. It is not an implementation detail of one model.
         """
 
+    def per_sample_jacobian(self, params: ParamDict, x: torch.Tensor) -> torch.Tensor:
+        r"""Every sample's $\bm H$, shape ``(n, q, p)``.
+
+        On the protocol because the filter genuinely requires it: the
+        information increment needs a separate $\bm H_i$ per sample, which no
+        product against a summed Jacobian can supply.
+        """
+
     def jvp(self, params: ParamDict, x: torch.Tensor, tangent: torch.Tensor) -> torch.Tensor:
         r"""$\\bm H\\bm v$ for a flat direction in parameter space."""
 

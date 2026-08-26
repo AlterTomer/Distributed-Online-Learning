@@ -105,6 +105,16 @@ class Categorical:
         one_hot = TF.one_hot(targets, num_classes=self.output_dim).to(logits.dtype)
         return one_hot - self.mu(logits)
 
+    def score(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """$\\partial\\log p/\\partial\\bm h = \\bm\\nu$.
+
+        Softmax is the canonical link, so the score *is* the innovation and this
+        is deliberately a synonym rather than a separate calculation. The method
+        exists because the Gaussian's is not a synonym, and code that must work
+        for both cannot use ``innovation`` and be right (design note D60).
+        """
+        return self.innovation(logits, targets)
+
     def nll(
         self, logits: torch.Tensor, targets: torch.Tensor, reduction: Reduction
     ) -> torch.Tensor:

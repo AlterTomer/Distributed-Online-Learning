@@ -7,6 +7,7 @@ from typing import Any
 import torch
 
 from dekf_bench.learners.base import Intermediate, LearnerError, LearnerState
+from dekf_bench.learners.ekf import CentralizedEKF
 from dekf_bench.learners.optim_state import build_optimizer
 from dekf_bench.learners.sgd import (
     CentralizedSGD,
@@ -75,6 +76,13 @@ BUILDERS = {
     "diffusion_sgd_atc_plain": DiffusionSGDATC,
     "diffusion_sgd_cta": DiffusionSGDCTA,
     "diffusion_ekf": DiffusionEKF,
+    # Two names, one class. The gamma and lambda families are the same recursion
+    # under different transition models, and the config picks which by setting
+    # `transition` -- so a run that names both gets a genuine comparison rather
+    # than two implementations that might disagree for uninteresting reasons
+    # (design note D56).
+    "centralized_ekf_gamma": CentralizedEKF,
+    "centralized_ekf_lambda": CentralizedEKF,
     # The non-adapting baseline. Shares the ATC implementation and differs only
     # in carrying a `freeze_after`, so "what does continuing to adapt buy?" is
     # answered against the same algorithm rather than against a different one.
@@ -85,6 +93,16 @@ BUILDERS = {
 #: `local_only` are both False, for opposite reasons.
 DIFFUSING = {"diffusion_sgd_atc", "diffusion_sgd_atc_plain", "diffusion_sgd_cta", "diffusion_ekf"}
 
+#: Learners that consume the *pooled* batch instead of adapting per agent. A set
+#: rather than a name check in the runner: the centralized filter joined
+#: `centralized_sgd` here the moment it existed, and the next pooled method
+#: should not require editing `simulate.py` again to be dispatched correctly.
+POOLING = {"centralized_sgd", "centralized_ekf_gamma", "centralized_ekf_lambda"}
+
+#: Learners holding a covariance, so metrics may ask them for predictive spread.
+#: Nothing outside this set can answer an uncertainty question at all.
+BAYESIAN = {"centralized_ekf_gamma", "centralized_ekf_lambda", "diffusion_ekf"}
+
 
 def build_learner(learner_config: Any, model: Model, likelihood: Any, n_nodes: int) -> Any:
     """The learner a `learners:` entry asks for."""
@@ -93,6 +111,8 @@ def build_learner(learner_config: Any, model: Model, likelihood: Any, n_nodes: i
         raise LearnerError(f"unknown learner {name!r}; available: {sorted(BUILDERS)}")
     if name == "diffusion_ekf":
         return DiffusionEKF()
+    if name in ("centralized_ekf_gamma", "centralized_ekf_lambda"):
+        return _build_centralized_ekf(learner_config, model, likelihood, n_nodes)
 
     return BUILDERS[name](
         name=name,
@@ -102,6 +122,75 @@ def build_learner(learner_config: Any, model: Model, likelihood: Any, n_nodes: i
         n_nodes=n_nodes,
         mix_policy=getattr(learner_config, "mix_optimizer_state", "none"),
         freeze_after=getattr(learner_config, "freeze_after", None),
+    )
+
+
+def _build_centralized_ekf(
+    learner_config: Any, model: Model, likelihood: Any, n_nodes: int
+) -> CentralizedEKF:
+    r"""The centralized filter, with the transition fixed by the learner's name.
+
+    **The name chooses the state model, and the config may not contradict it.**
+    A `centralized_ekf_lambda` entry carrying $\gamma=0.99$ is not a variant of
+    the $\lambda$ family; it is a mistake that would run happily and produce a
+    third model nobody chose. Since $\gamma=1$ *is* the random walk, the two
+    families overlap at exactly one point, and letting a config express that
+    point twice is how a sweep ends up with duplicate cells that disagree
+    (design note D56).
+    """
+    name = learner_config.name
+    gamma = getattr(learner_config, "gamma", 1.0)
+    lambda_forget = getattr(learner_config, "lambda_forget", 1.0)
+    process_noise_q = getattr(learner_config, "process_noise_q", 0.0)
+    transition = getattr(learner_config, "transition", "identity")
+
+    # `transition` is checked rather than overwritten. Deriving it from the name
+    # would let a config say `transition: identity` under the gamma learner and
+    # be quietly ignored, which is the failure mode this whole function exists
+    # to prevent.
+    expected = "scalar" if name == "centralized_ekf_gamma" else "identity"
+    if transition != expected:
+        raise LearnerError(
+            f"learner[{name}] requires transition={expected!r}, got {transition!r}. The "
+            "name and the state model must agree; they are the same choice written twice."
+        )
+
+    if name == "centralized_ekf_gamma":
+        if lambda_forget != 1.0:
+            raise LearnerError(
+                f"{name} is the gamma family (F = gamma I, P <- gamma^2 P + Q) and has no "
+                f"forgetting factor, but lambda_forget={lambda_forget} was set. Use "
+                "centralized_ekf_lambda for the forgetting model."
+            )
+    else:
+        if gamma != 1.0:
+            raise LearnerError(
+                f"{name} is the lambda family (F = I, P <- P / lambda), which fixes "
+                f"gamma = 1, but gamma={gamma} was set. Use centralized_ekf_gamma for a "
+                "shrinking transition."
+            )
+        if process_noise_q != 0.0:
+            raise LearnerError(
+                f"{name} inflates the covariance by 1/lambda rather than by adding Q, but "
+                f"process_noise_q={process_noise_q} was set. Two inflation mechanisms at "
+                "once makes neither hyperparameter interpretable."
+            )
+
+    if not 0.0 < lambda_forget <= 1.0:
+        raise LearnerError(f"lambda_forget must lie in (0, 1], got {lambda_forget}")
+    if process_noise_q < 0.0:
+        raise LearnerError(f"process_noise_q must be >= 0, got {process_noise_q}")
+
+    return CentralizedEKF(
+        name=name,
+        model=model,
+        likelihood=likelihood,
+        n_nodes=n_nodes,
+        transition=transition,
+        gamma=gamma,
+        lambda_forget=lambda_forget,
+        process_noise_q=process_noise_q,
+        prior_scale=getattr(learner_config, "prior_scale", 1.0),
     )
 
 

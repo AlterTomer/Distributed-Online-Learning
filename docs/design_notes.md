@@ -1786,6 +1786,124 @@ Recorded as a design note rather than left as an implementation detail because
 "the filter is too slow to sweep" would otherwise look like a property of the
 method rather than of one avoidable choice.
 
+### ✅ D60. The mean update takes the score, not the innovation
+
+The filter's mean update is $\bm m^+ = \bm m^- + \bm P^+\sum_v\bm H_v^\top\bm s_v$
+where $\bm s = \partial\log p/\partial\bm h$. Under softmax the logits *are* the
+natural parameter, so $\bm s = \bm y-\bm\pi = \bm\nu$ and the two words name one
+vector. Under a Gaussian the logits are the *mean* parameter and
+$\bm s = \bm R^{-1}(\bm y-\bm h) = \bm\nu/\sigma^2$.
+
+Using $\bm\nu$ throughout is therefore correct for every experiment X0–X6 and
+wrong by $\sigma^{-2}$ the moment a regression likelihood appears. Gradient
+training cannot detect the difference — a constant factor on the gradient is
+absorbed by the learning rate — but the filter can, because $\bm P$ carries
+absolute units and has no step size to absorb it into.
+
+`score()` is now on the likelihood protocol, `innovation()` keeps its own
+meaning, and `loss_gradient` takes the score too (a no-op under softmax, a
+correction under a Gaussian, where it previously computed the gradient of a
+different loss than `nll` reported).
+
+**This is what the Gaussian likelihood was kept for.** `gaussian.py` argued in
+its own docstring that an interface with one implementation is shaped around
+that implementation whether or not anyone intended it, and that untested code
+the filter will one day depend on is the kind that turns out to be wrong. The
+linear-Gaussian exactness test found the mean off by a factor of $\sigma^{-2}$
+on the first run, with the covariance already correct to $4\times10^{-15}$ —
+a discrepancy the categorical likelihood is structurally incapable of exposing.
+
+The two quantities are tied by $\bm\Lambda = \operatorname{Cov}(\bm s)$, which
+holds in both families and is now tested by sampling.
+
+### ✅ D61. $\sigma_0^2$ is a trust region, and too large a value diverges
+
+The EKF mean update is a Gauss–Newton step whose trust region is $\bm P$ itself.
+At $\sigma_0^2=1$ and $p=2908$, the **first** step moves $\lVert\bm m\rVert$ by
+7.9 against $\lVert\bm\theta_0\rVert=6.1$ — more than doubling the parameter
+norm in one jump. That lands far outside the region the linearisation describes,
+so the next linearisation is taken somewhere worse, and the run reaches
+$10^{113}$ by step 100 with the covariance still perfectly well conditioned
+(condition number $2.2\times10^3$). Measured on the same data at smaller priors:
+
+| $\sigma_0^2$ | first step $\lVert\Delta\bm m\rVert$ | relative to $\lVert\bm\theta_0\rVert$ | outcome |
+|---|---|---|---|
+| 1.0   | 7.91  | 1.29  | diverges by step 25 |
+| 0.1   | 1.51  | 0.25  | stable, NLL flat |
+| 0.01  | 0.26  | 0.042 | stable |
+| 0.001 | 0.041 | 0.007 | stable |
+
+This is the method behaving as derived, not a defect, and it decides two things.
+The sweep runs over $\sigma_0^2\le10^{-1}$, since larger values do not fail
+gracefully — they fail catastrophically. And the filter carries an $O(p)$
+per-step guard that raises on a non-finite mean or a non-positive variance, so a
+diverged cell is reported as diverged rather than reaching the metrics as NaN
+and averaging into a seed mean.
+
+The useful diagnostic is the **first step's relative jump**
+$\lVert\Delta\bm m\rVert/\lVert\bm\theta_0\rVert$: it is computable before
+committing to a run, and it separates the stable settings from the divergent one
+cleanly at this model size.
+
+### ✅ D62. The Joseph form is the expensive half of a false choice
+
+D58 committed to "float64, Joseph form, per-step symmetrisation" as the three
+numerical defences. The Joseph form does not survive contact with D59.
+
+Written the usual way it forms $\bm I-\bm K\bar{\bm B}^\top$ at $p\times p$ and
+multiplies it by $\bm P$, which is $O(p^3)$ — the cost Woodbury exists to avoid.
+Expanding the product keeps every term $O(p^2q')$, but the expansion telescopes
+back to $\bm P-\bm A\bm S^{-1}\bm A^\top$: the short form. The two are
+algebraically the same matrix, and the Joseph form's entire value is the
+numerical behaviour of the *un-expanded* product, which is the $O(p^3)$ one.
+
+So the real choice is Joseph **or** Woodbury, not Joseph over the short form.
+Woodbury wins: float64 plus symmetrisation plus the D61 guard, with positive
+definiteness soaked over a full 1500-step run rather than assumed. Worth
+recording because "we used the Joseph form for stability" is the kind of claim
+that reads as obviously correct and would have quietly cost an order of
+magnitude, or been silently untrue.
+
+### ✅ D63. Both predictive approximations are reported, because the gap is the finding
+
+The filter's posterior is Gaussian over logits; the metrics need a distribution
+over classes. The integral $\int\operatorname{softmax}(\bm h)\,\mathcal N(\bm h;
+\bm h(\bm m),\bm\Sigma)\,\mathrm d\bm h$ has no closed form, and two
+approximations are standard:
+
+* **Probit**, $\operatorname{softmax}\bigl(\bm h/\sqrt{1+\tfrac\pi8\bm\sigma^2}\bigr)$
+  — free, deterministic, uses only $\operatorname{diag}\bm\Sigma$.
+* **Monte Carlo** over the full $\bm\Sigma$ — keeps the correlations the probit
+  form discards, costs $S$ softmaxes and a sampling seed.
+
+Reporting both, rather than picking one, because the distance between them is
+measurable and turns out to be **approximation error rather than sampling
+noise**. At $S=200{,}000$ two seeds differ by $\le0.002$ while the probit form
+sits this far from the sampled answer:
+
+| $\sigma^2$ | MC noise | probit gap |
+|---|---|---|
+| 0.05 | 0.0003 | 0.0021 |
+| 0.25 | 0.0006 | 0.0093 |
+| 1.0  | 0.0011 | 0.0246 |
+| 4.0  | 0.0016 | 0.0404 |
+| 16.0 | 0.0019 | 0.0418 |
+
+The error grows with the spread and then saturates, because both forms tend to
+uniform. So the probit form carries the headline metric — it is free and the
+distortion is bounded — and sampling runs on a subset of eval steps as the check
+that keeps the bound honest. If the filter's calibration advantage over SGD ever
+turns out to be the same size as the row above it, that is a result about the
+approximation and not about the filter.
+
+**Sampling uses a symmetric eigendecomposition, not a Cholesky.** $\bm H\bm P\bm
+H^{\mathsf T}$ is positive semi-definite, not definite — nothing makes $\bm H$'s
+rows independent — and Cholesky requires strict definiteness. Rescuing it by
+jittering the diagonal injects spread the belief does not contain, which is
+visible at an exactly-zero covariance as a prediction that is not quite the
+plug-in one ($\sim10^{-6}$). At $q=10$ the eigendecomposition is free and exact
+for singular and zero inputs alike, so there is one path and no fallback.
+
 ---
 
 ## Open questions

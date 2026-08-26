@@ -80,6 +80,17 @@ class Gaussian:
         self._check_targets(logits, targets)
         return targets - self.mu(logits)
 
+    def score(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """$\\partial\\log p/\\partial\\bm h = \\bm R^{-1}(\\bm y-\\bm h) = \\bm\\nu/\\sigma^2$.
+
+        **Not** the innovation. The identity link makes $\\bm h$ the mean rather
+        than the natural parameter, so differentiating the log-density leaves the
+        $\\sigma^{-2}$ behind. Dropping it is invisible to gradient training,
+        which absorbs it into the step size, and wrong by exactly that factor in
+        the filter's mean update (design note D60).
+        """
+        return self.innovation(logits, targets) / self.variance
+
     def nll(
         self, logits: torch.Tensor, targets: torch.Tensor, reduction: Reduction
     ) -> torch.Tensor:

@@ -25,6 +25,7 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
+import torch
 import yaml
 
 # Size of the MNIST training set, which is what the shard budget divides up.
@@ -103,19 +104,17 @@ class RunConfig:
             raise ConfigError(f"run.seeds contains duplicates: {self.seeds}")
         _one_of(self.dtype, DTYPES, "run.dtype")
         _one_of(self.device, DEVICES, "run.device")
-        if self.device != "cpu":
+        if self.device.startswith("cuda") and not torch.cuda.is_available():
             raise ConfigError(
-                f"run.device is {self.device!r}, but nothing in phases 1-4 moves tensors "
-                "to it -- the field would be accepted and silently ignored.\n"
-                "  It is not an oversight: CUDA is measurably SLOWER here (design note "
-                "D43). At p=2908 with batches of 4-40, kernel launch overhead exceeds "
-                "the arithmetic -- 0.69x at batch 4, and even the 20-minute reference "
-                "trainer comes out slower (16 min vs 15).\n"
-                "  Phase 5 is where it pays: a dense p x p covariance matmul is 120 ms "
-                "on CPU against 8.6 ms on CUDA, a 14x win, and that is what makes the "
-                "dense filter feasible at all. This guard comes off when phase 5 wires "
-                "the device through."
+                f"run.device is {self.device!r} but CUDA is not available here. Use "
+                "'cpu', or 'auto' to take whichever is present."
             )
+        # The guard that used to reject every non-CPU device is gone: phases 1-4
+        # never moved a tensor, so accepting the field would have silently
+        # ignored it. Phase 5 wires it through, and the filter is what makes it
+        # pay -- 561s per seed on CPU against 123s on CUDA, with bit-identical
+        # results, because a dense p x p covariance is exactly the operation the
+        # GPU wins and the SGD path never had (design notes D43, D58).
 
 
 @dataclass
@@ -351,7 +350,14 @@ class LearnerConfig:
     #: steps, over which the data rotates ~10 degrees at the capped drift rate.
     #: Pilot-calibrate this in phase 5 (WORKPLAN section 9).
     lambda_forget: float = 0.997
+    #: Zero is legal and is what the lambda family uses: it inflates by 1/lambda
+    #: instead, and running both mechanisms at once leaves neither hyperparameter
+    #: interpretable. The gamma family is the one that needs Q > 0 -- with
+    #: gamma = 1 and Q = 0 the covariance only ever shrinks and the filter stops
+    #: adapting (design note D61).
     process_noise_q: float = 1.0e-6
+    #: sigma_0^2. A trust region, not just a prior: too large a value diverges on
+    #: the first step rather than converging slowly (design note D61).
     prior_scale: float = 1.0
 
     def __post_init__(self) -> None:
@@ -399,9 +405,15 @@ class LearnerConfig:
             raise ConfigError(
                 f"learner[{self.name}].lambda_forget must lie in (0, 1], got {self.lambda_forget}"
             )
-        if self.process_noise_q <= 0.0:
+        if self.process_noise_q < 0.0:
             raise ConfigError(
-                f"learner[{self.name}].process_noise_q must be > 0, got {self.process_noise_q}"
+                f"learner[{self.name}].process_noise_q must be >= 0, got {self.process_noise_q}"
+            )
+        if self.prior_scale <= 0.0:
+            raise ConfigError(
+                f"learner[{self.name}].prior_scale must be > 0, got {self.prior_scale}. "
+                "It is the initial variance, so zero is a point mass the filter can never "
+                "move away from."
             )
 
 

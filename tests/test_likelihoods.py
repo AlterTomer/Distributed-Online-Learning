@@ -31,6 +31,16 @@ def targets(batch: int = BATCH, q: int = Q) -> torch.Tensor:
     return torch.arange(batch, dtype=torch.int64) % q
 
 
+def gaussian_logits(batch: int = BATCH, seed: int = 2) -> torch.Tensor:
+    """Width 3, matching the `gaussian` fixture."""
+    return logits(batch, q=3, seed=seed)
+
+
+def gaussian_targets(batch: int = BATCH, seed: int = 3) -> torch.Tensor:
+    """Real-valued and the same shape as the logits, not class indices."""
+    return logits(batch, q=3, seed=seed)
+
+
 @pytest.fixture
 def categorical() -> Categorical:
     return Categorical(output_dim=Q)
@@ -175,6 +185,57 @@ def test_the_innovation_is_the_negative_gradient_of_the_nll(
     categorical.nll(h, y, reduction="sum").backward()
     assert h.grad is not None
     assert torch.allclose(h.grad, -categorical.innovation(h.detach(), y), atol=1e-12)
+
+
+def test_the_score_is_the_gradient_of_the_log_likelihood(
+    categorical: Categorical, gaussian: Gaussian
+) -> None:
+    r"""$\bm s = \partial\log p/\partial\bm h$, in **both** families.
+
+    The distinction `score` exists to make: under softmax it coincides with the
+    innovation, and under a Gaussian it does not. Testing the two together is
+    the point -- the categorical case alone is structurally incapable of telling
+    the two definitions apart (design note D60).
+    """
+    for likelihood, y in ((categorical, targets()), (gaussian, gaussian_targets())):
+        h = (logits() if likelihood is categorical else gaussian_logits()).clone()
+        h.requires_grad_(True)
+        likelihood.nll(h, y, reduction="sum").backward()
+        assert h.grad is not None
+        assert torch.allclose(h.grad, -likelihood.score(h.detach(), y), atol=1e-10)
+
+
+def test_the_score_differs_from_the_innovation_off_the_canonical_link(
+    categorical: Categorical,
+) -> None:
+    """Softmax: the same vector. Gaussian: scaled by $1/\\sigma^2$.
+
+    Pinned explicitly so that collapsing the two back into one method is a test
+    failure rather than a silent factor of $\\sigma^{-2}$ in the filter's mean.
+    """
+    h, y = logits(), targets()
+    assert torch.equal(categorical.score(h, y), categorical.innovation(h, y))
+
+    noisy = Gaussian(output_dim=3, variance=0.25)
+    residual = noisy.innovation(gaussian_logits(), gaussian_targets())
+    scored = noisy.score(gaussian_logits(), gaussian_targets())
+    assert torch.allclose(scored, residual / 0.25, atol=1e-12)
+    assert not torch.allclose(scored, residual)
+
+
+def test_the_fisher_is_the_covariance_of_the_score(categorical: Categorical) -> None:
+    r"""$\bm\Lambda = \operatorname{Cov}(\bm s)$ -- the identity tying the two together.
+
+    Sampled rather than derived, so it tests the pair against the *distribution*
+    they both claim to describe rather than against each other's algebra.
+    """
+    torch.manual_seed(0)
+    draws = 200_000
+    h = logits(1)
+    sampled = torch.multinomial(categorical.mu(h).expand(draws, -1), 1).squeeze(-1)
+    scores = categorical.score(h.expand(draws, -1), sampled)
+    empirical = scores.T @ scores / draws
+    assert torch.allclose(empirical, categorical.fisher(h)[0], atol=5e-3)
 
 
 def test_the_fisher_is_the_hessian_of_the_nll(categorical: Categorical) -> None:

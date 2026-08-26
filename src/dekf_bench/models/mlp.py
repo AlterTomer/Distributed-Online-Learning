@@ -168,6 +168,10 @@ class MLP:
         """The full $\\bm H$. Tests and small models only -- see functional.py."""
         return F.jacobian(self._module, params, x, self.names)
 
+    def per_sample_jacobian(self, params: ParamDict, x: torch.Tensor) -> torch.Tensor:
+        """Every sample's $\\bm H$, shape ``(n, q, p)``. What the filter needs."""
+        return F.per_sample_jacobian(self._module, params, x, self.names)
+
     def summary(self) -> dict[str, Any]:
         return {
             "kind": "linear_probe" if self.is_linear else "mlp",

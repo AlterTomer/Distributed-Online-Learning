@@ -30,6 +30,7 @@ import torch
 from dekf_bench.env.environment import Environment, pool
 from dekf_bench.evaluation import protocol
 from dekf_bench.evaluation.evalsets import EvalSetBuilder
+from dekf_bench.learners.registry import POOLING
 from dekf_bench.metrics import disagreement
 
 #: The learner an experiment compares everything else against, when present.
@@ -226,12 +227,16 @@ def _advance(
 ) -> None:
     """One adapt/combine cycle.
 
-    The centralized learner is the one special case: it consumes the *pooled*
-    batch rather than adapting per agent. That is not a wart in the interface --
-    it is the definition of the method, and `pool()` builds the union the X0
-    identity is stated over.
+    Pooled learners are the one special case: they consume the *union* of every
+    agent's batch rather than adapting per agent. That is not a wart in the
+    interface -- it is the definition of those methods, and `pool()` builds the
+    union the X0 identity is stated over.
+
+    Dispatched on membership in `POOLING` rather than on the reference learner's
+    name, because the centralized EKF is pooled for exactly the same reason
+    `centralized_sgd` is while being a different method entirely.
     """
-    if name == REFERENCE_LEARNER:
+    if name in POOLING:
         learner.adapt_pooled(pooled_x, pooled_y)
         return
 

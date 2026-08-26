@@ -1,0 +1,35 @@
+# The centralised EKF, gamma family: F_t = gamma*I (research note eqs 11-12).
+#
+#   m <- gamma * m            P <- gamma^2 * P + Q*I
+#
+# The upper reference for the filter, in the same sense centralized_sgd is for
+# SGD: one belief over the pooled batch, which is what Diff-EKF reduces to on a
+# complete graph. Combine is a no-op and it transmits nothing.
+#
+# gamma is NOT a forgetting factor. Its effect on the covariance is gamma^2 <= 1,
+# which CONTRACTS -- it pulls the mean geometrically toward the origin, which is
+# L2 weight decay in state-space form (design note D26). The measured effect over
+# a 1500-step run is exactly gamma^T: at gamma=0.999 the parameter norm falls
+# 6.12 -> 1.36. So the usable range is narrow and close to 1, and Q is what
+# actually keeps the filter able to adapt.
+#
+# At gamma = 1 this IS the driftless random walk, and therefore identical to
+# centralized_ekf_lambda at lambda = 1. The two families overlap at exactly that
+# point; the builder refuses configs that express it twice.
+name: centralized_ekf_gamma
+
+transition: scalar          # required: the name and the state model must agree
+gamma: 1.0                  # gamma^1500: 0.9999 -> 0.86, 0.9995 -> 0.47, 0.999 -> 0.22
+
+forgetting: process_noise   # the gamma family loosens P additively
+process_noise_q: 1.0e-5     # with gamma=1 and Q=0 the covariance only ever shrinks
+lambda_forget: 1.0          # must stay 1: two inflation mechanisms at once make
+                            # neither hyperparameter interpretable
+
+# sigma_0^2. A TRUST REGION, not merely a prior: the mean update is a
+# Gauss-Newton step and P bounds its size. At sigma_0^2 = 1 the first step moves
+# ||m|| by 7.9 against ||theta_0|| = 6.1, leaving the region the linearisation
+# describes, and the run reaches 1e113 by step 100 with the covariance still
+# perfectly well conditioned. Values above 1e-1 are not slow -- they diverge.
+# See design note D61; the filter raises rather than returning NaN.
+prior_scale: 0.01

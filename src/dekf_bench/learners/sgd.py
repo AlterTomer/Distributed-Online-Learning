@@ -91,7 +91,7 @@ class _SGDBase:
         self._states = {
             node: LearnerState(
                 theta=theta0.clone(),
-                extras=self.optimizer.init_state(theta0.numel(), theta0.dtype),
+                extras=self.optimizer.init_state(theta0.numel(), theta0.dtype, theta0.device),
             )
             for node in range(self._n_nodes)
         }
@@ -312,11 +312,14 @@ def _combine_states(
 
     order = sorted(states)
     psi = torch.stack([intermediates[node].psi for node in order])
-    combined = weights.to(psi.dtype) @ psi
+    # Matched to psi's device as well as its dtype: the mixing matrix is built
+    # from the graph, which has no reason to know where the parameters live, and
+    # at N x N the move costs nothing next to the p-vectors it multiplies.
+    mixing = weights.to(device=psi.device, dtype=psi.dtype)
+    combined = mixing @ psi
 
     mixed_stacks = {
-        name: weights.to(psi.dtype)
-        @ torch.stack([intermediates[node].extras[name] for node in order])
+        name: mixing @ torch.stack([intermediates[node].extras[name] for node in order])
         for name in mixed
     }
 
