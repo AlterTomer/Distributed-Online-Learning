@@ -209,7 +209,51 @@ accumulated rounding — which is the point of paying for float64.
 **CUDA.** Design note D43 measured CUDA 0.69× on the SGD path at this model size
 and 14× on dense covariance operations, and closed `run.device` to `cpu` with
 the note that phase 5 would reopen it. This is that moment: the filter is
-dominated by exactly the operations CUDA wins.
+dominated by exactly the operations CUDA wins. Measured over a full 1500-step
+run at $p=2908$: **561s per seed on CPU against 123s on CUDA**, bit-identical.
+Opening the device exposed three tensors built without one — the optimizer's
+momentum buffers, the mixing matrix, and the empty batch an idle agent returns.
+The last would have failed only on steps where no agent had a label.
+
+### 5.1 What the checks actually assert
+
+Every claim above is tested rather than argued, and two of the tests earn their
+keep by having failed:
+
+| check | tolerance | what it caught |
+|---|---|---|
+| Woodbury vs a direct $p\times p$ information-form inverse | 1.6e-15 | — |
+| linear probe + Gaussian vs an exact Kalman filter, in **gain** form | 2.3e-14 mean, 3.6e-15 covariance | the score/innovation bug (D60) |
+| Cholesky over 1500 steps at $p=2908$, five hyperparameter corners | holds throughout | — |
+| $\bm P-\bm P^+\succeq\bm0$ | $>-10^{-9}$ | — |
+| $\gamma=1$ vs `transition: identity` | bitwise equal | — |
+| $\bm\Lambda=\operatorname{Cov}(\bm s)$, sampled | 5e-3 at $2\times10^5$ draws | — |
+
+The exactness check is the filter's analogue of X0, and it is worth being
+precise about why it has teeth. A linear probe makes $\bm h(\bm\theta)=\bm
+H\bm\theta$ **exactly**, so the linearisation has no remainder; with Gaussian
+observations the model is precisely the one the Kalman filter is derived for, and
+the two must agree to floating point. The reference is written in the *gain* form
+$\bm K=\bm P\bm H^\top\bm S^{-1}$, which shares no algebra with the Woodbury
+update — so agreement means both are right, not that one echoes the other.
+
+### 5.2 $\sigma_0^2$ is a trust region
+
+The mean update is a Gauss–Newton step and $\bm P$ bounds its size, so too large
+a prior does not converge slowly — it **diverges**, on the first step, while the
+covariance stays perfectly well conditioned. Measured at $p=2908$:
+
+| $\sigma_0^2$ | first $\lVert\Delta\bm m\rVert$ | ÷ $\lVert\bm\theta_0\rVert$ | outcome |
+|---|---|---|---|
+| 1.0   | 7.91  | 1.29  | diverges by step 25; $10^{113}$ by step 100 |
+| 0.1   | 1.51  | 0.25  | stable |
+| 0.01  | 0.26  | 0.042 | stable |
+| 0.001 | 0.041 | 0.007 | stable |
+
+So the sweep is bounded above at $10^{-1}$, and the filter carries an $O(p)$
+per-step guard that raises on a non-finite mean or a non-positive variance. A
+diverged cell is then reported as diverged rather than averaging into a seed mean
+as NaN (design note D61).
 
 ## 6. Hyperparameters
 

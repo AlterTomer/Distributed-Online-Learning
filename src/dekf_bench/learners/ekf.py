@@ -229,7 +229,24 @@ class CentralizedEKF:
         gram = stacked.transpose(0, 1) @ product  # (n*q, n*q)
         gram.diagonal().add_(1.0)
 
-        solved = torch.linalg.solve(gram, product.transpose(0, 1))  # (n*q, p)
+        # $\bm I + \bar{\bm B}^{\mathsf T}\bm P\bar{\bm B}$ is symmetric positive
+        # definite by construction -- identity plus a Gram matrix -- so it gets a
+        # Cholesky solve rather than a general LU one. Cheaper, better
+        # conditioned, and its failure carries information a general solver's
+        # does not: the only way to lose definiteness here is for
+        # $\bar{\bm B}^{\mathsf T}\bm P\bar{\bm B}$ to be so large that adding
+        # the identity is lost to rounding, which is D61's divergence caught one
+        # step before the mean goes non-finite.
+        try:
+            factor = torch.linalg.cholesky(gram)
+        except torch.linalg.LinAlgError as failure:
+            raise FilterError(
+                f"{self._name} diverged at step {self._steps}: the innovation covariance "
+                f"is singular. prior_scale={self.prior_scale} is far too large -- P has "
+                "grown until the identity is negligible beside it."
+            ) from failure
+
+        solved = torch.cholesky_solve(product.transpose(0, 1), factor)  # (n*q, p)
         updated = covariance - product @ solved
         updated = 0.5 * (updated + updated.transpose(0, 1))
 

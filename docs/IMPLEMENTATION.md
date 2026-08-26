@@ -114,6 +114,7 @@ DistributedOnlineLearning/          # repo root; .venv313/ and .venv/ live here 
 │   │   ├── diffusion_sgd_cta.py  # eq. (17) of [1]
 │   │   ├── local_only.py
 │   │   ├── optim_state.py        # how optimizer moments are mixed in combine
+│   │   ├── ekf.py                # the centralized filter, both state models
 │   │   └── diffusion_ekf.py      # phase 5 stub; interface only
 │   │
 │   ├── likelihoods/              # trivial now; required by phase 5
@@ -149,8 +150,7 @@ DistributedOnlineLearning/          # repo root; .venv313/ and .venv/ live here 
 │   └── utils/
 │       ├── __init__.py
 │       ├── config.py             # load, merge, validate, resolve inheritance
-│       ├── determinism.py
-│       └── linalg.py             # phase 5: Woodbury, Joseph form, PSD projection
+│       └── determinism.py        # planned `linalg.py` was not needed -- see §5
 │
 ├── scripts/
 │   ├── run_experiment.py         # single run from a config
@@ -523,7 +523,17 @@ Everything fits on a laptop CPU. Parallelize sweeps across seeds with a process 
 | **2** | `models/*`, `likelihoods/*`, `metrics/*`, `evaluation/*`, `scripts/train_reference.py` | `test_models` passes; all 16 rotation-level $e^\star$ cached, each at expected MNIST accuracy for a $196$–$14$–$10$ MLP | ✅ done |
 | **3** ✅ | `learners/*`, `learners/optim_state.py`, `runner/simulate.py`, `recording/*`, `scripts/run_experiment.py`, `scripts/sweep_hyperparameters.py`, `scripts/make_figures.py` | **`test_exactness` passes** (1.7e-15); `test_simulate` passes; X0, X1, X1b, X2, X5 produce F1, F2, F5, F8 |
 | **4** ✅ | `runner/sweep.py`, `scripts/run_sweep.py`, `scripts/run_topology_sweep.py`, `scripts/run_sparsity_sweep.py` | X3–X7 produce F3, F4, F6a, F6b, F7, F9, F10. X3 re-tunes lr per topology; X4 is tuned per cell |
-| **5** | `learners/diffusion_ekf.py`, `utils/linalg.py`, structured covariance | Filter reproduces the centralized EKF on a complete graph |
+| **5** | `learners/ekf.py`, `metrics/predictive.py`, then `learners/diffusion_ekf.py` and structured covariance | Centralized EKF matches an exact Kalman filter on the linear-Gaussian case (2.3e-14) ✅; Diff-EKF then reproduces it on a complete graph |
+
+**`utils/linalg.py` was planned here and is not needed.** It was to hold
+"Woodbury, Joseph form, PSD projection". Woodbury turned out to be four lines
+inside the update and nothing else calls it; the Joseph form is not used at all,
+because at $p=2908$ it is $O(p^3)$ — the very cost Woodbury exists to avoid — and
+the $O(p^2q')$ expansion of it collapses algebraically into the short form
+(design note D62); and PSD projection is unnecessary while symmetrisation plus
+float64 keeps Cholesky succeeding over a full 1500-step run. A module created to
+hold three things none of which survived contact with the measurement would have
+been worse than no module.
 
 ---
 
@@ -534,7 +544,7 @@ Keep `docs/diffekf_integration.md` open and tick these off as phases 1–4 proce
 1. **Flat parameter vector.** `flatten` / `unflatten` exist and are tested. The filter's state is $\bm\theta\in\mathbb R^p$, not a `state_dict`.
 2. **Functional forward.** Parameters passed explicitly, so the model can be evaluated at an arbitrary $\bm\theta$ (the predictive mean) without mutating a module.
 3. **Jacobian products.** `vjp` / `jvp` exposed and tested against autograd.
-4. **Likelihood objects.** `mu()`, `Lambda()`, `innovation()` implemented — the softmax Fisher is the one that matters. Writing them in phase 2 also lets SGD runs log calibration for free.
+4. **Likelihood objects.** `mu()`, `Lambda()`, `innovation()`, `score()` implemented — the softmax Fisher is the one that matters. Writing them in phase 2 also lets SGD runs log calibration for free. ⚠️ `score()` was added late, in phase 5, and the delay had a cost: `innovation()` and `score()` coincide under softmax and differ by $\sigma^{-2}$ under a Gaussian, so the filter's mean update was wrong by that factor until the linear-Gaussian test caught it. The lesson generalises — an interface with one live implementation is shaped around that implementation (design note D60).
 5. **Learner interface is adapt/combine.** Diff-EKF then differs from diffusion SGD *only* in `adapt`. If the interface were a single `step()`, the filter would not fit.
 6. **Per-agent state is a dict.** So a covariance can be added without changing `simulate.py`.
 7. **Communication accounting is per-learner.** Diff-EKF sends the same $O(p)$ as diffusion SGD, and that equality is the headline of the comparison — the counter must be able to demonstrate it.

@@ -208,6 +208,23 @@ def test_divergence_is_raised_rather_than_returned_as_nan() -> None:
             filt.adapt_pooled(*_batch(model, seed=step))
 
 
+def test_a_singular_innovation_covariance_is_reported_as_divergence() -> None:
+    r"""An enormous prior breaks the Woodbury solve *before* the mean goes bad.
+
+    $\bm I+\bar{\bm B}^{\mathsf T}\bm P\bar{\bm B}$ is positive definite by
+    construction, so its Cholesky can only fail when $\bm P$ has grown until the
+    identity is negligible beside it. That is the same divergence as D61, caught
+    a step earlier, and it must surface as a ``FilterError`` -- a raw
+    ``LinAlgError`` is not a ``LearnerError`` and would escape a sweep's handler
+    and kill the whole run.
+    """
+    model = MLP(**SMALL)
+    filt = _filter(model, Categorical(output_dim=4), prior_scale=1e30)
+    with pytest.raises(FilterError, match="singular|diverged"):
+        for step in range(30):
+            filt.adapt_pooled(*_batch(model, seed=step))
+
+
 def test_per_agent_adapt_is_refused() -> None:
     model = MLP(**SMALL)
     filt = _filter(model, Categorical(output_dim=4))
