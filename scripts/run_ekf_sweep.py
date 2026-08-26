@@ -119,6 +119,12 @@ PROCESS_NOISES = [1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3]
 LAMBDAS = [0.9999, 0.999, 0.997, 0.995]
 
 BASELINES = ["centralized_sgd", "diffusion_sgd_atc", "frozen_atc"]
+
+#: How many of the best cells get a stationary twin. The control answers "does
+#: this setting also win when nothing moves?", which is a question about the
+#: setting being *chosen* -- running it for all fifty-odd survivors would cost
+#: about as much as the drift pass itself to answer it for cells nobody will use.
+CONTROLS_FOR_BEST = 8
 DEVICE = "auto"
 DTYPE = "float64"
 FRESH = False
@@ -272,6 +278,34 @@ def run_one(config, train, test, fresh: bool) -> str:
     return "ok"
 
 
+def rank_cells(grid: list[dict], suffix: str) -> list[tuple[float, dict]]:
+    """Cells by settled error, best first.
+
+    Settled means the last fifth of the run, which is what tuning is about: a
+    filter that converges fast and then tracks badly is not the one to carry into
+    the diffusion version, and the full curve would let the early advantage hide
+    the late failure. Cells with no readable output sort last rather than being
+    dropped, so a ranking is always returned.
+    """
+    import pandas as pd
+
+    scored = []
+    for cell in grid:
+        directory = ROOT / "results" / f"{cell_name(cell)}{suffix}"
+        files = sorted(directory.glob("*.parquet"))
+        if not files:
+            scored.append((float("inf"), cell))
+            continue
+        frame = pd.concat([pd.read_parquet(path) for path in files], ignore_index=True)
+        rows = frame[
+            (frame["metric"] == "error_rate")
+            & (frame["evalset"] == "current")
+            & (frame["t"] >= int(0.8 * HORIZON))
+        ]
+        scored.append((float(rows["value"].mean()) if len(rows) else float("inf"), cell))
+    return sorted(scored, key=lambda pair: pair[0])
+
+
 def load_status() -> dict:
     if STATUS.exists():
         return json.loads(STATUS.read_text(encoding="utf-8"))
@@ -334,8 +368,10 @@ def main(full: bool = False, fresh: bool = FRESH) -> int:
         )
 
     if full:
-        print("\nstationary controls for the survivors", flush=True)
-        for index, cell in enumerate(grid, start=1):
+        best = rank_cells(grid, suffix)[:CONTROLS_FOR_BEST]
+        print(f"\nstationary controls for the best {len(best)} of {len(grid)}", flush=True)
+        for index, (score, cell) in enumerate(best, start=1):
+            print(f"    {cell_name(cell)} settled at {score:.4f}", flush=True)
             name = f"{cell_name(cell)}_control"
             note = run_one(
                 config_for([cell], name, seeds, drifting=False, eval_every=eval_every),
@@ -343,7 +379,7 @@ def main(full: bool = False, fresh: bool = FRESH) -> int:
             )
             status[name] = note
             save_status(status)
-            print(f"[{index}/{len(grid)}] {name:<42} {note}", flush=True)
+            print(f"[{index}/{len(best)}] {name:<42} {note}", flush=True)
         run_one(
             config_for(
                 [{"name": n} for n in BASELINES], "x13_baselines_control", seeds,
