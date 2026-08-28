@@ -274,6 +274,74 @@ def test_theta0_must_fit_the_model() -> None:
 # -- one belief, shared ----------------------------------------------------- #
 
 
+def test_state_is_one_object_that_can_be_restored_into() -> None:
+    r"""``state(node)`` must return the belief itself, not a fresh view of it.
+
+    `recorder.resume()` restores a checkpoint by *mutating* the object
+    ``state(node)`` returns. A filter that built a new `LearnerState` per call
+    would swallow that silently: the recorder would skip to the checkpoint step
+    while the filter restarted from $\bm\theta_0$, and the run would look clean
+    and be nonsense. Nothing in the arithmetic tests can see this -- it only
+    appears when a run is interrupted and resumed (design note D68).
+    """
+    model = MLP(**SMALL)
+    filt = _filter(model, Categorical(output_dim=4))
+    assert filt.state(0) is filt.state(0), "state() must not rebuild per call"
+    assert filt.state(2) is filt.state(0), "one belief means one object"
+
+    # Exactly what the recorder does on resume.
+    restored_theta = torch.arange(model.num_params, dtype=torch.float64)
+    restored_cov = 0.5 * torch.eye(model.num_params, dtype=torch.float64)
+    state = filt.state(0)
+    state.theta = restored_theta.clone()
+    state.extras = {"P": restored_cov.clone()}
+
+    assert torch.equal(filt.flat_params(0), restored_theta)
+    assert torch.equal(filt.covariance, restored_cov)
+    # And the restored belief must actually drive the next step.
+    filt.adapt_pooled(*_batch(model))
+    assert not torch.equal(filt.flat_params(0), restored_theta)
+
+
+def test_the_checkpoint_stores_one_covariance_not_one_per_agent() -> None:
+    r"""Ten agents sharing a belief must not write ten copies of it.
+
+    At $p=2908$ the covariance is 68 MB, so cloning it per agent made a 677 MB
+    checkpoint written at every flush -- 26 minutes of a 31-minute seed, against
+    7 minutes of actual filtering. The recorder clones each *distinct* tensor
+    once, which `torch.save` then stores once (design note D68).
+    """
+    import io
+
+    import torch as torch_module
+
+    model = MLP(**SMALL)
+    filt = _filter(model, Categorical(output_dim=4))
+
+    snapshots: dict[int, torch.Tensor] = {}
+
+    def snapshot(tensor: torch.Tensor) -> torch.Tensor:
+        return snapshots.setdefault(id(tensor), tensor.clone())
+
+    payload = {
+        node: {
+            "theta": snapshot(filt.state(node).theta),
+            **{key: snapshot(t) for key, t in filt.state(node).extras.items()},
+        }
+        for node in range(filt.n_nodes)
+    }
+    assert len(snapshots) == 2, f"expected one theta and one P, got {len(snapshots)}"
+
+    buffer = io.BytesIO()
+    torch_module.save(payload, buffer)
+    written = buffer.getbuffer().nbytes
+    covariance_bytes = model.num_params**2 * 8
+    assert written < 2 * covariance_bytes, (
+        f"checkpoint is {written} bytes for a {covariance_bytes}-byte covariance shared "
+        f"by {filt.n_nodes} agents -- it is being stored per agent"
+    )
+
+
 def test_every_agent_reports_the_same_belief() -> None:
     """Centralized means one belief, so agreement is identically zero.
 

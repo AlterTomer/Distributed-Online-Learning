@@ -376,6 +376,12 @@ def run_one(config, train, test, fresh: bool) -> str:
         recorder.finalize()
 
     (out_dir / "_complete").write_text("", encoding="utf-8")
+    # A finished run has nothing to resume from, and its checkpoints are the
+    # largest thing in the directory -- one covariance per seed even after the
+    # sharing fix. Sixty-one runs would otherwise leave several GB of resume
+    # points for runs that can never be resumed (design note D68).
+    for stale in out_dir.glob("*.checkpoint.pt"):
+        stale.unlink()
     return "ok"
 
 

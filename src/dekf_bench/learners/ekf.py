@@ -73,9 +73,35 @@ class CentralizedEKF:
         self.process_noise_q = process_noise_q
         self.prior_scale = prior_scale
 
-        self._mean: torch.Tensor | None = None
-        self._covariance: torch.Tensor | None = None
+        #: The belief, held as **one** `LearnerState` that `state(node)` returns
+        #: for every agent. Not rebuilt per call: `recorder.resume()` restores a
+        #: checkpoint by mutating the object `state(node)` hands back, so a fresh
+        #: instance each time would swallow the restore silently -- the filter
+        #: would resume from theta_0 while the recorder skipped to the checkpoint
+        #: step, and the run would look clean and be nonsense (design note D68).
+        self._state: LearnerState | None = None
         self._steps = 0
+
+    # `_mean` and `_covariance` read and write through the single state object,
+    # so the update code below stays in the notation of the derivation.
+
+    @property
+    def _mean(self) -> torch.Tensor | None:
+        return None if self._state is None else self._state.theta
+
+    @_mean.setter
+    def _mean(self, value: torch.Tensor) -> None:
+        assert self._state is not None
+        self._state.theta = value
+
+    @property
+    def _covariance(self) -> torch.Tensor | None:
+        return None if self._state is None else self._state.extras["P"]
+
+    @_covariance.setter
+    def _covariance(self, value: torch.Tensor) -> None:
+        assert self._state is not None
+        self._state.extras["P"] = value
 
     # -- identity ----------------------------------------------------------- #
 
@@ -109,16 +135,20 @@ class CentralizedEKF:
         if self.prior_scale <= 0:
             raise FilterError(f"prior_scale must be > 0, got {self.prior_scale}")
 
-        self._mean = theta0.clone()
-        self._covariance = torch.eye(
-            theta0.numel(), dtype=theta0.dtype, device=theta0.device
-        ) * self.prior_scale
+        self._state = LearnerState(
+            theta=theta0.clone(),
+            extras={
+                "P": torch.eye(theta0.numel(), dtype=theta0.dtype, device=theta0.device)
+                * self.prior_scale
+            },
+        )
 
     def state(self, node: int) -> LearnerState:
+        """The one belief, for every agent. Not a copy, and not a fresh object."""
         self._check_initialised()
         self._check_node(node)
-        assert self._mean is not None and self._covariance is not None
-        return LearnerState(theta=self._mean, extras={"P": self._covariance})
+        assert self._state is not None
+        return self._state
 
     def flat_params(self, node: int) -> torch.Tensor:
         self._check_initialised()
@@ -290,7 +320,7 @@ class CentralizedEKF:
         }
 
     def _check_initialised(self) -> None:
-        if self._mean is None or self._covariance is None:
+        if self._state is None:
             raise FilterError(f"{self._name} has no belief; call init(theta0) before stepping")
 
     def _check_node(self, node: int) -> None:

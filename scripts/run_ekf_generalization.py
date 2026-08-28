@@ -286,6 +286,10 @@ def run_one(config, train, test, fresh: bool) -> str:
         recorder.finalize()
 
     (out_dir / "_complete").write_text("", encoding="utf-8")
+    # Nothing to resume from once a run is complete, and the checkpoints are the
+    # largest thing in the directory (design note D68).
+    for stale in out_dir.glob("*.checkpoint.pt"):
+        stale.unlink()
     return "ok"
 
 

@@ -181,11 +181,31 @@ class Recorder:
     # -- checkpointing ------------------------------------------------------ #
 
     def _write_checkpoint(self, step: int, learners: dict[str, Any]) -> None:
+        r"""Snapshot every learner's state, cloning each *distinct* tensor once.
+
+        **The per-distinct-tensor cache is a performance fix, not a tidy-up.**
+        Cloning per agent is right for the diffusion learners, whose agents hold
+        genuinely different parameters. It is catastrophic for a centralized one,
+        which by definition holds a *single* belief that every agent reports: the
+        filter's $p\times p$ covariance is 68 MB, and ten clones made 677 MB
+        written at every flush -- 26 of the 31 minutes a seed took, against 7
+        minutes of actual filtering.
+
+        ``torch.save`` already stores shared storage once, so the only thing
+        defeating it was cloning first. Keying on ``id`` restores that while
+        keeping the clone, which is what protects the snapshot from later
+        mutation. The on-disk structure is unchanged (design note D68).
+        """
+        snapshots: dict[int, torch.Tensor] = {}
+
+        def snapshot(tensor: torch.Tensor) -> torch.Tensor:
+            return snapshots.setdefault(id(tensor), tensor.clone())
+
         states = {
             name: {
                 node: {
-                    "theta": learner.state(node).theta.clone(),
-                    **{key: tensor.clone() for key, tensor in learner.state(node).extras.items()},
+                    "theta": snapshot(learner.state(node).theta),
+                    **{key: snapshot(tensor) for key, tensor in learner.state(node).extras.items()},
                 }
                 for node in range(learner.n_nodes)
             }

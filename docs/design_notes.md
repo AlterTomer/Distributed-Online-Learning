@@ -2095,6 +2095,55 @@ experiment. `every25 jump30` is the strongest case for a fast step the project
 has, so a rate that does not want to move there will not want to move at 0.0054
 damage either — and if the X13 choice survives, one number covers the set.
 
+### ✅ D68. The checkpoint wrote one covariance per agent, and cost 3× the run
+
+X13's full pass ran at 157 min/cell against a 35-min estimate. The arithmetic
+closed exactly once measured:
+
+| | per seed |
+|---|---|
+| filter arithmetic (benchmarked) | 7.1 min |
+| checkpointing, 300 flushes × 646 MB | **25.9 min** |
+| predicted | 33 min |
+| **observed** | **31 min** |
+
+`recorder._write_checkpoint` clones each learner's `extras` **per agent**. That
+is right for the diffusion learners, whose agents hold genuinely different
+parameters, and catastrophic for a centralized one, which by definition holds a
+*single* belief every agent reports. At $p=2908$ the covariance is 68 MB, so ten
+clones made a 677 MB checkpoint — written at every flush.
+
+`torch.save` already stores shared storage once; the `.clone()` was what defeated
+it. Cloning each **distinct** tensor once (keyed on `id`) keeps the protection
+against later mutation and leaves the on-disk structure unchanged. Measured:
+646 MB → 67.7 MB, 5.17 s/flush → 0.36, and the full pass 158 h → **51 h**.
+
+**Two lessons, and the second is the one that generalises.**
+
+*The benchmark omitted the component that dominated.* `check_cell_cost.py` timed
+`simulate.run` **without a recorder**, so it measured 425 s/seed of a 1860 s
+reality — it was measuring the part I had thought about. A cost model built from
+a benchmark is only as good as the benchmark's fidelity to the real call, and the
+cheap way to check that is to compare against one real run before extrapolating
+to sixty.
+
+*The pilot could not have caught it.* At `eval_every` 25 there are 60 flushes
+rather than 300, so the same defect cost 5.2 min/seed instead of 26 — visible as
+"a bit slower than expected", not as a blocker. A staged design that changes two
+things between stages (seeds **and** cadence) hides anything that scales with the
+one you were not watching.
+
+**A second bug surfaced while fixing it.** `CentralizedEKF.state()` built a fresh
+`LearnerState` per call, but `recorder.resume()` restores by *mutating* the object
+`state(node)` hands back — so a resumed filter silently kept $\bm\theta_0$ while
+the recorder skipped to the checkpoint step. Every arithmetic test passed, because
+the defect only exists across an interruption. The filter now holds one stable
+state object. This is the same failure as the sweep harness's poisoned-cell bug
+(D66's neighbourhood): partial state plus a resume that looks successful.
+
+Completed runs now delete their checkpoints — a finished run has nothing to
+resume from, and 470 files had accumulated to 118 GB.
+
 ---
 
 ## Open questions
