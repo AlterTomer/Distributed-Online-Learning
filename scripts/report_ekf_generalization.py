@@ -34,8 +34,8 @@ from run_ekf_generalization import (  # noqa: E402
     BASELINES,
     CONDITIONS,
     LR_CONDITION,
-    SETTLED_FROM,
     STATUS,
+    control_name,
     lr_name,
 )
 from run_ekf_sweep import BASELINE_LRS  # noqa: E402
@@ -53,7 +53,13 @@ SHORT = {
 SEED_NOISE = 0.0021
 
 
-def settled(directory: str, learner: str) -> float | None:
+def settled(directory: str, learner: str, horizon: int) -> float | None:
+    """Mean `current` error over the last fifth of a run of length ``horizon``.
+
+    The window is derived from the run's own horizon rather than fixed, because
+    the low-n conditions are twice as long -- a constant cut-off would read the
+    settled error of one and the mid-run transient of the other.
+    """
     files = sorted((ROOT / "results" / directory).glob("*.parquet"))
     if not files:
         return None
@@ -62,18 +68,19 @@ def settled(directory: str, learner: str) -> float | None:
         (frame["learner"] == learner)
         & (frame["metric"] == "error_rate")
         & (frame["evalset"] == "current")
-        & (frame["t"] >= SETTLED_FROM)
+        & (frame["t"] >= int(0.8 * horizon))
     ]
     return float(rows["value"].mean()) if len(rows) else None
 
 
 def report_lr() -> int:
+    horizon = next(t for label, _, _, t in CONDITIONS if label == LR_CONDITION)
     print(f"X14 baseline re-tune, on {LR_CONDITION} -- the most damaging condition")
-    print(f"settled error over t >= {SETTLED_FROM}\n")
+    print(f"settled error over the last fifth of T={horizon}\n")
     print("      lr  " + "".join(f"{SHORT[n]:>12}" for n in BASELINES))
     rows = []
     for lr in BASELINE_LRS:
-        values = [settled(lr_name(lr), name) for name in BASELINES]
+        values = [settled(lr_name(lr), name, horizon) for name in BASELINES]
         if all(v is None for v in values):
             continue
         rows.append((lr, values))
@@ -102,39 +109,51 @@ def main() -> int:
         return 1
 
     learners = list(FILTERS) + BASELINES
-    control = {name: settled("x14_control", name) for name in learners}
-    if control.get("diffusion_sgd_atc") is None:
-        print("The shared stationary control has not run; damage cannot be formed.")
+
+    # One control per (n, T). Each condition subtracts the one matching its own
+    # setting: a control at a different horizon or sample count would produce
+    # perfectly well-formed rows whose difference means nothing.
+    settings_used = sorted({(samples, horizon) for _, _, samples, horizon in CONDITIONS})
+    controls: dict[tuple[int, int], dict[str, float | None]] = {}
+    for samples, horizon in settings_used:
+        controls[(samples, horizon)] = {
+            name: settled(control_name(samples, horizon), name, horizon) for name in learners
+        }
+
+    if all(c.get("diffusion_sgd_atc") is None for c in controls.values()):
+        print("No stationary control has run; damage cannot be formed.")
         return 1
 
     print("X14 -- one tuned setting per family, across regimes it never saw")
-    print(f"settled error over t >= {SETTLED_FROM}; damage = condition minus control\n")
+    print("damage = condition minus its own (n, T) control, over the last fifth\n")
 
-    print("stationary control:")
-    for name in learners:
-        value = control[name]
-        print(f"  {SHORT[name]:<12} {value:.4f}" if value is not None
-              else f"  {SHORT[name]:<12} .")
+    for (samples, horizon), control in controls.items():
+        print(f"stationary control, n={samples} T={horizon}:")
+        for name in learners:
+            value = control[name]
+            print(f"  {SHORT[name]:<12} {value:.4f}" if value is not None
+                  else f"  {SHORT[name]:<12} .")
 
     header = "".join(f"{SHORT[n]:>12}" for n in learners)
-    print(f"\n=== damage by condition ==={'':<6}{header}")
+    print(f"\n=== damage by condition ==={'':<10}{header}")
     rows = []
-    for label, _ in CONDITIONS:
+    for label, _, samples, horizon in CONDITIONS:
         name = f"x14_{label}"
+        control = controls[(samples, horizon)]
         values = []
         for learner in learners:
-            value = settled(name, learner)
+            value = settled(name, learner, horizon)
             base = control[learner]
             values.append(None if value is None or base is None else value - base)
         if all(v is None for v in values):
             continue
-        rows.append((label, values))
+        rows.append((f"{label}  (n={samples})", values))
 
     for label, values in sorted(rows, key=lambda r: r[1][learners.index("diffusion_sgd_atc")] or 0):
         cells_text = "".join(
             f"{v:>12.4f}" if v is not None else f"{'.':>12}" for v in values
         )
-        print(f"  {label:<28}{cells_text}")
+        print(f"  {label:<32}{cells_text}")
 
     print("\n=== filter advantage: ATC damage minus filter damage ===")
     print(f"  positive means the filter is less damaged. Noise floor {SEED_NOISE:.4f}.\n")
@@ -151,7 +170,7 @@ def main() -> int:
             gain = values[atc] - value
             mark = "" if abs(gain) > SEED_NOISE else "  (within noise)"
             parts.append(f"{SHORT[name]} {gain:+.4f}{mark}")
-        print(f"  {label:<28} ATC damage {values[atc]:.4f}   " + "   ".join(parts))
+        print(f"  {label:<32} ATC damage {values[atc]:.4f}   " + "   ".join(parts))
 
     held = [
         label for label, values in rows

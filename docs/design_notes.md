@@ -2055,14 +2055,39 @@ latter is what the diffusion version needs, since a Diff-EKF cannot re-tune
 itself per drift regime in deployment. The settings are *read* from X13's grid at
 run time rather than hard-coded, so the two experiments cannot drift apart.
 
-**The faster linear rates are excluded, and not for being mild.** A constant rate
-reaches the 45° cap at $T=45/\alpha$, so $\alpha=0.15$ runs 299 steps and its
-damage mixes drift with "had less time to converge". The tell is already in the
-table: at $\alpha=0.15$ the *frozen* baseline's damage equals ATC's exactly
-(0.0303), because `freeze_after` is 300 and the run ends at 299 — it never froze,
-so the row describes one algorithm twice. Recurring shifts reflect at the cap
-(D51) and therefore sustain any rate for the full 1500 steps, which is why all
-eight X14 conditions share a horizon and a single stationary control.
+**Two ceilings decide the horizon, and which binds differs by schedule.** Linear
+drift reaches the 45° cap at $T=45/\alpha$; every schedule also obeys the shard
+budget $NnT\le60000$:
+
+| $\alpha$ | $45/\alpha$ | $T$ at $n{=}4$ | binds |
+|---|---|---|---|
+| 0.025 | 1800 | 1500 | shard budget |
+| **0.030** | **1500** | **1500** | both, exactly |
+| 0.050 | 900 | 900 | 45° cap |
+| 0.150 | 300 | 300 | 45° cap |
+
+So **$\alpha=0.03$ is the fastest linear rate that still runs a full 1500-step
+horizon**, and it is included. The faster rates are still excluded, and not for
+being mild: their damage would mix drift with "had less time to converge". The
+tell is already in the table above — at $\alpha=0.15$ the *frozen* baseline's
+damage equals ATC's exactly (0.0303), because `freeze_after` is 300 and the run
+ends at 299, so that row describes one algorithm twice.
+
+**Lowering $n$ cannot rescue a fast linear run**, because above $\alpha\approx
+0.04$ the 45° cap binds at every $n$ — monotone drift runs out of *room*, not out
+of data. Where $n$ does buy horizon is exactly where the budget is the binding
+constraint: recurring shifts, which reflect at the cap (D51) and are therefore
+limited only by $NnT$. At $n=2$ the budget allows $T=3000$, which doubles the
+shifts a cell delivers (120 at $t'=25$ instead of 60) and halves the data each
+step supplies. Both matter: scarce data is the regime where a second-order method
+should have most to offer, and X4 already established $n$ as a real axis.
+
+X14 therefore carries a low-$n$ block of two conditions — one smooth, one abrupt,
+at the same $n=2$ and $T=3000$, so the contrast between them is confounded by
+neither. **Controls are keyed by $(n,T)$** rather than shared globally: a control
+at a different horizon or sample count produces perfectly well-formed rows whose
+subtraction means nothing, which is precisely what `assert_paired_runs` exists to
+refuse.
 
 **The baselines are re-tuned once, on the worst condition.** D65 established
 per-condition re-tuning, but doing it for all seven would cost more than the

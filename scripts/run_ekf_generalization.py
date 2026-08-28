@@ -3,7 +3,7 @@ r"""X14 -- does the tuned filter hold up where the learners actually break?
 Run this file directly.
 
     python scripts/run_ekf_generalization.py --lr    # re-tune baselines (~0.5h)
-    python scripts/run_ekf_generalization.py         # the conditions   (~12h)
+    python scripts/run_ekf_generalization.py         # the conditions   (~21h)
 
 Run both **after** `run_ekf_sweep.py --full`, and not alongside it. The `--lr`
 pass has no dependency on X13 and would start happily, but it would contend for
@@ -98,19 +98,57 @@ LR_SEEDS = [0, 1]
 #: quantity this experiment exists to compare.
 EVAL_EVERY = 5
 
-#: (label, drift override). Ordered mildest-first so a run stopped early has
-#: still crossed the interesting boundary. Chosen to span the measured damage
-#: range 0.0054 -> 0.0677 and both ends of the frequent-small / rare-large axis,
-#: which is the contrast X11 was built around.
-CONDITIONS: list[tuple[str, dict]] = [
-    ("linear_a0p025", {"schedule": "linear", "total_degrees": 0.025 * HORIZON}),
-    ("every200_jump5", {"schedule": "recurring", "jump_every": 200, "jump_degrees": 5.0}),
-    ("every25_jump5", {"schedule": "recurring", "jump_every": 25, "jump_degrees": 5.0}),
-    ("every100_jump15", {"schedule": "recurring", "jump_every": 100, "jump_degrees": 15.0}),
-    ("every200_jump15", {"schedule": "recurring", "jump_every": 200, "jump_degrees": 15.0}),
-    ("every200_jump30", {"schedule": "recurring", "jump_every": 200, "jump_degrees": 30.0}),
-    ("every50_jump15", {"schedule": "recurring", "jump_every": 50, "jump_degrees": 15.0}),
-    ("every25_jump30", {"schedule": "recurring", "jump_every": 25, "jump_degrees": 30.0}),
+#: Samples per agent per step in the default block. The shard budget is
+#: $N n T \le 60000$, so this and the horizon trade directly against each other.
+SAMPLES = 4
+
+#: (label, drift override, n, horizon). Ordered mildest-first so a run stopped
+#: early has still crossed the interesting boundary. Chosen to span the measured
+#: damage range 0.0054 -> 0.0677 and both ends of the frequent-small /
+#: rare-large axis, which is the contrast X11 was built around.
+#:
+#: **Two ceilings decide the horizon, and which one binds differs by schedule.**
+#: Linear drift reaches the 45-degree well-posedness cap at $T=45/\alpha$; every
+#: schedule also obeys the shard budget $Nn T \le 60000$. Recurring shifts
+#: reflect at the cap (design note D51), so only the budget binds them.
+#:
+#:     alpha   45/alpha   T at n=4   binds
+#:     0.025       1800       1500   shard budget
+#:     0.030       1500       1500   both, exactly
+#:     0.050        900        900   45-degree cap
+#:     0.150        300        300   45-degree cap
+#:
+#: So **alpha=0.03 is the fastest linear rate that still runs a full 1500-step
+#: horizon**, and above alpha=0.04 the cap binds at every n -- lowering n cannot
+#: rescue a fast linear run, because monotone drift runs out of *room* rather
+#: than out of data. The faster rates are therefore still excluded: their damage
+#: would mix drift with "had less time to converge", exactly as X12 found.
+#:
+#: The low-n block buys horizon where the budget *is* the binding constraint.
+#: At n=2 the budget allows T=3000, which doubles the shifts a recurring cell
+#: delivers (120 at t'=25 instead of 60) and halves the data each step supplies.
+#: Both matter here: scarce data is the regime where a second-order method should
+#: have the most to offer, and it is an axis X4 already established as real.
+CONDITIONS: list[tuple[str, dict, int, int]] = [
+    ("linear_a0p025", {"schedule": "linear", "total_degrees": 37.5}, 4, 1500),
+    ("every200_jump5", {"schedule": "recurring", "jump_every": 200, "jump_degrees": 5.0}, 4, 1500),
+    ("every25_jump5", {"schedule": "recurring", "jump_every": 25, "jump_degrees": 5.0}, 4, 1500),
+    ("linear_a0p03", {"schedule": "linear", "total_degrees": 45.0}, 4, 1500),
+    ("every100_jump15", {"schedule": "recurring", "jump_every": 100, "jump_degrees": 15.0},
+     4, 1500),
+    ("every200_jump15", {"schedule": "recurring", "jump_every": 200, "jump_degrees": 15.0},
+     4, 1500),
+    ("every200_jump30", {"schedule": "recurring", "jump_every": 200, "jump_degrees": 30.0},
+     4, 1500),
+    ("every50_jump15", {"schedule": "recurring", "jump_every": 50, "jump_degrees": 15.0}, 4, 1500),
+    ("every25_jump30", {"schedule": "recurring", "jump_every": 25, "jump_degrees": 30.0}, 4, 1500),
+    # Half the data, twice the horizon. One smooth and one abrupt condition at
+    # the same n and T, so the contrast between them is not confounded by either.
+    # alpha=0.015 x 3000 = 45 degrees, the same total travel as linear_a0p03
+    # delivered at half the rate -- which is what makes the pair readable.
+    ("lowN_linear_a0p015", {"schedule": "linear", "total_degrees": 45.0}, 2, 3000),
+    ("lowN_every25_jump30", {"schedule": "recurring", "jump_every": 25, "jump_degrees": 30.0},
+     2, 3000),
 ]
 
 #: The condition the learning rate is re-swept on: the most damaging one.
@@ -160,11 +198,24 @@ def tuned_settings() -> list[dict]:
     return chosen
 
 
+def control_name(samples: int, horizon: int) -> str:
+    """The stationary twin shared by every condition at this ``(n, T)``.
+
+    Keyed on both, because `assert_paired_runs` rightly refuses a pairing whose
+    two runs differ in anything but the drift -- and a control at a different
+    horizon or sample count is exactly that kind of mismatch, producing
+    well-formed rows whose subtraction is meaningless.
+    """
+    return f"x14_control_n{samples}_T{horizon}"
+
+
 def config_for(
     name: str,
     drift: dict | None,
     learners: list[dict],
     seeds: list[int],
+    samples: int = SAMPLES,
+    horizon: int = HORIZON,
 ):
     """One condition. ``drift=None`` is the stationary control."""
     block = {"schedule": "stationary", "total_degrees": 0.0}
@@ -177,13 +228,13 @@ def config_for(
         overrides={
             "run": {
                 "name": name,
-                "horizon": HORIZON,
+                "horizon": horizon,
                 "eval_every": EVAL_EVERY,
                 "seeds": seeds,
                 "device": DEVICE,
                 "dtype": DTYPE,
             },
-            "env": {"drift": block},
+            "env": {"samples_per_node_per_step": samples, "drift": block},
             "learners": learners,
             # Current-only: the question is tracking and recovery, and a
             # canonical set would score a rotation the run has long since left.
@@ -277,7 +328,9 @@ def best_lr() -> float | None:
 
 
 def tune_learning_rate(train, test, fresh: bool) -> int:
-    drift = dict(next(block for label, block in CONDITIONS if label == LR_CONDITION))
+    drift, samples, horizon = next(
+        (dict(block), n, t) for label, block, n, t in CONDITIONS if label == LR_CONDITION
+    )
     status = load_status()
     print(f"X14 baseline re-tune on {LR_CONDITION} -- the most damaging condition")
     print(f"{len(BASELINE_LRS)} rates at {len(LR_SEEDS)} seeds, T={HORIZON}\n")
@@ -286,7 +339,8 @@ def tune_learning_rate(train, test, fresh: bool) -> int:
     for index, lr in enumerate(BASELINE_LRS, start=1):
         name = lr_name(lr)
         note = run_one(
-            config_for(name, drift, baseline_entries(lr), LR_SEEDS), train, test, fresh
+            config_for(name, drift, baseline_entries(lr), LR_SEEDS, samples, horizon),
+            train, test, fresh,
         )
         status[name] = note
         save_status(status)
@@ -332,19 +386,33 @@ def main(tune: bool = False, fresh: bool = FRESH) -> int:
     status = load_status()
     started = time.time()
 
-    print(f"X14: {len(CONDITIONS)} conditions + 1 shared control, "
-          f"{len(learners)} learners, {len(SEEDS)} seeds\n")
+    # One control per distinct (n, T), shared by every condition at that setting.
+    settings_used = sorted({(samples, horizon) for _, _, samples, horizon in CONDITIONS})
+    print(f"X14: {len(CONDITIONS)} conditions + {len(settings_used)} controls, "
+          f"{len(learners)} learners, {len(SEEDS)} seeds")
+    for samples, horizon in settings_used:
+        count = sum(1 for _, _, n, t in CONDITIONS if (n, t) == (samples, horizon))
+        print(f"  n={samples} T={horizon}: {count} conditions, "
+              f"budget {10 * samples * horizon}/60000")
+    print()
 
-    # The control first: every drifting condition subtracts it, so a failure here
+    # Controls first: every drifting condition subtracts one, so a failure here
     # invalidates all of them and should surface in minutes rather than in hours.
-    note = run_one(config_for("x14_control", None, learners, SEEDS), train, test, fresh)
-    status["x14_control"] = note
-    save_status(status)
-    print(f"  x14_control  {note}  ({(time.time() - started) / 60:.0f} min)\n", flush=True)
+    for samples, horizon in settings_used:
+        name = control_name(samples, horizon)
+        note = run_one(
+            config_for(name, None, learners, SEEDS, samples, horizon), train, test, fresh
+        )
+        status[name] = note
+        save_status(status)
+        print(f"  {name:<26} {note}  ({(time.time() - started) / 60:.0f} min)", flush=True)
+    print()
 
-    for index, (label, drift) in enumerate(CONDITIONS, start=1):
+    for index, (label, drift, samples, horizon) in enumerate(CONDITIONS, start=1):
         name = f"x14_{label}"
-        note = run_one(config_for(name, drift, learners, SEEDS), train, test, fresh)
+        note = run_one(
+            config_for(name, drift, learners, SEEDS, samples, horizon), train, test, fresh
+        )
         status[name] = note
         save_status(status)
         elapsed = (time.time() - started) / 60
