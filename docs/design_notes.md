@@ -1904,6 +1904,73 @@ visible at an exactly-zero covariance as a prediction that is not quite the
 plug-in one ($\sim10^{-6}$). At $q=10$ the eigendecomposition is free and exact
 for singular and zero inputs alike, so there is one path and no fallback.
 
+### ✅ D64. X13 pilot: the filter wins, and $Q$ is the knob
+
+80 cells, 2 seeds, linear drift at $\alpha=0.025$ deg/step over $T=1500$. **No
+cell diverged**, so the $\sigma_0^2\le10^{-1}$ bound from D61 was conservative.
+Seed noise, taken as the median $|{\rm seed}_0-{\rm seed}_1|$ across all 80
+cells, is **0.0021**, so a two-seed mean carries about $\pm0.0011$.
+
+| | settled error |
+|---|---|
+| best EKF ($\sigma_0^2=0.1$, $\gamma=0.999$, $Q=10^{-4}$) | **0.0620** ±0.0007 |
+| `centralized_sgd` | 0.0948 ±0.0003 |
+| `diffusion_sgd_atc` | 0.0970 ±0.0007 |
+| `frozen_atc` | 0.4101 ±0.0138 |
+
+0.033 against the centralized learner, at roughly 30× the noise. **Provisional**,
+because the baselines ran at the shipped `lr 0.01`, which was tuned on stationary
+data in X1 — see the re-tune below.
+
+**The axes are wildly unequal.** Best cell per level:
+
+| axis | profile | span | verdict |
+|---|---|---|---|
+| $Q$ | 1e-6: 0.0825 → 1e-5: 0.0679 → **1e-4: 0.0620** → 1e-3: 0.0852 | 0.0232 | dominant |
+| $\lambda$ | 0.9999: 0.0911 → 0.999: 0.0815 → **0.997: 0.0694** → 0.995: 0.0698 | 0.0217 | dominant |
+| $\gamma$ | 1: 0.0650 → 0.9999: 0.0644 → 0.9995: 0.0626 → **0.999: 0.0620** | 0.0030 | marginal |
+| $\sigma_0^2$ | 0.003: 0.0626 → 0.01: 0.0635 → 0.03: 0.0629 → 0.1: 0.0620 | 0.0016 | below noise |
+
+All seven cells statistically tied with the best have $Q=10^{-4}$, spanning the
+entire $\sigma_0^2$ range and two $\gamma$ values. So 64 of the 80 cells went to
+the family whose two extra axes are worth 0.0030 and nothing, while the axis
+worth 0.0232 got four points three decades apart.
+
+$\gamma$ is marginal but probably real: at $Q=10^{-4}$, $\gamma=0.999$ beat
+$\gamma=1$ in **all four** $\sigma_0^2$ blocks (+0.0020, +0.0008, +0.0035,
++0.0055), and the margin grows with $\sigma_0^2$ — consistent with D26's reading
+of $\gamma$ as weight decay, since shrinking the mean offsets a looser prior.
+
+**$\sigma_0^2$ is flat for the $\gamma$ family and monotone for the $\lambda$
+family**, which is mechanistic rather than incidental. $\bm P\leftarrow\bm
+P/\lambda$ is scale-preserving, so $\bm P_0$ never washes out and small is
+better (0.0694 → 0.0751 as $\sigma_0^2$ goes 0.003 → 0.1 at $\lambda=0.997$);
+additive $Q$ erases $\bm P_0$ within a few hundred steps, so it cannot matter.
+
+**The $\lambda$ family's 0.0074 deficit is not yet a fair result.** Its optimum
+was a tie between the two *lowest* $\lambda$ tested with $\sigma_0^2$ pinned at
+its low edge, against a $\gamma$ family bracketed on both sides — a tuned method
+against a less-tuned one, which is the D39 error in miniature. The refined grid
+gives it its own downward-extended prior axis before the comparison is reported.
+
+### ✅ D65. The baselines are re-tuned per drift condition, not once
+
+`lr 0.01` was selected on 2026-08-05 against **stationary** data (X1). X13 then
+compared a filter tuned under drift against a baseline that was not, which is
+exactly what D39 exists to prevent — and a 0.033 headline deserves a baseline
+that had its best step size for the condition it is being beaten in.
+
+The project already does this elsewhere: X3 re-tunes the learning rate per
+topology, X4 per cell. Doing it per drift condition is the same convention, not
+a new one.
+
+`run_ekf_sweep.py --full` therefore **refuses to start** until the re-tune has
+run, rather than silently producing the unfair comparison. `frozen_atc` takes
+ATC's re-tuned rate too: it is ATC stopped at step 300, so a different rate would
+make it a different algorithm rather than the same one frozen, and that is the
+whole basis of the comparative break (the X9 bug where the two disagreed on `lr`
+is the precedent).
+
 ---
 
 ## Open questions

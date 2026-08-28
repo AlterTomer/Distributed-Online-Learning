@@ -2,9 +2,37 @@ r"""X13 -- tuning the centralised EKF, under drift and against a stationary twin
 
 Run this file directly.
 
-    python scripts/run_ekf_sweep.py            # pilot: 2 seeds, drift only
-    python scripts/run_ekf_sweep.py --full     # survivors at 5 seeds, + control
-    python scripts/run_ekf_sweep.py --fresh    # discard and redo
+    python scripts/run_ekf_sweep.py             # pilot: 80 cells, 2 seeds  (~12h)
+    python scripts/run_ekf_sweep.py --baselines # re-tune SGD lr under drift (~2h)
+    python scripts/run_ekf_sweep.py --full      # refined grid, 5 seeds     (~32h)
+    python scripts/run_ekf_sweep.py --fresh     # discard and redo
+
+`--full` requires `--baselines` to have run: it refuses to start otherwise,
+rather than silently comparing a drift-tuned filter against a baseline that was
+tuned on stationary data.
+
+## What the pilot found, and how the refined grid answers it
+
+80 cells at 2 seeds, none diverged, seed noise 0.0021. Best cell 0.0620 against
+`centralized_sgd` 0.0948 and `diffusion_sgd_atc` 0.0970 — but with the baselines
+still on their stationary-tuned `lr 0.01`, so that gap is provisional.
+
+The axes turned out badly proportioned. Best-per-level, span in the last column:
+
+    Q          1e-6 0.0825   1e-5 0.0679   1e-4 0.0620   1e-3 0.0852    0.0232
+    lambda   0.9999 0.0911   .999 0.0815   .997 0.0694   .995 0.0698    0.0217
+    gamma         1 0.0650  .9999 0.0644  .9995 0.0626   .999 0.0620    0.0030
+    sigma_0^2 0.003 0.0626   0.01 0.0635   0.03 0.0629    0.1 0.0620    0.0016
+
+64 of the 80 cells went to the gamma family, where gamma moves the result by
+0.0030 and sigma_0^2 by less than the noise, while Q — worth 0.0232 — got four
+points three decades apart. Every one of the seven cells statistically tied with
+the best has Q = 1e-4.
+
+So the refined grid puts five Q values inside one decade, gives the lambda family
+its own downward-extended prior axis (its pilot optimum was a tie between the two
+lowest values tested, with sigma_0^2 at its edge — it lost while less well
+tuned), and cuts gamma to three points and sigma_0^2 to two.
 
 ## Why the drifting condition is the one that tunes
 
@@ -102,23 +130,67 @@ FULL_SEEDS = [0, 1, 2, 3, 4]
 PILOT_EVAL_EVERY = 25
 FULL_EVAL_EVERY = 5
 
-#: sigma_0^2. Bounded above at 1e-1: past that the Gauss-Newton step overshoots
-#: the linearisation on step one and the run diverges rather than converging
-#: slowly (design note D61).
+# --- the pilot grid, as it ran -------------------------------------------- #
+#
+# Kept verbatim so the pilot's results stay readable. What it found, at a seed
+# noise of 0.0021 (median |seed0 - seed1| over 80 cells):
+#
+#   Q          1e-6 0.0825  1e-5 0.0679  1e-4 0.0620  1e-3 0.0852   span 0.0232
+#   lambda   0.9999 0.0911  .999 0.0815  .997 0.0694  .995 0.0698   span 0.0217
+#   gamma         1 0.0650  .9999 0.0644 .9995 0.0626 .999 0.0620   span 0.0030
+#   sigma_0^2 0.003 0.0626  0.01 0.0635  0.03 0.0629  0.1  0.0620   span 0.0016
+#
+# So Q and lambda carry the result, gamma is marginal, and sigma_0^2 does not
+# move it at all within [0.003, 0.1]. All 80 cells ran; none diverged.
 PRIOR_SCALES = [3.0e-3, 1.0e-2, 3.0e-2, 1.0e-1]
-
-#: gamma^1500 is what matters, not gamma: 0.9999 -> 0.86, 0.9995 -> 0.47,
-#: 0.999 -> 0.22. Below that the mean is pulled to the origin faster than the
-#: data can move it, so the usable range is narrow and close to 1.
 GAMMAS = [1.0, 0.9999, 0.9995, 0.999]
 PROCESS_NOISES = [1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3]
-
-#: Effective memory is ~1/(1-lambda) steps. Measured: 0.99 (100 steps) inflates
-#: without bound -- trace/p reaches 898 -- because forgetting outruns the
-#: information arriving at n=4. 0.995 is the edge and is included to bracket it.
 LAMBDAS = [0.9999, 0.999, 0.997, 0.995]
 
+# --- the refined grid, proportioned by what the pilot measured ------------- #
+#
+# The pilot spent 64 of 80 cells on the gamma family, where gamma is worth 0.0030
+# and sigma_0^2 is worth nothing, while Q -- worth 0.0232 -- got four points
+# three decades apart. This grid spends the budget the other way round.
+#
+#: Five points inside one decade, bracketing the pilot's optimum at 1e-4 on both
+#: sides. The pilot's V is steep to the right (1e-4 -> 1e-3 costs 0.023) and
+#: shallow to the left, so the true optimum is somewhere in [5e-5, 3e-4].
+FULL_PROCESS_NOISES = [3.0e-5, 6.0e-5, 1.0e-4, 2.0e-4, 3.0e-4]
+
+#: Two values, not four. Flat across 16 pilot cells, and kept plural only so the
+#: 5-seed pass can confirm the flatness rather than inherit it.
+FULL_PRIOR_SCALES = [1.0e-2, 1.0e-1]
+
+#: gamma = 1 is the random walk and stays in as the reference model even though
+#: the pilot put it slightly behind. The optimum sits between 0.9995 and 0.999,
+#: where the curve flattens, so three points bracket it. Marginal but probably
+#: real: at Q=1e-4, gamma=0.999 beat gamma=1 in all four sigma_0^2 blocks, and
+#: the margin grew with sigma_0^2 -- shrinking the mean offsets a looser prior.
+FULL_GAMMAS = [1.0, 0.9995, 0.999]
+
+#: The lambda family gets a fair bracket. Its pilot optimum was a tie between
+#: the two LOWEST values tested (0.997 at 0.0694, 0.995 at 0.0698) with
+#: sigma_0^2 pinned at its low edge -- so it lost to the gamma family while
+#: less well tuned, which is not a comparison worth reporting. 0.99 is known to
+#: inflate without bound, so 0.993 is the floor.
+FULL_LAMBDAS = [0.998, 0.997, 0.996, 0.995, 0.993]
+
+#: Extended DOWNWARD, and for this family only. sigma_0^2 is flat for the gamma
+#: family but not here: at lambda=0.997 the error runs 0.0694 -> 0.0751 as
+#: sigma_0^2 goes 0.003 -> 0.1, monotonically preferring small. That is
+#: mechanistic -- P <- P/lambda preserves scale, so P_0 never washes out, while
+#: additive Q erases it -- and it means the pilot's low edge was a real edge.
+FULL_LAMBDA_PRIOR_SCALES = [1.0e-3, 3.0e-3, 1.0e-2]
+
 BASELINES = ["centralized_sgd", "diffusion_sgd_atc", "frozen_atc"]
+
+#: Learning rates for the baseline re-tune. `lr 0.01` was selected on 2026-08-05
+#: against STATIONARY data (X1); under drift a larger step may track better, and
+#: comparing a drift-tuned filter with a stationary-tuned baseline is exactly the
+#: mistake design note D39 exists to prevent. X3 re-tunes per topology and X4 per
+#: cell, so re-tuning per drift condition is the project's own convention.
+BASELINE_LRS = [0.01, 0.02, 0.05, 0.1, 0.2]
 
 #: How many of the best cells get a stationary twin. The control answers "does
 #: this setting also win when nothing moves?", which is a question about the
@@ -136,14 +208,30 @@ STATUS = ROOT / "results" / "x13_status.json"
 # ---------------------------------------------------------------------------
 
 
-def cells() -> list[dict]:
+def grid_levels(full: bool) -> tuple[list, list, list, list, list]:
+    """The four axes plus the lambda family's own prior axis, per pass."""
+    if full:
+        return (
+            FULL_PRIOR_SCALES, FULL_GAMMAS, FULL_PROCESS_NOISES,
+            FULL_LAMBDAS, FULL_LAMBDA_PRIOR_SCALES,
+        )
+    return PRIOR_SCALES, GAMMAS, PROCESS_NOISES, LAMBDAS, PRIOR_SCALES
+
+
+def cells(full: bool = False) -> list[dict]:
     r"""Every grid point, most-informative-first.
 
     Ordered so that a sweep stopped early has still answered something. The
     interior comes before the edges: a cell at $\sigma_0^2=10^{-1}$ with
     $\lambda=0.995$ is two extremes at once, and learning that it diverges is
     worth less than learning where the optimum sits.
+
+    **The two families no longer share a prior axis under ``full``.** The pilot
+    measured $\sigma_0^2$ as flat for the $\gamma$ family and monotone for the
+    $\lambda$ family, so giving them one shared list would either waste cells on
+    a flat axis or leave the $\lambda$ optimum at an edge again.
     """
+    priors, gammas, noises, lambdas, lambda_priors = grid_levels(full)
     grid = [
         {
             "name": "centralized_ekf_gamma",
@@ -153,7 +241,7 @@ def cells() -> list[dict]:
             "lambda_forget": 1.0,
             "prior_scale": prior,
         }
-        for prior, gamma, noise in product(PRIOR_SCALES, GAMMAS, PROCESS_NOISES)
+        for prior, gamma, noise in product(priors, gammas, noises)
     ] + [
         {
             "name": "centralized_ekf_lambda",
@@ -163,19 +251,21 @@ def cells() -> list[dict]:
             "lambda_forget": lam,
             "prior_scale": prior,
         }
-        for prior, lam in product(PRIOR_SCALES, LAMBDAS)
+        for prior, lam in product(lambda_priors, lambdas)
     ]
 
     def distance_from_centre(cell: dict) -> tuple[float, float]:
         """How extreme a cell is, on each axis it actually uses."""
-        prior = PRIOR_SCALES.index(cell["prior_scale"])
-        prior_extremity = abs(prior - (len(PRIOR_SCALES) - 1) / 2)
         if cell["name"].endswith("gamma"):
-            other = GAMMAS.index(cell["gamma"]) + PROCESS_NOISES.index(cell["process_noise_q"])
-            span = len(GAMMAS) + len(PROCESS_NOISES) - 2
+            prior_extremity = abs(priors.index(cell["prior_scale"]) - (len(priors) - 1) / 2)
+            other = gammas.index(cell["gamma"]) + noises.index(cell["process_noise_q"])
+            span = len(gammas) + len(noises) - 2
         else:
-            other = LAMBDAS.index(cell["lambda_forget"])
-            span = len(LAMBDAS) - 1
+            prior_extremity = abs(
+                lambda_priors.index(cell["prior_scale"]) - (len(lambda_priors) - 1) / 2
+            )
+            other = lambdas.index(cell["lambda_forget"])
+            span = len(lambdas) - 1
         return prior_extremity, abs(other - span / 2)
 
     return sorted(grid, key=distance_from_centre)
@@ -317,34 +407,145 @@ def save_status(status: dict) -> None:
     STATUS.write_text(json.dumps(status, indent=2), encoding="utf-8")
 
 
-def main(full: bool = False, fresh: bool = FRESH) -> int:
+def baseline_name(lr: float) -> str:
+    return f"x13_lr{f'{lr:g}'.replace('.', 'p')}"
+
+
+def settled_for(directory: str, learner: str) -> float:
+    """One learner's settled error in one run directory, or +inf if absent."""
+    import pandas as pd
+
+    files = sorted((ROOT / "results" / directory).glob("*.parquet"))
+    if not files:
+        return float("inf")
+    frame = pd.concat([pd.read_parquet(path) for path in files], ignore_index=True)
+    rows = frame[
+        (frame["learner"] == learner)
+        & (frame["metric"] == "error_rate")
+        & (frame["evalset"] == "current")
+        & (frame["t"] >= int(0.8 * HORIZON))
+    ]
+    return float(rows["value"].mean()) if len(rows) else float("inf")
+
+
+def best_baseline_lr() -> float | None:
+    r"""The learning rate the re-tune selected, by ATC's settled error.
+
+    Chosen on **ATC** rather than on the centralized learner because ATC is the
+    distributed baseline the filter's claim is actually against, and because a
+    single lr has to serve both -- the two agreed on a cell when they were last
+    tuned together (2026-08-05), so one number is the convention here.
+
+    Returns ``None`` when the re-tune has not been run, which the caller reports
+    rather than papering over with the shipped default.
+    """
+    scored = [
+        (settled_for(baseline_name(lr), "diffusion_sgd_atc"), lr)
+        for lr in BASELINE_LRS
+        if (ROOT / "results" / baseline_name(lr)).exists()
+    ]
+    scored = [(value, lr) for value, lr in scored if value != float("inf")]
+    return min(scored)[1] if scored else None
+
+
+def tune_baselines(train, test, fresh: bool) -> int:
+    r"""Give the SGD baselines their best shot at *this* drift condition.
+
+    `lr 0.01` was selected on 2026-08-05 against stationary data. Reporting a
+    filter that was tuned under drift against a baseline that was not is the
+    mistake design note D39 exists to prevent, and the gap here is large enough
+    (0.033) that it deserves a baseline which had every chance.
+
+    Two seeds and the coarse cadence, because this asks the same question the
+    pilot did -- where is the optimum, roughly -- and the winner is then re-run
+    at five seeds alongside the filter.
+    """
+    status = load_status()
+    print(f"X13 baseline re-tune: {len(BASELINE_LRS)} learning rates at "
+          f"{len(PILOT_SEEDS)} seeds")
+    print(f"alpha {ALPHA} deg/step, T={HORIZON}, eval_every {PILOT_EVAL_EVERY}\n")
+
+    started = time.time()
+    for index, lr in enumerate(BASELINE_LRS, start=1):
+        # frozen_atc carries ATC's learning rate too. It froze at the same point
+        # having taken the same steps, so a different lr would make it a
+        # different algorithm rather than the same one stopped -- which is the
+        # whole basis of the comparative break.
+        learners = [
+            {"name": "centralized_sgd", "optimizer": "sgd_momentum", "lr": lr, "momentum": 0.9},
+            {"name": "diffusion_sgd_atc", "optimizer": "sgd_momentum", "lr": lr, "momentum": 0.9},
+            {"name": "frozen_atc", "optimizer": "sgd_momentum", "lr": lr, "momentum": 0.9,
+             "freeze_after": 300},
+        ]
+        name = baseline_name(lr)
+        note = run_one(
+            config_for(learners, name, PILOT_SEEDS, drifting=True, eval_every=PILOT_EVAL_EVERY),
+            train, test, fresh,
+        )
+        status[name] = note
+        save_status(status)
+        elapsed = (time.time() - started) / 60
+        print(f"[{index}/{len(BASELINE_LRS)}] lr {lr:<6g} {note:<12} "
+              f"{elapsed:.0f} min, ~{elapsed / index * (len(BASELINE_LRS) - index):.0f} left",
+              flush=True)
+
+    print(f"\nBaseline re-tune complete in {(time.time() - started) / 60:.1f} min")
+    print("Read it with: python scripts/report_ekf_sweep.py --baselines")
+    return 0
+
+
+def main(full: bool = False, fresh: bool = FRESH, baselines: bool = False) -> int:
     if not is_cached(DATA_ROOT):
         print("MNIST is not cached. Run scripts/check_data.py once, then retry.")
         return 1
     train, test = load_mnist(DATA_ROOT, download=False)
 
+    if baselines:
+        return tune_baselines(train, test, fresh)
+
     seeds = FULL_SEEDS if full else PILOT_SEEDS
     eval_every = FULL_EVAL_EVERY if full else PILOT_EVAL_EVERY
     status = load_status()
-    grid = cells()
+    grid = cells(full=full)
     if full:
-        # Only what survived the pilot. A cell that diverged at two seeds will
-        # not stop diverging at five.
-        survivors = {name for name, note in status.items() if note in ("ok", "cached")}
-        grid = [cell for cell in grid if cell_name(cell) in survivors]
-        print(f"X13 full: {len(grid)} survivors of {len(cells())} at {len(seeds)} seeds")
+        # NOT the pilot's survivors. Nothing diverged, so survivor-filtering would
+        # be a no-op; the refined grid is a different set of points, chosen from
+        # what the pilot measured about which axes carry the result.
+        print(f"X13 full: {len(grid)} refined cells at {len(seeds)} seeds")
     else:
-        print(f"X13 pilot: {len(cells())} cells at {len(seeds)} seeds")
+        print(f"X13 pilot: {len(grid)} cells at {len(seeds)} seeds")
     print(f"alpha {ALPHA} deg/step, T={HORIZON}, ~{HORIZON * ALPHA:.1f} degrees total")
     print(f"device {DEVICE}, {DTYPE}, eval_every {eval_every}\n")
 
     started = time.time()
 
     suffix = "_full" if full else ""
+
+    # The full pass runs its baselines at the re-tuned learning rate, so the
+    # headline is tuned-against-tuned. The pilot's baselines used the shipped
+    # 0.01, which is why its 0.033 gap is provisional.
+    baseline_entries = [{"name": name} for name in BASELINES]
+    if full:
+        lr = best_baseline_lr()
+        if lr is None:
+            print(
+                "The baseline re-tune has not been run, so the full pass would compare a\n"
+                "drift-tuned filter against a stationary-tuned baseline (design note D39).\n"
+                "  python scripts/run_ekf_sweep.py --baselines\n"
+                "Re-run with --full afterwards, or delete this guard if that is intended."
+            )
+            return 1
+        print(f"baselines re-tuned under this drift: lr {lr:g}")
+        baseline_entries = [
+            {"name": name, "optimizer": "sgd_momentum", "lr": lr, "momentum": 0.9}
+            | ({"freeze_after": 300} if name == "frozen_atc" else {})
+            for name in BASELINES
+        ]
+
     print("baselines (once; every cell is paired with these by construction)", flush=True)
     note = run_one(
         config_for(
-            [{"name": n} for n in BASELINES], f"x13_baselines{suffix}", seeds,
+            baseline_entries, f"x13_baselines{suffix}", seeds,
             drifting=True, eval_every=eval_every,
         ),
         train, test, fresh,
@@ -382,7 +583,7 @@ def main(full: bool = False, fresh: bool = FRESH) -> int:
             print(f"[{index}/{len(best)}] {name:<42} {note}", flush=True)
         run_one(
             config_for(
-                [{"name": n} for n in BASELINES], "x13_baselines_control", seeds,
+                baseline_entries, "x13_baselines_control", seeds,
                 drifting=False, eval_every=eval_every,
             ),
             train, test, fresh,
@@ -396,4 +597,10 @@ def main(full: bool = False, fresh: bool = FRESH) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(full="--full" in sys.argv, fresh="--fresh" in sys.argv))
+    raise SystemExit(
+        main(
+            full="--full" in sys.argv,
+            fresh="--fresh" in sys.argv,
+            baselines="--baselines" in sys.argv,
+        )
+    )
