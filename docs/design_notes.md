@@ -2031,6 +2031,45 @@ Worth recording as its own note because it is the same failure as D50's threshol
 and D53's control: a quantity that looks like a constant but is really a ratio
 against something the config can change.
 
+### ✅ D67. X14 generalises one tuned setting; the conditions are picked by damage
+
+X13 tunes at linear $\alpha=0.025$, which measurement shows is among the
+**mildest** conditions the project has. Damage across everything already run:
+
+| abrupt | | linear | |
+|---|---|---|---|
+| every25 jump30 | **0.0677** | $\alpha=0.15$ ($T{=}299$) | 0.0303 |
+| every25 jump15 | 0.0518 | $\alpha=0.10$ ($T{=}449$) | 0.0257 |
+| every50 jump15 | 0.0498 | $\alpha=0.05$ ($T{=}899$) | 0.0196 |
+| every200 jump30 | 0.0398 | $\alpha=0.025$ ($T{=}1499$) | **0.0126** |
+| every100 jump15 | 0.0183 | | |
+| every200 jump5 | 0.0054 | | |
+
+So the tuning condition sits 5× below the worst abrupt cell, and a claim resting
+on it alone would be a claim about slow smooth drift.
+
+**One setting per family, tested across regimes — not tuned per condition.**
+Re-tuning each cell would answer "can the filter be tuned to win anywhere", which
+is both weaker and less useful than "one setting tracks across regimes"; the
+latter is what the diffusion version needs, since a Diff-EKF cannot re-tune
+itself per drift regime in deployment. The settings are *read* from X13's grid at
+run time rather than hard-coded, so the two experiments cannot drift apart.
+
+**The faster linear rates are excluded, and not for being mild.** A constant rate
+reaches the 45° cap at $T=45/\alpha$, so $\alpha=0.15$ runs 299 steps and its
+damage mixes drift with "had less time to converge". The tell is already in the
+table: at $\alpha=0.15$ the *frozen* baseline's damage equals ATC's exactly
+(0.0303), because `freeze_after` is 300 and the run ends at 299 — it never froze,
+so the row describes one algorithm twice. Recurring shifts reflect at the cap
+(D51) and therefore sustain any rate for the full 1500 steps, which is why all
+eight X14 conditions share a horizon and a single stationary control.
+
+**The baselines are re-tuned once, on the worst condition.** D65 established
+per-condition re-tuning, but doing it for all seven would cost more than the
+experiment. `every25 jump30` is the strongest case for a fast step the project
+has, so a rate that does not want to move there will not want to move at 0.0054
+damage either — and if the X13 choice survives, one number covers the set.
+
 ---
 
 ## Open questions
