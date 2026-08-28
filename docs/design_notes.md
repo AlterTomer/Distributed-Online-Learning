@@ -1969,7 +1969,32 @@ run, rather than silently producing the unfair comparison. `frozen_atc` takes
 ATC's re-tuned rate too: it is ATC stopped at step 300, so a different rate would
 make it a different algorithm rather than the same one frozen, and that is the
 whole basis of the comparative break (the X9 bug where the two disagreed on `lr`
-is the precedent).
+is the precedent). Note that `frozen_atc`'s *own* best rate is 0.05, and it is
+deliberately not given it — that would tune the baseline into a different
+algorithm to make it look better at being frozen.
+
+**Outcome: the shipped rate was already right, and the drift does not want a
+faster one.** Settled error under the same drift, two seeds:
+
+| lr | `centralized_sgd` | `diffusion_sgd_atc` | `frozen_atc` |
+|---|---|---|---|
+| 0.01 | 0.0948 | 0.0970 | 0.4101 |
+| 0.02 | **0.0941** | **0.0968** | 0.4083 |
+| 0.05 | 0.1089 | 0.1204 | 0.4041 |
+| 0.1 | 0.1360 | 0.1845 | 0.4971 |
+| 0.2 | 0.7034 | 0.7393 | 0.7937 |
+
+0.02 wins by +0.0007 and +0.0002 against seed spreads of 0.0027 and 0.0056, so
+the two are **indistinguishable**; everything larger is much worse, by 7.5× at
+lr 0.2. That the drift optimum barely moved from the stationary one is itself a
+reading of the regime: at $\alpha=0.025$ the baselines are not step-size limited,
+which fits damage of 0.0126 against a base error near 0.09.
+
+The full pass uses 0.02 anyway. It is the argmin of a noisy curve — a
+winner's-curse selection rather than a measured optimum — but the bias makes the
+*baseline* look better, which is the safe direction, and it costs 0.0007 to make
+the comparison unarguable. The headline moves from +0.0328 to **+0.0321** against
+the centralized learner and from +0.0350 to **+0.0348** against ATC.
 
 ### ✅ D66. What X13's break analysis can actually use
 
