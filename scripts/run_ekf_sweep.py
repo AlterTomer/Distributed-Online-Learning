@@ -4,7 +4,7 @@ Run this file directly.
 
     python scripts/run_ekf_sweep.py             # pilot: 80 cells, 2 seeds  (~12h)
     python scripts/run_ekf_sweep.py --baselines # re-tune SGD lr under drift (~2h)
-    python scripts/run_ekf_sweep.py --full      # refined grid, 5 seeds     (~32h)
+    python scripts/run_ekf_sweep.py --full      # refined grid, 5 seeds  (~27h + ~9h)
     python scripts/run_ekf_sweep.py --fresh     # discard and redo
 
 `--full` requires `--baselines` to have run: it refuses to start otherwise,
@@ -192,11 +192,22 @@ BASELINES = ["centralized_sgd", "diffusion_sgd_atc", "frozen_atc"]
 #: cell, so re-tuning per drift condition is the project's own convention.
 BASELINE_LRS = [0.01, 0.02, 0.05, 0.1, 0.2]
 
-#: How many of the best cells get a stationary twin. The control answers "does
-#: this setting also win when nothing moves?", which is a question about the
-#: setting being *chosen* -- running it for all fifty-odd survivors would cost
-#: about as much as the drift pass itself to answer it for cells nobody will use.
-CONTROLS_FOR_BEST = 8
+#: How many of the best cells get a stationary twin.
+#:
+#: Raised from 8 once the pilot showed the **comparative** break is vacuous at
+#: this drift rate -- `frozen_atc` settles at 0.4101 against the filter's 0.0620
+#: and is never competitive, so nothing ever falls behind it and "when does the
+#: learner stop beating a frozen one" has no answer (design note D66). Every
+#: break statement therefore rests on the *absolute* definition, which is damage
+#: against a paired stationary twin, so the controls are load-bearing rather than
+#: confirmatory.
+#:
+#: 8 would have been enough had the optimum been sharp. It is not: seven pilot
+#: cells tied within the seed noise, spanning the whole prior range and two
+#: gammas. If the refined optimum is similarly flat, controls for only the top 8
+#: would cover an arbitrary subset of the tied set and the damage figure would
+#: depend on which arbitrary member got picked.
+CONTROLS_FOR_BEST = 16
 DEVICE = "auto"
 DTYPE = "float64"
 FRESH = False
