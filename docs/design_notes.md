@@ -1971,6 +1971,41 @@ make it a different algorithm rather than the same one frozen, and that is the
 whole basis of the comparative break (the X9 bug where the two disagreed on `lr`
 is the precedent).
 
+### ✅ D66. What X13's break analysis can actually use
+
+Checked against the pilot data *before* buying the fine evaluation cadence for
+the full pass, since the 1.57× premium is paid specifically for break and
+recovery resolution.
+
+**Pooling across directories is sound.** An X13 cell holds only its EKF; the
+baselines live in `x13_baselines`. The two runs share a seed set, a horizon and a
+cadence, so their step grids are identical and `error_by_step` on the
+concatenation yields all four learners. `assert_paired_runs` is not the right
+guard here — it exists for drift/control pairs and would correctly reject a
+cell against the baselines, whose learner lists differ by design.
+
+**The comparative break is vacuous at this rate.** Every learner returns
+`step=None` against `frozen_atc`, because the frozen baseline settles at 0.4101
+against the filter's 0.0620 and is never competitive — nothing ever falls behind
+it, so "when does the learner stop beating a frozen one" has no answer here. That
+is a property of $\alpha=0.025$ over 1500 steps, not a defect: D49's two
+definitions were introduced precisely because either can be uninformative in a
+given regime. So X13 rests on the **absolute** definition — damage against a
+paired stationary control — which makes the controls load-bearing rather than
+confirmatory, and is why they run at all.
+
+**`persistence` is meaningless without a cadence.** `DEFAULT_PERSISTENCE = 3` is
+documented as 75 steps, which it is *at `eval_every` 25*. X13's tuning pass runs
+at 25 and its measurement pass at 5, where the same three points span 15 steps —
+a five-fold weaker bar on the same axis, invisible at the call site. Since the
+thing being defended against is a noise excursion in *time*, the window is the
+invariant and the point count is derived: `persistence_for(eval_every)` now does
+that conversion, and the default is left untouched so no published number moves.
+
+Worth recording as its own note because it is the same failure as D50's threshold
+and D53's control: a quantity that looks like a constant but is really a ratio
+against something the config can change.
+
 ---
 
 ## Open questions

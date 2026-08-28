@@ -48,7 +48,35 @@ class BreakError(ValueError):
 #: How many consecutive evaluation points must satisfy the condition before it
 #: counts. Three at the default cadence is 75 steps -- long enough that a noise
 #: excursion is unlikely, short enough to locate a rate finely.
+#:
+#: **This number is only meaningful alongside a cadence**, which is why
+#: :func:`persistence_for` exists. Every experiment through X12 ran at
+#: ``eval_every`` 25 or 5 with this default unexamined; at 5 it demands 15 steps
+#: rather than 75, a five-fold weaker bar on the same axis.
 DEFAULT_PERSISTENCE = 3
+
+#: The window :data:`DEFAULT_PERSISTENCE` was chosen to express, in steps.
+DEFAULT_PERSISTENCE_STEPS = 75
+
+
+def persistence_for(eval_every: int, window_steps: int = DEFAULT_PERSISTENCE_STEPS) -> int:
+    """Consecutive evaluation points spanning ``window_steps``.
+
+    A persistence expressed in *points* silently changes meaning when the
+    evaluation cadence changes, and the cadence is a config value that varies
+    between experiments -- X13's tuning pass runs at 25 and its measurement pass
+    at 5, so the same ``persistence=3`` would mean 75 steps in one and 15 in the
+    other. Since the quantity being defended against is a noise excursion in
+    *time*, the window is the invariant and the point count is derived.
+
+    Returns at least 1: a window shorter than one evaluation interval cannot ask
+    for less than a single point.
+    """
+    if eval_every < 1:
+        raise BreakError(f"eval_every must be >= 1, got {eval_every}")
+    if window_steps < 1:
+        raise BreakError(f"window_steps must be >= 1, got {window_steps}")
+    return max(1, round(window_steps / eval_every))
 
 
 @dataclass(frozen=True)

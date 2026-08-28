@@ -208,6 +208,31 @@ def test_divergence_is_raised_rather_than_returned_as_nan() -> None:
             filt.adapt_pooled(*_batch(model, seed=step))
 
 
+def test_persistence_tracks_the_evaluation_cadence() -> None:
+    """A persistence in *points* changes meaning when the cadence changes.
+
+    Lives here rather than in the break tests because X13 is what surfaced it:
+    its tuning pass evaluates every 25 steps and its measurement pass every 5,
+    so an unchanged ``persistence=3`` would demand 75 steps in one and 15 in the
+    other while looking identical in the call.
+    """
+    from dekf_bench.metrics.breaks import (
+        DEFAULT_PERSISTENCE,
+        DEFAULT_PERSISTENCE_STEPS,
+        persistence_for,
+    )
+
+    assert persistence_for(25) == DEFAULT_PERSISTENCE
+    assert persistence_for(5) == 15
+    assert persistence_for(1) == 75
+    for cadence in (1, 5, 25, 50):
+        assert persistence_for(cadence) * cadence == pytest.approx(
+            DEFAULT_PERSISTENCE_STEPS, abs=cadence
+        )
+    # A window shorter than one interval still needs a point to test.
+    assert persistence_for(200) == 1
+
+
 def test_a_singular_innovation_covariance_is_reported_as_divergence() -> None:
     r"""An enormous prior breaks the Woodbury solve *before* the mean goes bad.
 
