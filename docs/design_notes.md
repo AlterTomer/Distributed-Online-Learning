@@ -2144,6 +2144,43 @@ state object. This is the same failure as the sweep harness's poisoned-cell bug
 Completed runs now delete their checkpoints — a finished run has nothing to
 resume from, and 470 files had accumulated to 118 GB.
 
+### ✅ D69. Flushing is quadratic in the horizon, so X14 rate-limits it
+
+`Recorder.flush` rebuilds a frame from **every** accumulated row and rewrites the
+**whole** parquet. One flush is therefore $O(\text{rows so far})$ and a run costs
+$O(T^2)$ in flushing. Measured at the real row width:
+
+| rows held | one flush |
+|---|---|
+| 2,000 | 39 ms |
+| 10,000 | 209 ms |
+| 26,000 | 798 ms |
+| 52,000 | 1573 ms |
+
+The original docstring justified whole-file rewriting as costing "less than the
+machinery to avoid it", at "~2 MB per seed rewriting 60 times". That reasoning is
+sound and **load-bearing on the 60**: at `eval_every` 5 over $T=1500$ it is 300
+rewrites of a frame growing to 52k rows, and X14's low-$n$ conditions run
+$T=3000$ — 600 rewrites past 100k rows, roughly 15 minutes a seed spent writing.
+
+It also explains why extrapolating a $T=300$ benchmark predicted 50 min/cell
+against an observed 59: linear scaling catches 47 s of flush cost where the
+quadratic reality is ~236 s. **That is the third time in this phase a short
+benchmark understated a superlinear cost** (D68 was the first two), and the
+pattern is worth naming: extrapolating a cost model from a shortened run is only
+valid for the terms that are linear in what was shortened.
+
+`min_flush_steps` caps the write *rate* without changing what is written. Rows
+keep accumulating and `finalize` always writes, so **the parquet is identical** —
+tested by running the same rows through recorders at 0 and 40 and comparing every
+column. Only `wallclock_s` differs, which is the quantity being changed. On a
+synthetic run the recorder cost fell 13.8× (201 writes to 11).
+
+The default stays 0, so every experiment before X14 is untouched. X14 uses 100:
+at most 100 steps of work lost to a crash, against ~20× less write cost. X13 is
+left alone deliberately — it is mid-run, and restarting it to save ~5 h of a
+49 h remainder would risk more than it saves.
+
 ---
 
 ## Open questions

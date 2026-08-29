@@ -88,14 +88,32 @@ class Recorder:
         context: RunContext,
         config: Any,
         strict: bool = True,
+        min_flush_steps: int = 0,
     ) -> None:
+        r"""
+        Args:
+            min_flush_steps: don't write more often than this many steps apart.
+                **A crash-recovery granularity knob, not a correctness one.**
+                Rows are always buffered and `finalize` always writes, so the
+                data is identical either way; the only thing at stake is how much
+                work a crash costs. Zero -- the default -- writes at every flush,
+                which is what every experiment before X13 did.
+
+                It matters because a flush is $O(\text{rows so far})$: it rebuilds
+                a frame from every accumulated row and rewrites the whole parquet.
+                So a run costs $O(T^2)$ in flushing, and at $T=3000$ with a
+                five-step cadence that reached ~15 min a seed. Measured on the
+                real row width: 39 ms at 2k rows against 1573 ms at 52k.
+        """
         self.out_dir = Path(out_dir)
         self.context = context
         self.config = config
         self.strict = strict
+        self.min_flush_steps = min_flush_steps
         self.config_hash = config_fingerprint(config)
         self._rows: list[dict[str, Any]] = []
         self._buffer: list[dict[str, Any]] = []
+        self._last_written_step: int | None = None
         self._started = time.perf_counter()
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -137,15 +155,33 @@ class Recorder:
         no cheap append, and at ~2 MB per seed rewriting 60 times over a run
         costs less than the machinery to avoid it -- while keeping exactly one
         file per seed, which is what makes a partial result readable.
+
+        **That reasoning is load-bearing on "60 times".** Rewriting is
+        $O(\\text{rows so far})$, so a run's flush cost is $O(T^2)$ in the number
+        of flushes; at a five-step cadence over $T=3000$ that is 600 rewrites of
+        a frame growing to 100k rows, not 60 of a small one. ``min_flush_steps``
+        caps the rate without changing what is written -- rows keep accumulating
+        and :meth:`finalize` always writes, so the resulting file is identical
+        (design note D69).
         """
         self._rows.extend(self._buffer)
         self._buffer.clear()
         if not self._rows:
             return
+        if (
+            self.min_flush_steps
+            and self._last_written_step is not None
+            and step - self._last_written_step < self.min_flush_steps
+        ):
+            # Deliberately not writing. The rows are held, and the checkpoint
+            # stays paired with the parquet -- both advance together or neither
+            # does, which is what lets `resume` trust the two against each other.
+            return
 
         self._write_atomic(self.data_path, self._frame())
         if learners is not None:
             self._write_checkpoint(step, learners)
+        self._last_written_step = step
 
     def finalize(self) -> Path:
         """Final flush, then write the run's metadata alongside."""

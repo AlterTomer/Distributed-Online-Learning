@@ -98,6 +98,18 @@ LR_SEEDS = [0, 1]
 #: quantity this experiment exists to compare.
 EVAL_EVERY = 5
 
+#: How rarely the recorder may write, in steps. **Not the eval cadence** -- every
+#: eval point is still recorded, and the parquet is byte-identical either way.
+#: This only decides how much work a crash costs.
+#:
+#: A flush rebuilds a frame from every accumulated row and rewrites the whole
+#: parquet, so it is O(rows so far) and a run is O(T^2) in flushing. Measured at
+#: the real row width: 39 ms at 2k rows against 1573 ms at 52k. At EVAL_EVERY=5
+#: over T=3000 that is 600 rewrites of a frame growing past 100k rows -- roughly
+#: 15 minutes a seed spent writing. Every 100 steps costs at most 100 steps of
+#: lost work on a crash and cuts that by ~20x (design note D69).
+MIN_FLUSH_STEPS = 100
+
 #: Samples per agent per step in the default block. The shard budget is
 #: $N n T \le 60000$, so this and the horizon trade directly against each other.
 SAMPLES = 4
@@ -270,6 +282,7 @@ def run_one(config, train, test, fresh: bool) -> str:
                 config, seed, environment.graph, run_id=rec.new_run_id(), git_sha=sha
             ),
             config,
+            min_flush_steps=MIN_FLUSH_STEPS,
         )
         try:
             simulate.run(

@@ -60,12 +60,71 @@ def pieces(config, seed: int = 0):
     return environment, learners, build_evalsets(config, environment, test), likelihood, theta0
 
 
-def recorder_for(config, out_dir, seed: int = 0) -> rec.Recorder:
+def recorder_for(config, out_dir, seed: int = 0, min_flush_steps: int = 0) -> rec.Recorder:
     environment = build_environment(config, seed, split())
     context = RunContext.from_config(
         config, seed, environment.graph, run_id="testrun", git_sha="deadbeef"
     )
-    return rec.Recorder(out_dir, context, config)
+    return rec.Recorder(out_dir, context, config, min_flush_steps=min_flush_steps)
+
+
+def test_throttling_flushes_changes_when_not_what(tmp_path) -> None:
+    r"""``min_flush_steps`` is a crash-recovery knob, not a data one.
+
+    A flush rebuilds a frame from every accumulated row and rewrites the whole
+    parquet, so it is $O(\text{rows so far})$ and a run costs $O(T^2)$ in
+    flushing -- 39 ms at 2k rows against 1573 ms at 52k. Writing less often is
+    the fix, and it is only safe if the file that lands is byte-for-byte the one
+    that would have landed anyway (design note D69).
+
+    Everything but ``wallclock_s`` must match, and that column is excluded
+    because elapsed time is precisely the thing being changed.
+    """
+    import pandas as pd
+
+    config = config_for()
+    frames = {}
+    for setting in (0, 40):
+        recorder = recorder_for(config, tmp_path / f"flush{setting}", min_flush_steps=setting)
+        for step in range(HORIZON):
+            recorder.log(a_row(t=step, value=float(step)))
+            if step % 5 == 0:
+                recorder.flush(step)
+        frames[setting] = pd.read_parquet(recorder.finalize())
+
+    baseline, throttled = frames[0], frames[40]
+    assert len(baseline) == len(throttled) == HORIZON
+
+    payload = [column for column in baseline.columns if column != "wallclock_s"]
+    assert baseline[payload].equals(throttled[payload]), (
+        "throttling changed the recorded data, so it is not a performance knob"
+    )
+
+
+def test_throttling_still_leaves_a_usable_checkpoint(tmp_path) -> None:
+    """Rate-limited writes must not mean *no* writes before finalize.
+
+    A run that only checkpointed at the end would lose everything on a crash,
+    which is the opposite of what this knob is for.
+    """
+    config = config_for()
+    recorder = recorder_for(config, tmp_path / "throttled", min_flush_steps=20)
+    model = build_model_from_config(config)
+    learners = build_learners(config, model, Categorical(config.model.output_dim))
+    theta0 = torch.zeros(model.num_params)
+    for learner in learners.values():
+        learner.init(theta0)
+
+    for step in range(HORIZON):
+        recorder.log(a_row(t=step))
+        if step % 5 == 0:
+            recorder.flush(step, learners)
+
+    assert recorder.checkpoint_path.is_file(), "no checkpoint was written before the end"
+    checkpoint = recorder.load_checkpoint()
+    assert checkpoint is not None
+    # Written at some point before the last step, but not stuck at the first.
+    assert 0 < checkpoint.step < HORIZON
 
 
 def a_row(**overrides) -> dict:
