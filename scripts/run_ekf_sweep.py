@@ -569,6 +569,7 @@ def main(full: bool = False, fresh: bool = FRESH, baselines: bool = False) -> in
     )
     print(f"    {note}, {(time.time() - started) / 60:.1f} min\n", flush=True)
 
+    ran = 0
     for index, cell in enumerate(grid, start=1):
         name = f"{cell_name(cell)}{suffix}"
         note = run_one(
@@ -578,7 +579,14 @@ def main(full: bool = False, fresh: bool = FRESH, baselines: bool = False) -> in
         status[name] = note
         save_status(status)
         elapsed = (time.time() - started) / 60
-        remaining = elapsed / index * (len(grid) - index)
+        # Averaged over cells that actually RAN, not over every index. Cached
+        # cells cost nothing, so dividing by the index dilutes the mean and the
+        # estimate then climbs as real cells replace free ones -- an ETA that
+        # rises steadily is worse than none, because it reads as the run getting
+        # slower when nothing has changed.
+        if note != "cached":
+            ran += 1
+        remaining = (elapsed / ran * (len(grid) - index)) if ran else 0.0
         print(
             f"[{index}/{len(grid)}] {name:<34} {note:<28} "
             f"{elapsed:.0f} min, ~{remaining:.0f} left",

@@ -412,6 +412,7 @@ def main(tune: bool = False, fresh: bool = FRESH) -> int:
         print(f"  {name:<26} {note}  ({(time.time() - started) / 60:.0f} min)", flush=True)
     print()
 
+    ran = 0
     for index, (label, drift, samples, horizon) in enumerate(CONDITIONS, start=1):
         name = f"x14_{label}"
         note = run_one(
@@ -420,9 +421,13 @@ def main(tune: bool = False, fresh: bool = FRESH) -> int:
         status[name] = note
         save_status(status)
         elapsed = (time.time() - started) / 60
+        # Averaged over conditions that actually ran; a cached one costs nothing
+        # and would otherwise drag the mean down and make the estimate climb.
+        if note != "cached":
+            ran += 1
+        remaining = (elapsed / ran * (len(CONDITIONS) - index)) if ran else 0.0
         print(f"[{index}/{len(CONDITIONS)}] {name:<26} {note:<28} "
-              f"{elapsed:.0f} min, ~{elapsed / index * (len(CONDITIONS) - index):.0f} left",
-              flush=True)
+              f"{elapsed:.0f} min, ~{remaining:.0f} left", flush=True)
 
     diverged = sum(1 for note in status.values() if note.startswith("diverged"))
     print(f"\nX14 complete in {(time.time() - started) / 60:.1f} min, {diverged} diverged")
