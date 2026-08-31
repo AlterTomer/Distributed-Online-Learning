@@ -3,7 +3,12 @@ r"""X14 -- does the tuned filter hold up where the learners actually break?
 Run this file directly.
 
     python scripts/run_ekf_generalization.py --lr    # re-tune baselines (~0.5h)
-    python scripts/run_ekf_generalization.py         # the conditions   (~21h)
+    python scripts/run_ekf_generalization.py         # every condition   (~32h)
+    python scripts/run_ekf_generalization.py --only every25_jump30   # one (~4h)
+
+`--only` runs a subset into the same directories with the same settings, so the
+full pass can be done in instalments: whatever ran first is picked up as cached
+and the result is indistinguishable from having run it all at once.
 
 Run both **after** `run_ekf_sweep.py --full`, and not alongside it. The `--lr`
 pass has no dependency on X13 and would start happily, but it would contend for
@@ -399,7 +404,7 @@ def tune_learning_rate(train, test, fresh: bool) -> int:
     return 0
 
 
-def main(tune: bool = False, fresh: bool = FRESH) -> int:
+def main(tune: bool = False, fresh: bool = FRESH, only: list[str] | None = None) -> int:
     if not is_cached(DATA_ROOT):
         print("MNIST is not cached. Run scripts/check_data.py once, then retry.")
         return 1
@@ -407,6 +412,18 @@ def main(tune: bool = False, fresh: bool = FRESH) -> int:
 
     if tune:
         return tune_learning_rate(train, test, fresh)
+
+    # A mistyped label is checked first, before the guards that need runs on
+    # disk: it costs nothing to detect and is the one error the caller can fix
+    # immediately, so making them clear a prerequisite before learning they had
+    # a typo would be the wrong order to discover things in.
+    if only:
+        unknown = set(only) - {label for label, _, _, _ in CONDITIONS}
+        if unknown:
+            print(f"unknown condition(s) {sorted(unknown)}. Available:")
+            for label, _, samples, horizon in CONDITIONS:
+                print(f"  {label:<24} n={samples} T={horizon}")
+            return 1
 
     print("filter settings, read from the X13 refined grid:")
     settings = tuned_settings()
@@ -432,12 +449,19 @@ def main(tune: bool = False, fresh: bool = FRESH) -> int:
     status = load_status()
     started = time.time()
 
+    # A subset runs the same conditions with the same settings, and writes to the
+    # same directories -- it is the full pass done in instalments, not a variant.
+    # Anything not selected simply has not run yet, so a later full pass picks it
+    # up as cached and the two are indistinguishable afterwards.
+    conditions = [c for c in CONDITIONS if c[0] in only] if only else CONDITIONS
+
     # One control per distinct (n, T), shared by every condition at that setting.
-    settings_used = sorted({(samples, horizon) for _, _, samples, horizon in CONDITIONS})
-    print(f"X14: {len(CONDITIONS)} conditions + {len(settings_used)} controls, "
+    settings_used = sorted({(samples, horizon) for _, _, samples, horizon in conditions})
+    scope = f"{len(conditions)} of {len(CONDITIONS)}" if only else f"{len(CONDITIONS)}"
+    print(f"X14: {scope} conditions + {len(settings_used)} controls, "
           f"{len(learners)} learners, {len(SEEDS)} seeds")
     for samples, horizon in settings_used:
-        count = sum(1 for _, _, n, t in CONDITIONS if (n, t) == (samples, horizon))
+        count = sum(1 for _, _, n, t in conditions if (n, t) == (samples, horizon))
         print(f"  n={samples} T={horizon}: {count} conditions, "
               f"budget {10 * samples * horizon}/60000")
     print()
@@ -455,7 +479,7 @@ def main(tune: bool = False, fresh: bool = FRESH) -> int:
     print()
 
     ran = 0
-    for index, (label, drift, samples, horizon) in enumerate(CONDITIONS, start=1):
+    for index, (label, drift, samples, horizon) in enumerate(conditions, start=1):
         name = f"x14_{label}"
         note = run_one(
             config_for(name, drift, learners, SEEDS, samples, horizon), train, test, fresh
@@ -467,8 +491,8 @@ def main(tune: bool = False, fresh: bool = FRESH) -> int:
         # and would otherwise drag the mean down and make the estimate climb.
         if note != "cached":
             ran += 1
-        remaining = (elapsed / ran * (len(CONDITIONS) - index)) if ran else 0.0
-        print(f"[{index}/{len(CONDITIONS)}] {name:<26} {note:<28} "
+        remaining = (elapsed / ran * (len(conditions) - index)) if ran else 0.0
+        print(f"[{index}/{len(conditions)}] {name:<26} {note:<28} "
               f"{elapsed:.0f} min, ~{remaining:.0f} left", flush=True)
 
     diverged = sum(1 for note in status.values() if note.startswith("diverged"))
@@ -478,4 +502,13 @@ def main(tune: bool = False, fresh: bool = FRESH) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(tune="--lr" in sys.argv, fresh="--fresh" in sys.argv))
+    # `--only label [label ...]` runs a subset into the same directories, so the
+    # full pass can be done in instalments and picks the rest up as cached.
+    selected: list[str] = []
+    if "--only" in sys.argv:
+        selected = [a for a in sys.argv[sys.argv.index("--only") + 1:] if not a.startswith("--")]
+        if not selected:
+            raise SystemExit("--only needs at least one condition label")
+    raise SystemExit(
+        main(tune="--lr" in sys.argv, fresh="--fresh" in sys.argv, only=selected or None)
+    )
