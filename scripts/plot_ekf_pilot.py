@@ -1,10 +1,15 @@
-r"""X13 pilot in three panels: the win, the knob, and the fairness check.
+r"""X13 in four panels: the win, the knob, the trade-off, and the fairness check.
 
 Run this file directly.
 
-    python scripts/plot_ekf_pilot.py
+    python scripts/plot_ekf_pilot.py           # the pilot grid, 2 seeds
+    python scripts/plot_ekf_pilot.py --full    # the refined grid, 5 seeds
 
-Three questions, three panels, in the order a reader asks them:
+One script for both grids rather than a near-duplicate: the panels ask the same
+questions of each, and a fork would let the pilot figure rot the moment the
+refined one changed.
+
+Four questions, four panels, in the order a reader asks them:
 
 **(a) Does the filter win?** Error against step, EKF versus the SGD baselines and
 the frozen control. The gap is large enough to read without a scale bar, which is
@@ -17,13 +22,21 @@ shared scale *is* the finding: $Q$ and $\lambda$ move the error by more than
 noise. Plotted against a normalised axis position because the four axes have
 incomparable units -- the shape and the span are what transfer, not the abscissa.
 
-**(c) Were the baselines given their best shot?** Settled error against learning
+**(c) What does the knob cost?** Damage against stationary error, one point per
+cell that has a control. Drawn only for the refined grid, because the pilot ran
+no controls. This is the panel that shows $Q$ is a *trade*: more process noise
+buys robustness to drift and pays for it in the stationary case, so "the best
+cell" depends on which of the two you are buying.
+
+**(d) Were the baselines given their best shot?** Settled error against learning
 rate, with the shipped value marked. Answers the objection that a drift-tuned
 filter is being compared with a stationary-tuned baseline (design note D65).
 
-The seed-noise band (median $|{\rm seed}_0-{\rm seed}_1|$ over all 80 cells,
-0.0021) is drawn wherever a difference is being read, so no panel invites a
-comparison finer than the data supports.
+The seed-noise band is drawn wherever a difference is being read, so no panel
+invites a comparison finer than the data supports. It is the median $|{\rm
+seed}_0-{\rm seed}_1|$ (0.0021) for the two-seed pilot and $\sqrt2\times$ the
+median s.e.m. (0.0013) for the five-seed grid -- in both cases the gap two cells
+must clear before their order means anything.
 """
 
 from __future__ import annotations
@@ -44,13 +57,10 @@ import pandas as pd  # noqa: E402
 
 from run_ekf_sweep import (  # noqa: E402
     BASELINE_LRS,
-    GAMMAS,
-    LAMBDAS,
-    PRIOR_SCALES,
-    PROCESS_NOISES,
     baseline_name,
     cell_name,
     cells,
+    grid_levels,
 )
 
 from dekf_bench.utils.paths import figures_dir  # noqa: E402
@@ -58,10 +68,13 @@ from dekf_bench.utils.paths import figures_dir  # noqa: E402
 SETTLED = 1200
 HORIZON = 1500
 DPI = 200
-BEST_CELL = "x13_g_s0p1_g0p999_q0p0001"
 
-#: Median |seed0 - seed1| across all 80 pilot cells. Drawn, not asserted.
-SEED_NOISE = 0.0021
+FULL = "--full" in sys.argv
+SUFFIX = "_full" if FULL else ""
+#: The gap two cells must clear before their order means anything. At two seeds
+#: that is the median |seed0 - seed1|; at five it is sqrt(2) times the median
+#: s.e.m., the standard error of a *difference* of two independent means.
+SEED_NOISE = 0.0013 if FULL else 0.0021
 
 LABELS = {
     "centralized_ekf_gamma": "EKF (gamma family)",
@@ -95,6 +108,24 @@ def load(directory: str) -> pd.DataFrame:
     return pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
 
 
+def has(directory: str) -> bool:
+    return any((ROOT / "results" / directory).glob("*.parquet"))
+
+
+def seeds_of(directory: str) -> frozenset[int]:
+    """Which seeds a run actually holds.
+
+    Used to refuse a pairing rather than trust a name. The controls are named
+    ``{cell}_control`` with no grid suffix, so the pilot -- which ran none --
+    matches the refined grid's controls by name and would silently subtract a
+    five-seed mean from a two-seed one.
+    """
+    if not has(directory):
+        return frozenset()
+    frame = load(directory)
+    return frozenset(int(s) for s in frame["seed"].unique())
+
+
 def error_curve(frame: pd.DataFrame, learner: str) -> pd.Series:
     rows = frame[
         (frame["learner"] == learner)
@@ -117,11 +148,11 @@ def settled(directory: str, learner: str) -> float | None:
 
 def cell_scores() -> dict[str, float]:
     scores = {}
-    for cell in cells():
+    for cell in cells(full=FULL):
         name = cell_name(cell)
-        if not (ROOT / "results" / name).exists():
+        if not has(f"{name}{SUFFIX}"):
             continue
-        value = settled(name, cell["name"])
+        value = settled(f"{name}{SUFFIX}", cell["name"])
         if value is not None:
             scores[name] = value
     return scores
@@ -129,7 +160,8 @@ def cell_scores() -> dict[str, float]:
 
 def best_per_level(scores: dict[str, float]) -> dict[str, tuple[list, list[float]]]:
     """Best settled error at each level of each axis, for the marginals panel."""
-    grid = cells()
+    grid = cells(full=FULL)
+    priors, gammas, noises, lambdas, lambda_priors = grid_levels(FULL)
     marginals: dict[str, tuple[list, list[float]]] = {}
 
     def best_where(predicate) -> float:
@@ -144,32 +176,35 @@ def best_per_level(scores: dict[str, float]) -> dict[str, tuple[list, list[float
     lambda_only = lambda cell: cell["name"].endswith("lambda")  # noqa: E731
 
     marginals["Q"] = (
-        PROCESS_NOISES,
+        noises,
         [best_where(lambda c, q=q: gamma_only(c) and c["process_noise_q"] == q)
-         for q in PROCESS_NOISES],
+         for q in noises],
     )
     marginals["lambda"] = (
-        LAMBDAS,
-        [best_where(lambda c, v=v: lambda_only(c) and c["lambda_forget"] == v) for v in LAMBDAS],
+        lambdas,
+        [best_where(lambda c, v=v: lambda_only(c) and c["lambda_forget"] == v) for v in lambdas],
     )
     marginals["gamma"] = (
-        GAMMAS,
-        [best_where(lambda c, v=v: gamma_only(c) and c["gamma"] == v) for v in GAMMAS],
+        gammas,
+        [best_where(lambda c, v=v: gamma_only(c) and c["gamma"] == v) for v in gammas],
     )
+    # The gamma family's prior axis. The lambda family has its own under `full`,
+    # and plotting them on one line would average two different things.
     marginals["sigma_0^2"] = (
-        PRIOR_SCALES,
-        [best_where(lambda c, v=v: gamma_only(c) and c["prior_scale"] == v)
-         for v in PRIOR_SCALES],
+        priors,
+        [best_where(lambda c, v=v: gamma_only(c) and c["prior_scale"] == v) for v in priors],
     )
     return marginals
 
 
 def panel_curves(axis, scores: dict[str, float]) -> None:
-    cell = load(BEST_CELL)
-    baselines = load("x13_baselines")
+    best_cell = min(scores, key=scores.get)
+    cell = load(f"{best_cell}{SUFFIX}")
+    baselines = load(f"x13_baselines{SUFFIX}")
 
+    family = "centralized_ekf_lambda" if "_l_" in best_cell else "centralized_ekf_gamma"
     for learner, frame in (
-        ("centralized_ekf_gamma", cell),
+        (family, cell),
         ("centralized_sgd", baselines),
         ("diffusion_sgd_atc", baselines),
         ("frozen_atc", baselines),
@@ -248,6 +283,83 @@ def panel_marginals(axis, scores: dict[str, float]) -> None:
     axis.grid(alpha=0.25, linewidth=0.5, axis="y")
 
 
+def panel_tradeoff(axis, scores: dict[str, float]) -> None:
+    r"""Damage against stationary error, one point per cell that has a control.
+
+    The panel exists because the two are **not** the same ranking. More process
+    noise loosens the covariance, which buys tracking and costs precision when
+    nothing is moving -- so the cell with the least drift damage is not the cell
+    with the lowest error under drift, and "best" has to name which one it means.
+    """
+    points = []
+    for cell in cells(full=FULL):
+        name = cell_name(cell)
+        control = f"{name}_control"
+        if not has(control) or name not in scores:
+            continue
+        # Only subtract a control that ran the same seeds. Anything else is two
+        # different experiments differenced, and it would look perfectly sane.
+        if seeds_of(control) != seeds_of(f"{name}{SUFFIX}"):
+            continue
+        still = settled(control, cell["name"])
+        if still is None:
+            continue
+        points.append((still, scores[name] - still, cell["process_noise_q"], name))
+
+    if not points:
+        axis.text(
+            0.5, 0.5, "no controls at these seeds\n(controls ran with --full)",
+            ha="center", va="center", transform=axis.transAxes, color="#888888", fontsize=9,
+        )
+        axis.set_title("(c) Damage against stationary error", fontsize=10, loc="left")
+        axis.set_xlabel("stationary error (its own control)")
+        axis.set_ylabel("damage under drift")
+        return
+
+    noises = sorted({q for _, _, q, _ in points})
+    shades = ["#f4c9b4", "#e08b5f", "#c1440e", "#7d2c09", "#3d1604"]
+    for index, level in enumerate(noises):
+        subset = [(s, d) for s, d, q, _ in points if q == level]
+        axis.scatter(
+            [s for s, _ in subset], [d for _, d in subset],
+            color=shades[index % len(shades)], s=46, zorder=3,
+            edgecolor="white", linewidth=0.8, label=f"Q = {level:g}",
+        )
+
+    best_name = min(scores, key=scores.get)
+    for still, damage, _, name in points:
+        if name == best_name:
+            axis.annotate(
+                "lowest error\nunder drift", (still, damage),
+                textcoords="offset points", xytext=(10, 6), fontsize=7.5,
+                color="#c1440e", fontweight="bold",
+            )
+
+    baseline_damage = None
+    if has(f"x13_baselines{SUFFIX}") and has("x13_baselines_control"):
+        drift = settled(f"x13_baselines{SUFFIX}", "diffusion_sgd_atc")
+        still = settled("x13_baselines_control", "diffusion_sgd_atc")
+        if drift is not None and still is not None:
+            baseline_damage = drift - still
+            axis.axhline(baseline_damage, color="#1f77b4", linewidth=2.0, linestyle="--")
+            # Axes-fraction x, data y: the data limits are not settled when this
+            # is drawn, so reading get_xlim() here puts the label off the figure.
+            axis.text(
+                0.015, baseline_damage, "ATC damage",
+                transform=axis.get_yaxis_transform(),
+                va="bottom", fontsize=7.5, color="#1f77b4", fontweight="bold",
+            )
+
+    axis.set_xlabel("stationary error (its own control)")
+    axis.set_ylabel("damage under drift")
+    axis.set_title("(c) Q trades stationary accuracy for drift robustness",
+                   fontsize=10, loc="left")
+    # Lower left: the cloud runs top-left to bottom-right, so that corner is the
+    # empty one, and the ATC line owns the top of the panel.
+    axis.legend(fontsize=7, frameon=False, loc="lower left")
+    axis.grid(alpha=0.25, linewidth=0.5)
+
+
 def panel_learning_rate(axis, scores: dict[str, float]) -> None:
     for learner in ("centralized_sgd", "diffusion_sgd_atc"):
         values, rates = [], []
@@ -275,7 +387,7 @@ def panel_learning_rate(axis, scores: dict[str, float]) -> None:
     axis.set_yscale("log")
     axis.set_xlabel("learning rate")
     axis.set_ylabel("settled error")
-    axis.set_title("(c) The baselines had their best shot", fontsize=10, loc="left")
+    axis.set_title("(d) The baselines had their best shot", fontsize=10, loc="left")
     axis.legend(fontsize=7.5, frameon=False, loc="upper left")
     axis.grid(alpha=0.25, linewidth=0.5)
 
@@ -283,25 +395,29 @@ def panel_learning_rate(axis, scores: dict[str, float]) -> None:
 def main() -> int:
     scores = cell_scores()
     if not scores:
-        print("No pilot results found. Run scripts/run_ekf_sweep.py first.")
+        which = "--full" if FULL else ""
+        print(f"No results found. Run scripts/run_ekf_sweep.py {which} first.")
         return 1
-    print(f"{len(scores)} pilot cells, best {min(scores.values()):.4f}")
+    label = "refined" if FULL else "pilot"
+    seeds = 5 if FULL else 2
+    print(f"{len(scores)} {label} cells, best {min(scores.values()):.4f}")
 
-    figure, axes = plt.subplots(1, 3, figsize=(14.5, 4.4))
+    figure, axes = plt.subplots(1, 4, figsize=(19.0, 4.4))
     panel_curves(axes[0], scores)
     panel_marginals(axes[1], scores)
-    panel_learning_rate(axes[2], scores)
+    panel_tradeoff(axes[2], scores)
+    panel_learning_rate(axes[3], scores)
 
     figure.suptitle(
-        "X13 pilot -- centralised EKF under linear drift, "
-        f"alpha=0.025 deg/step, T={HORIZON}, 2 seeds",
+        f"X13 {label} -- centralised EKF under linear drift, "
+        f"alpha=0.025 deg/step, T={HORIZON}, {seeds} seeds",
         fontsize=11, y=1.00,
     )
     figure.tight_layout()
 
     out_dir = figures_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / "24_ekf_pilot.png"
+    path = out_dir / (f"25_ekf_refined.png" if FULL else "24_ekf_pilot.png")
     figure.savefig(path, dpi=DPI, bbox_inches="tight")
     print(f"wrote {path}")
     return 0

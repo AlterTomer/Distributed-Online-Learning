@@ -270,10 +270,25 @@ class CentralizedEKF:
         try:
             factor = torch.linalg.cholesky(gram)
         except torch.linalg.LinAlgError as failure:
+            # Report the state that actually caused it rather than guessing at a
+            # cause. P can reach this by two routes -- too large a prior, or
+            # forgetting that outruns the information arriving -- and naming the
+            # wrong one sends the reader to the wrong hyperparameter. X13 hit it
+            # at prior_scale=0.01, which is mid-range and blameless; the culprit
+            # was lambda=0.993 inflating P by 0.7% a step for 860 steps.
+            variance = float(covariance.diagonal().mean())
+            inflation = (
+                f"lambda={self.lambda_forget} inflates P by "
+                f"{1 / self.lambda_forget - 1:.2%} per step"
+                if self.lambda_forget < 1.0
+                else f"Q={self.process_noise_q} adds to P each step"
+            )
             raise FilterError(
                 f"{self._name} diverged at step {self._steps}: the innovation covariance "
-                f"is singular. prior_scale={self.prior_scale} is far too large -- P has "
-                "grown until the identity is negligible beside it."
+                f"is singular, so P has grown until the identity is negligible beside it. "
+                f"Mean variance is {variance:.3e}, from prior_scale={self.prior_scale}; "
+                f"{inflation}. Either the prior is too large or the forgetting outruns "
+                "the information arriving (design note D61)."
             ) from failure
 
         solved = torch.cholesky_solve(product.transpose(0, 1), factor)  # (n*q, p)

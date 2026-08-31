@@ -2181,6 +2181,80 @@ at most 100 steps of work lost to a crash, against ~20× less write cost. X13 is
 left alone deliberately — it is mid-run, and restarting it to save ~5 h of a
 49 h remainder would risk more than it saves.
 
+### ✅ D70. X13 refined: the filter wins, and $Q$ is a trade rather than a setting
+
+45 cells, 5 seeds, one divergence. Median s.e.m. **0.0009**, so a difference
+between two cells must clear $\sqrt2\times0.0009=\mathbf{0.0013}$ before their
+order means anything.
+
+| | settled error |
+|---|---|
+| best EKF ($\sigma_0^2=0.01$, $\gamma=0.9995$, $Q=6\times10^{-5}$) | **0.0630** ±0.0006 |
+| `centralized_sgd` (re-tuned `lr 0.02`) | 0.0918 ±0.0015 |
+| `diffusion_sgd_atc` | 0.0952 ±0.0018 |
+| `frozen_atc` | 0.3976 ±0.0071 |
+
+**+0.0288 against the centralized learner and +0.0322 against ATC**, at 22× and
+25× the threshold. The pilot's provisional +0.0328 came down to +0.0288 once the
+baselines were re-tuned and both sides ran five seeds — the claim shrank slightly
+and got much harder to argue with.
+
+**The optimum is genuinely flat.** Seven cells sit within 0.0013 of the best, the
+same count as the pilot found within its looser 0.0021 — five seeds tightened the
+floor without resolving the tie. All seven are $\gamma$-family, at
+$Q\in\{3\times10^{-5},6\times10^{-5},10^{-4}\}$ and every $\gamma$.
+
+**Best cell per level**, with the 0.0013 threshold:
+
+| axis | profile | span | verdict |
+|---|---|---|---|
+| $Q$ | 3e-5: 0.0641 → **6e-5: 0.0630** → 1e-4: 0.0637 → 2e-4: 0.0655 → 3e-4: 0.0684 | 0.0054 | real |
+| $\lambda$ | 0.998: 0.0729 → 0.997: 0.0694 → **0.996: 0.0683** → 0.995: 0.0690 → 0.993: 0.0772 | 0.0089 | real |
+| $\gamma$ | 1: 0.0641 → 0.9995: 0.0630 → 0.999: 0.0635 | 0.0012 | **within noise** |
+| $\sigma_0^2$ ($\gamma$) | 0.01: 0.0630 → 0.1: 0.0639 | 0.0009 | **within noise** |
+| $\sigma_0^2$ ($\lambda$) | 0.001: 0.0690 → **0.003: 0.0683** → 0.01: 0.0700 | 0.0017 | real |
+
+$Q$ and $\lambda$ both have interior optima, so both families are now bracketed
+on their own terms. **$\gamma$ did not survive.** The pilot called it "marginal
+but probably real" on a 0.0030 span with the sign consistent across all four
+$\sigma_0^2$ blocks; at five seeds the span is 0.0012 against a 0.0013 threshold.
+The consistency argument was suggestive and the extra seeds did not confirm it —
+which is the honest outcome of having made the prediction explicitly.
+
+The $\sigma_0^2$ asymmetry **did** survive: flat for $\gamma$, real for $\lambda$,
+exactly as the mechanism predicts. $\bm P\leftarrow\bm P/\lambda$ is
+scale-preserving so $\bm P_0$ never washes out; additive $Q$ erases it.
+
+**The $\lambda$ family loses fairly now.** Given its own bracketed axes it reaches
+0.0683 against the $\gamma$ family's 0.0630 — a gap of 0.0054, down from the
+pilot's less-well-tuned 0.0074, and still four times the threshold.
+
+**One divergence**: $\lambda=0.993$ at $\sigma_0^2=0.01$, seed 4, step 860. The
+grid bracketed the stability edge correctly. It also exposed a misleading error
+message — the singular-covariance path blamed `prior_scale`, which at 0.01 was
+mid-range and blameless, when the culprit was $\lambda$ inflating $\bm P$ by 0.7%
+a step for 860 steps. The message now reports the realised variance and names
+both mechanisms.
+
+**$Q$ is a trade, not a setting** — the finding that changes how the result should
+be read. Damage (drift minus its own stationary twin) runs *opposite* to
+stationary error across the $Q$ axis:
+
+| $Q$ | stationary | under drift | damage |
+|---|---|---|---|
+| 3e-5 | 0.0548 | 0.0641 | 0.0093 |
+| 6e-5 | 0.0561 | 0.0630 | 0.0069 |
+| 1e-4 | 0.0583 | 0.0637 | 0.0054 |
+| 2e-4 | 0.0619 | 0.0655 | 0.0035 |
+
+More process noise loosens the covariance, which buys tracking and costs
+precision when nothing moves. So "the best cell" depends on which is being
+bought, and the answer is a choice rather than a measurement.
+
+Either way the filter is **less damaged than the baselines**, whose damage is
+0.0124 (ATC) and 0.0129 (centralized) against the EKF's 0.0035–0.0110. It both
+tracks better in absolute terms and loses less to the drift.
+
 ---
 
 ## Open questions
