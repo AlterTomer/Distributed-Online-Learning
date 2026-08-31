@@ -2255,6 +2255,64 @@ Either way the filter is **less damaged than the baselines**, whose damage is
 0.0124 (ATC) and 0.0129 (centralized) against the EKF's 0.0035–0.0110. It both
 tracks better in absolute terms and loses less to the drift.
 
+### ✅ D71. Where the data does not decide, carry both branches
+
+$\gamma$'s entire span on the refined grid is **0.0012** against a significance
+threshold of **0.0013**. The measurement cannot separate the driftless random
+walk from a shrinking transition, so selecting the empirical argmin would be
+choosing between cells the data does not distinguish — the winner's curse with
+extra steps, and it would silently commit the diffusion filter to an extra
+hyperparameter on the strength of a noise draw.
+
+Both therefore go forward into X14, and the choice is left to be made on grounds
+the numbers do not supply: parsimony, and how many hyperparameters Diff-EKF
+should have to carry and re-tune in deployment.
+
+| carried | setting | settled | damage |
+|---|---|---|---|
+| $\gamma=1$, the random walk | $\sigma_0^2{=}0.01$, $Q{=}3\times10^{-5}$ | 0.0641 ±0.0009 | 0.0093 |
+| $\gamma<1$, shrinking | $\sigma_0^2{=}0.01$, $\gamma{=}0.9995$, $Q{=}6\times10^{-5}$ | 0.0630 ±0.0006 | 0.0069 |
+| $\lambda$ family | $\sigma_0^2{=}0.003$, $\lambda{=}0.996$ | 0.0683 ±0.0009 | 0.0121 |
+
+**Implementation consequence.** Two $\gamma$-family settings in one run need two
+learner names: the config refuses duplicates, loudly, which is how this was
+caught rather than by one setting silently overwriting the other in a dict keyed
+on name. `centralized_ekf_walk` is that second name, and it asserts $\gamma=1$
+exactly as `centralized_ekf_lambda` asserts $\bm F=\bm I$ — the naming convention
+of D56 applied one level down. It is **not** the same as
+`centralized_ekf_lambda` at $\lambda=1$, which also forces $Q=0$ and so cannot
+express a random walk that is actually driven.
+
+### ✅ D72. The two families differ in tracking, not in fit
+
+Running the missing stationary twin for the best $\lambda$ cell — the top-16
+controls were all $\gamma$ cells, so the family comparison had damage for one
+side only — turns the 0.0054 gap into something much sharper:
+
+| | stationary | under drift | damage |
+|---|---|---|---|
+| $\gamma$ family, best | 0.0561 | 0.0630 | **0.0069** |
+| $\lambda$ family, best | 0.0562 | 0.0683 | **0.0121** |
+| `diffusion_sgd_atc` | 0.0828 | 0.0952 | 0.0124 |
+
+The two families are **indistinguishable when nothing is moving** — 0.0561
+against 0.0562, a difference of 0.0001 against a 0.0013 threshold. The entire
+gap between them is drift damage, and $\lambda$'s damage is within noise of
+ATC's.
+
+So the finding is not "$\gamma$ fits slightly better". It is that multiplicative
+inflation buys **essentially no tracking advantage over SGD**, while additive
+process noise halves the damage — and that both reach the same place when there
+is nothing to track. That is a statement about the mechanism rather than about
+the tuning: $\bm P\leftarrow\bm P/\lambda$ preserves the covariance's shape,
+scaling confident and unconfident directions alike, while $\bm P\leftarrow\bm
+P+Q\bm I$ compresses toward isotropy and so re-opens precisely the directions
+the data had pinned down. Under drift it is those directions that need to move.
+
+Worth stating carefully because it was invisible until the control ran: on
+settled error alone the two families look like near neighbours, 0.0630 against
+0.0683.
+
 ---
 
 ## Open questions

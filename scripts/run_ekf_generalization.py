@@ -65,6 +65,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+from typing import Any
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -183,30 +184,58 @@ SETTLED_FROM = int(0.8 * HORIZON)
 # ---------------------------------------------------------------------------
 
 
+#: The three settings X14 carries, as (label, predicate on an X13 cell). Each is
+#: filled with whichever cell minimises settled error under drift among the cells
+#: matching it -- the criterion X1--X12 used for every baseline.
+#:
+#: **gamma=1 and gamma<1 are carried separately, on purpose.** gamma's whole span
+#: on the refined grid is 0.0012 against a 0.0013 significance threshold, so the
+#: data does not separate the driftless random walk from a shrinking one, and
+#: picking the argmin would be choosing between cells the measurement cannot tell
+#: apart. Reporting both leaves the call to be made on grounds the numbers do not
+#: supply -- parsimony, or what the diffusion filter should have to carry
+#: (design note D71).
+#: (label, predicate, learner name to run it under). The third entry exists
+#: because two entries in one run need two names -- the config refuses duplicates,
+#: loudly, which is how this was caught rather than silently dropping a setting.
+SETTING_GROUPS: list[tuple[str, Any, str]] = [
+    ("gamma = 1 (random walk)",
+     lambda c: c["name"].endswith("gamma") and c["gamma"] == 1.0,
+     "centralized_ekf_walk"),
+    ("gamma < 1 (shrinking)",
+     lambda c: c["name"].endswith("gamma") and c["gamma"] < 1.0,
+     "centralized_ekf_gamma"),
+    ("lambda family",
+     lambda c: c["name"].endswith("lambda"),
+     "centralized_ekf_lambda"),
+]
+
+
 def tuned_settings() -> list[dict]:
-    r"""The best cell of each family from the X13 refined grid.
+    r"""The settings X13 selected, one per group in :data:`SETTING_GROUPS`.
 
     Read rather than hard-coded, so this experiment cannot drift out of step with
-    the tuning that justifies it. One setting per family because the two are
-    different *models* -- $\bm F=\gamma\bm I$ against $\bm F=\bm I$ -- and which
-    of them generalises is part of the question.
+    the tuning that justifies it. The two families are different *models* --
+    $\bm F=\gamma\bm I$ against $\bm F=\bm I$ -- and which generalises is part of
+    the question; within the $\gamma$ family, $\gamma=1$ is the canonical random
+    walk and is carried alongside the empirical argmin for the reason above.
     """
     chosen = []
-    for family in ("centralized_ekf_gamma", "centralized_ekf_lambda"):
+    for label, matches, runs_as in SETTING_GROUPS:
         scored = []
         for cell in cells(full=True):
-            if cell["name"] != family:
+            if not matches(cell):
                 continue
             directory = f"{cell_name(cell)}_full"
             if not (ROOT / "results" / directory).exists():
                 continue
-            value = settled_for(directory, family)
+            value = settled_for(directory, cell["name"])
             if value != float("inf"):
                 scored.append((value, cell))
         if scored:
-            best = min(scored, key=lambda pair: pair[0])
-            print(f"  {family:<24} best {best[0]:.4f}  {cell_name(best[1])}")
-            chosen.append(best[1])
+            score, best = min(scored, key=lambda pair: pair[0])
+            print(f"  {label:<26} {score:.4f}  {cell_name(best)}  -> {runs_as}")
+            chosen.append({**best, "name": runs_as})
     return chosen
 
 
@@ -381,7 +410,7 @@ def main(tune: bool = False, fresh: bool = FRESH) -> int:
 
     print("filter settings, read from the X13 refined grid:")
     settings = tuned_settings()
-    if len(settings) < 2:
+    if len(settings) < len(SETTING_GROUPS):
         print(
             "\nThe X13 refined grid has not finished, so there is no tuned setting to\n"
             "generalise. Run it first:\n"

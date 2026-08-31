@@ -83,6 +83,12 @@ BUILDERS = {
     # (design note D56).
     "centralized_ekf_gamma": CentralizedEKF,
     "centralized_ekf_lambda": CentralizedEKF,
+    # The gamma family pinned at gamma = 1: the driftless random walk, which is
+    # the canonical state model rather than a tuned variant of it. A separate
+    # name because X13 could not separate it from a shrinking gamma -- the whole
+    # gamma span was 0.0012 against a 0.0013 threshold -- so both are carried
+    # forward, and two entries in one run need two names (design note D71).
+    "centralized_ekf_walk": CentralizedEKF,
     # The non-adapting baseline. Shares the ATC implementation and differs only
     # in carrying a `freeze_after`, so "what does continuing to adapt buy?" is
     # answered against the same algorithm rather than against a different one.
@@ -97,11 +103,25 @@ DIFFUSING = {"diffusion_sgd_atc", "diffusion_sgd_atc_plain", "diffusion_sgd_cta"
 #: rather than a name check in the runner: the centralized filter joined
 #: `centralized_sgd` here the moment it existed, and the next pooled method
 #: should not require editing `simulate.py` again to be dispatched correctly.
-POOLING = {"centralized_sgd", "centralized_ekf_gamma", "centralized_ekf_lambda"}
+POOLING = {
+    "centralized_sgd",
+    "centralized_ekf_gamma",
+    "centralized_ekf_lambda",
+    "centralized_ekf_walk",
+}
 
 #: Learners holding a covariance, so metrics may ask them for predictive spread.
 #: Nothing outside this set can answer an uncertainty question at all.
-BAYESIAN = {"centralized_ekf_gamma", "centralized_ekf_lambda", "diffusion_ekf"}
+BAYESIAN = {
+    "centralized_ekf_gamma",
+    "centralized_ekf_lambda",
+    "centralized_ekf_walk",
+    "diffusion_ekf",
+}
+
+#: Every name the centralized filter answers to. One class, three names, each
+#: asserting a different constraint on the state model.
+CENTRALIZED_EKF = {"centralized_ekf_gamma", "centralized_ekf_lambda", "centralized_ekf_walk"}
 
 
 def build_learner(learner_config: Any, model: Model, likelihood: Any, n_nodes: int) -> Any:
@@ -111,7 +131,7 @@ def build_learner(learner_config: Any, model: Model, likelihood: Any, n_nodes: i
         raise LearnerError(f"unknown learner {name!r}; available: {sorted(BUILDERS)}")
     if name == "diffusion_ekf":
         return DiffusionEKF()
-    if name in ("centralized_ekf_gamma", "centralized_ekf_lambda"):
+    if name in CENTRALIZED_EKF:
         return _build_centralized_ekf(learner_config, model, likelihood, n_nodes)
 
     return BUILDERS[name](
@@ -148,14 +168,22 @@ def _build_centralized_ekf(
     # would let a config say `transition: identity` under the gamma learner and
     # be quietly ignored, which is the failure mode this whole function exists
     # to prevent.
-    expected = "scalar" if name == "centralized_ekf_gamma" else "identity"
+    expected = "identity" if name == "centralized_ekf_lambda" else "scalar"
     if transition != expected:
         raise LearnerError(
             f"learner[{name}] requires transition={expected!r}, got {transition!r}. The "
             "name and the state model must agree; they are the same choice written twice."
         )
 
-    if name == "centralized_ekf_gamma":
+    if name == "centralized_ekf_walk" and gamma != 1.0:
+        raise LearnerError(
+            f"{name} is the driftless random walk, which fixes gamma = 1, but "
+            f"gamma={gamma} was set. Use centralized_ekf_gamma for a shrinking "
+            "transition -- the two are carried separately precisely so that the "
+            "difference between them stays visible (design note D71)."
+        )
+
+    if name in ("centralized_ekf_gamma", "centralized_ekf_walk"):
         if lambda_forget != 1.0:
             raise LearnerError(
                 f"{name} is the gamma family (F = gamma I, P <- gamma^2 P + Q) and has no "

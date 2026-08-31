@@ -40,8 +40,9 @@ from run_ekf_generalization import (  # noqa: E402
 )
 from run_ekf_sweep import BASELINE_LRS  # noqa: E402
 
-FILTERS = ("centralized_ekf_gamma", "centralized_ekf_lambda")
+FILTERS = ("centralized_ekf_walk", "centralized_ekf_gamma", "centralized_ekf_lambda")
 SHORT = {
+    "centralized_ekf_walk": "EKF walk",
     "centralized_ekf_gamma": "EKF gamma",
     "centralized_ekf_lambda": "EKF lambda",
     "centralized_sgd": "Central",

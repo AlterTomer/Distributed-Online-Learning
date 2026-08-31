@@ -304,7 +304,8 @@ def panel_tradeoff(axis, scores: dict[str, float]) -> None:
         still = settled(control, cell["name"])
         if still is None:
             continue
-        points.append((still, scores[name] - still, cell["process_noise_q"], name))
+        family = "lambda" if cell["name"].endswith("lambda") else "gamma"
+        points.append((still, scores[name] - still, cell["process_noise_q"], name, family))
 
     if not points:
         axis.text(
@@ -316,18 +317,29 @@ def panel_tradeoff(axis, scores: dict[str, float]) -> None:
         axis.set_ylabel("damage under drift")
         return
 
-    noises = sorted({q for _, _, q, _ in points})
+    gamma_points = [p for p in points if p[4] == "gamma"]
+    noises = sorted({q for _, _, q, _, _ in gamma_points})
     shades = ["#f4c9b4", "#e08b5f", "#c1440e", "#7d2c09", "#3d1604"]
     for index, level in enumerate(noises):
-        subset = [(s, d) for s, d, q, _ in points if q == level]
+        subset = [(s, d) for s, d, q, _, _ in gamma_points if q == level]
         axis.scatter(
             [s for s, _ in subset], [d for _, d in subset],
             color=shades[index % len(shades)], s=46, zorder=3,
-            edgecolor="white", linewidth=0.8, label=f"Q = {level:g}",
+            edgecolor="white", linewidth=0.8, label=f"gamma, Q = {level:g}",
+        )
+
+    # The lambda family gets its own mark: it is a different inflation mechanism,
+    # and colouring it by a Q it does not have would be a category error.
+    lambda_points = [p for p in points if p[4] == "lambda"]
+    if lambda_points:
+        axis.scatter(
+            [s for s, _, _, _, _ in lambda_points], [d for _, d, _, _, _ in lambda_points],
+            marker="D", color="#1f77b4", s=52, zorder=4,
+            edgecolor="white", linewidth=0.8, label="lambda family",
         )
 
     best_name = min(scores, key=scores.get)
-    for still, damage, _, name in points:
+    for still, damage, _, name, _family in points:
         if name == best_name:
             axis.annotate(
                 "lowest error\nunder drift", (still, damage),

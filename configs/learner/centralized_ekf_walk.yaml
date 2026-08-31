@@ -1,0 +1,33 @@
+# The centralised EKF as the driftless random walk: F_t = I, with additive Q.
+#
+#   m <- m                    P <- P + Q*I
+#
+# This is centralized_ekf_gamma pinned at gamma = 1, and it has its own name for
+# one reason: X13 could not tell the two apart. The gamma axis spans 0.0012 on
+# the refined grid against a 0.0013 significance threshold, so choosing the
+# empirical argmin would be choosing between cells the measurement does not
+# separate -- the winner's curse with extra steps.
+#
+# So both go forward and the choice is left to be made on grounds the numbers do
+# not supply: parsimony, and how many hyperparameters the diffusion filter should
+# have to carry. See design note D71.
+#
+# NOT the same as centralized_ekf_lambda at lambda = 1. That family forces Q = 0
+# as well, so it cannot express a random walk that is actually driven; this can.
+# The two remain distinguishable, which is what D56 requires.
+#
+# X13 selected sigma_0^2 = 0.01, Q = 3e-5 for this model: 0.0641 settled error
+# under linear drift at alpha=0.025, against 0.0630 for the best shrinking gamma.
+name: centralized_ekf_walk
+
+transition: scalar          # required: F_t = gamma*I with gamma pinned below
+gamma: 1.0                  # must stay 1 -- that is what this name asserts
+
+forgetting: process_noise   # the only inflation mechanism here
+process_noise_q: 3.0e-5     # with gamma=1 and Q=0 the covariance only shrinks
+lambda_forget: 1.0          # must stay 1: two inflation mechanisms at once make
+                            # neither hyperparameter interpretable
+
+# sigma_0^2 -- a trust region, not merely a prior. See design note D61: above
+# 1e-1 the Gauss-Newton step overshoots the linearisation on step one.
+prior_scale: 0.01
