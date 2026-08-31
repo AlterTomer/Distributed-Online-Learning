@@ -429,7 +429,9 @@ def main() -> int:
 
     out_dir = figures_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / (f"25_ekf_refined.png" if FULL else "24_ekf_pilot.png")
+    # 24 and 25 belong to the drift documents (X11 recovery, abrupt vs smooth).
+    # The EKF figures continue the sequence rather than shadowing them.
+    path = out_dir / ("28_ekf_refined.png" if FULL else "27_ekf_pilot.png")
     figure.savefig(path, dpi=DPI, bbox_inches="tight")
     print(f"wrote {path}")
     return 0
