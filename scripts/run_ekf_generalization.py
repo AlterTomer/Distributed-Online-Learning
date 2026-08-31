@@ -10,6 +10,15 @@ Run this file directly.
 full pass can be done in instalments: whatever ran first is picked up as cached
 and the result is indistinguishable from having run it all at once.
 
+**Run these one at a time, not in parallel terminals.** `--lr` and the condition
+passes are *ordered*, not merely both-required: the condition pass reads the rate
+`--lr` selects, and `best_lr()` returns the argmin over whatever has finished so
+far. Started together it refuses outright (no rates measured yet); started
+staggered it would silently pick the first rate tried rather than the best one,
+which is a wrong baseline in the one comparison whose purpose is fairness. They
+would also contend for the GPU -- measured at 4.4x slower on this machine -- so
+sequential is faster as well as correct.
+
 Run both **after** `run_ekf_sweep.py --full`, and not alongside it. The `--lr`
 pass has no dependency on X13 and would start happily, but it would contend for
 the same GPU and slow both; the main pass refuses outright, since the two filter
@@ -345,8 +354,20 @@ def load_status() -> dict:
 
 
 def save_status(status: dict) -> None:
+    """Merge into whatever is on disk rather than overwriting it.
+
+    Two processes writing this file both hold a dict loaded at their own start,
+    so a plain write makes the last one to finish erase the other's entries --
+    the runs themselves are unaffected, since they write separate directories,
+    but the ledger of what happened would be wrong. Re-reading immediately
+    before writing does not make concurrent runs *safe* (see the module
+    docstring: `--only` depends on `--lr` having finished), it only stops an
+    accident from also losing the record of it.
+    """
     STATUS.parent.mkdir(parents=True, exist_ok=True)
-    STATUS.write_text(json.dumps(status, indent=2), encoding="utf-8")
+    merged = load_status()
+    merged.update(status)
+    STATUS.write_text(json.dumps(merged, indent=2), encoding="utf-8")
 
 
 def lr_name(lr: float) -> str:
