@@ -2373,6 +2373,46 @@ $\gamma=1$ and $\gamma<1$ remain tied (0.1015 against 0.1007, gap 0.0008 against
 a 0.0021 floor), so carrying both forward under D71 was the right call and the
 question is still open.
 
+### ✅ D74. Rate and state count are separate axes, and $J$ confounds them
+
+A recurring cell's rate is $J/t'$, but $J$ and $t'$ are not interchangeable ways
+of reaching it. Jumps reflect inside the 90°-wide band $[-45,45]$, so a larger
+jump reaches fewer distinct rotations:
+
+| $J$ | 5 | 15 | 30 | 45 |
+|---|---|---|---|---|
+| distinct rotations | 12 | 6–7 | **3** | **3** |
+
+Shortening $t'$ raises the rate and leaves the state space alone; enlarging $J$
+raises it by collapsing the state space. A learner facing three rotations
+revisited twenty times is doing **recurring-concept recall** as much as tracking,
+which is a real and studied problem but not the one this project claims to study.
+Linear drift sits at the far end of the same axis, visiting a new rotation every
+step.
+
+**This lands on D73's headline condition.** `every25_jump30` reaches three
+rotations across sixty shifts. Every method faces the same three, so the
+comparison and the damage figures stand — but "the filter tracks better" is
+narrower than it sounded, and both meeting documents now say so.
+
+X11's own documentation already carried the warning — *"larger J reaches fewer
+states (11, 6, 3), so it partly measures recall"* — as a footnote about reading
+one panel. It was never promoted to a property of the conditions themselves, so
+it did not travel to X14 when those conditions were reused. **A caveat attached
+to a figure does not survive being reused as an experimental condition**; it has
+to be attached to the condition.
+
+X14 therefore crosses the two axes rather than pushing the rate alone:
+$t'\in\{25,10,5,2\}$ against $J\in\{5,15,30\}$, capped at 3°/step by `MAX_RATE`.
+Reading down a column gives rate at roughly fixed state count, across a row gives
+state count at fixed interval, so "is it rate or is it recall?" becomes a
+measurement rather than a caveat.
+
+**The ceiling is chosen, not derived.** Above ~3°/step the learner has fewer than
+five steps and twenty samples per agent between shifts, so no transient completes
+and every method degrades to the same floor — the comparison stops
+discriminating. Finding that floor exactly would be a different experiment.
+
 ---
 
 ## Open questions

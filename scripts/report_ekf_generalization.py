@@ -54,6 +54,32 @@ SHORT = {
 SEED_NOISE = 0.0021
 
 
+def condition_shape(drift: dict, horizon: int) -> tuple[float, int]:
+    r"""A condition's rate in degrees per step, and how many rotations it visits.
+
+    The two together, because either alone misleads. Rate says how fast the
+    distribution moves; the state count says whether it moves somewhere *new*.
+    A recurring cell with $J=30$ reaches three rotations however fast it goes, so
+    a learner revisits each of them dozens of times -- and linear drift sits at
+    the far end of the same axis, visiting a new rotation every step.
+    """
+    from dekf_bench.env.drift import build_drift
+    from dekf_bench.utils.config import load_config
+
+    block = dict(drift)
+    if block["schedule"] == "recurring":
+        block["jump_seed"] = 0
+        rate = block["jump_degrees"] / block["jump_every"]
+    else:
+        rate = block["total_degrees"] / horizon
+    config = load_config(
+        "x1_stationary",
+        overrides={"run": {"horizon": horizon, "seeds": [0]}, "env": {"drift": block}},
+    )
+    schedule = build_drift(config)
+    return rate, len({round(schedule.rotation_at(t), 6) for t in range(horizon)})
+
+
 def settled(directory: str, learner: str, horizon: int) -> float | None:
     """Mean `current` error over the last fifth of a run of length ``horizon``.
 
@@ -136,9 +162,12 @@ def main() -> int:
                   else f"  {SHORT[name]:<12} .")
 
     header = "".join(f"{SHORT[n]:>12}" for n in learners)
-    print(f"\n=== damage by condition ==={'':<10}{header}")
+    print(f"\n=== damage by condition ==={'':<24}{header}")
+    print("  rate = degrees per step; states = distinct rotations the run visits.")
+    print("  A large jump reaches few states, so part of what such a cell measures is")
+    print("  recall of a small set rather than tracking a novel rotation (design note D74).\n")
     rows = []
-    for label, _, samples, horizon in CONDITIONS:
+    for label, drift, samples, horizon in CONDITIONS:
         name = f"x14_{label}"
         control = controls[(samples, horizon)]
         values = []
@@ -148,13 +177,14 @@ def main() -> int:
             values.append(None if value is None or base is None else value - base)
         if all(v is None for v in values):
             continue
-        rows.append((f"{label}  (n={samples})", values))
+        rate, states = condition_shape(drift, horizon)
+        rows.append((f"{label}  ({rate:.2f}/s, {states}st, n={samples})", values))
 
     for label, values in sorted(rows, key=lambda r: r[1][learners.index("diffusion_sgd_atc")] or 0):
         cells_text = "".join(
             f"{v:>12.4f}" if v is not None else f"{'.':>12}" for v in values
         )
-        print(f"  {label:<32}{cells_text}")
+        print(f"  {label:<46}{cells_text}")
 
     print("\n=== filter advantage: ATC damage minus filter damage ===")
     print(f"  positive means the filter is less damaged. Noise floor {SEED_NOISE:.4f}.\n")
@@ -171,7 +201,7 @@ def main() -> int:
             gain = values[atc] - value
             mark = "" if abs(gain) > SEED_NOISE else "  (within noise)"
             parts.append(f"{SHORT[name]} {gain:+.4f}{mark}")
-        print(f"  {label:<32} ATC damage {values[atc]:.4f}   " + "   ".join(parts))
+        print(f"  {label:<46} ATC damage {values[atc]:.4f}   " + "   ".join(parts))
 
     held = [
         label for label, values in rows

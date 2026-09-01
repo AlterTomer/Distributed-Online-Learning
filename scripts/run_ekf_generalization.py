@@ -156,19 +156,71 @@ SAMPLES = 4
 #: delivers (120 at t'=25 instead of 60) and halves the data each step supplies.
 #: Both matter here: scarce data is the regime where a second-order method should
 #: have the most to offer, and it is an axis X4 already established as real.
+#: The rate a recurring cell delivers is $J/t'$, but $J$ and $t'$ are **not**
+#: interchangeable ways of reaching it. Reflection inside the 90-degree-wide band
+#: means a larger jump reaches fewer distinct rotations:
+#:
+#:     J = 5   ->  12 states       J = 30  ->  3 states
+#:     J = 15  ->   6-7 states     J = 45  ->  3 states
+#:
+#: So raising the rate by enlarging $J$ collapses the state space, and a learner
+#: facing three rotations revisited twenty times each is doing *recurring-concept*
+#: recall as much as tracking. Raising it by shortening $t'$ leaves the states
+#: alone and shrinks the recovery window, which is the quantity of interest.
+#:
+#: Crossing the two axes separates them: read down a column for rate at roughly
+#: fixed state count, across a row for state count at fixed interval.
+#:
+#:              J=5        J=15       J=30
+#:     t'=25   0.2/12s    0.6/6s     1.2/3s
+#:     t'=10   0.5/12s    1.5/7s     3.0/3s
+#:     t'=5    1.0/12s    3.0/7s     (6.0)
+#:     t'=2    2.5/19s    (7.5)      (15.0)
+#:
+#: Bracketed cells exceed the ceiling below and are not run (design note D74).
+SWEEP_INTERVALS = (25, 10, 5, 2)
+SWEEP_JUMPS = (5.0, 15.0, 30.0)
+
+#: Degrees per step. Above roughly this the learner has too few steps between
+#: shifts for a transient to complete, so every method degrades to the same floor
+#: and the comparison stops discriminating. 3.0 deg/step leaves 5 steps and 20
+#: samples per agent between shifts, which is enough for recovery to be visible.
+MAX_RATE = 3.05
+
+
+def _sweep_conditions() -> list[tuple[str, dict, int, int]]:
+    """The rate x state-count grid, mildest first, capped at :data:`MAX_RATE`."""
+    cells = []
+    for every in SWEEP_INTERVALS:
+        for jump in SWEEP_JUMPS:
+            if jump / every > MAX_RATE:
+                continue
+            cells.append((
+                f"every{every}_jump{jump:g}",
+                {"schedule": "recurring", "jump_every": every, "jump_degrees": jump},
+                4,
+                1500,
+            ))
+    return sorted(cells, key=lambda c: c[1]["jump_degrees"] / c[1]["jump_every"])
+
+
+#: (label, drift override, n, horizon). Ordered mildest-first so a run stopped
+#: early has still crossed the interesting boundary.
 CONDITIONS: list[tuple[str, dict, int, int]] = [
+    # The smooth conditions, and the sparse abrupt cells that bracket them.
     ("linear_a0p025", {"schedule": "linear", "total_degrees": 37.5}, 4, 1500),
     ("every200_jump5", {"schedule": "recurring", "jump_every": 200, "jump_degrees": 5.0}, 4, 1500),
-    ("every25_jump5", {"schedule": "recurring", "jump_every": 25, "jump_degrees": 5.0}, 4, 1500),
     ("linear_a0p03", {"schedule": "linear", "total_degrees": 45.0}, 4, 1500),
-    ("every100_jump15", {"schedule": "recurring", "jump_every": 100, "jump_degrees": 15.0},
-     4, 1500),
     ("every200_jump15", {"schedule": "recurring", "jump_every": 200, "jump_degrees": 15.0},
+     4, 1500),
+    ("every100_jump15", {"schedule": "recurring", "jump_every": 100, "jump_degrees": 15.0},
      4, 1500),
     ("every200_jump30", {"schedule": "recurring", "jump_every": 200, "jump_degrees": 30.0},
      4, 1500),
     ("every50_jump15", {"schedule": "recurring", "jump_every": 50, "jump_degrees": 15.0}, 4, 1500),
-    ("every25_jump30", {"schedule": "recurring", "jump_every": 25, "jump_degrees": 30.0}, 4, 1500),
+    # The rate x state-count sweep. `every25_jump5` and `every25_jump30` are
+    # already members, so they are not listed twice.
+    *_sweep_conditions(),
     # Half the data, twice the horizon. One smooth and one abrupt condition at
     # the same n and T, so the contrast between them is not confounded by either.
     # alpha=0.015 x 3000 = 45 degrees, the same total travel as linear_a0p03
