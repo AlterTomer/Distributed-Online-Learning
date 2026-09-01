@@ -2313,6 +2313,66 @@ Worth stating carefully because it was invisible until the control ran: on
 settled error alone the two families look like near neighbours, 0.0630 against
 0.0683.
 
+**⚠ Superseded in part by D73.** The *ordering* holds, but "multiplicative
+inflation buys essentially no tracking advantage over SGD" was drawn from a
+condition where there was almost nothing to detect, and it does not survive a
+harder one.
+
+### ✅ D73. The tracking share triples where the drift actually hurts
+
+D70 measured the filter's advantage and split it: at linear 0.025°/step, **83 %**
+of the win over ATC is present with no drift at all — the EKF being a
+second-order method — and only **17 %** is tracking. That was the honest reading,
+and it made a prediction: if the tracking component is small *because there is
+little tracking to win*, it should grow at a condition that does more damage.
+
+Tested at `every 25, jump 30°`, the most damaging condition in the project (D67),
+with the **same hyperparameters** chosen under smooth drift and not re-tuned:
+
+| | stationary | under drift | damage |
+|---|---|---|---|
+| EKF, $\gamma<1$ | 0.0561 | 0.1007 | **0.0446** |
+| EKF, $\gamma=1$ | 0.0548 | 0.1015 | 0.0467 |
+| EKF, $\lambda$ | 0.0562 | 0.1034 | 0.0472 |
+| Centralized SGD | 0.0785 | 0.1453 | 0.0669 |
+| ATC | 0.0798 | 0.1499 | 0.0701 |
+
+| split, vs ATC | linear 0.025 | every 25, jump 30 |
+|---|---|---|
+| total advantage | +0.0322 | **+0.0493** |
+| present with no drift | 0.0267 (83 %) | 0.0237 (48 %) |
+| from tracking | 0.0056 (17 %) | **0.0255 (52 %)** |
+
+The tracking component grew **4.6×** in absolute terms while the fitting
+component barely moved — which is what should happen if the two are measuring
+what they claim to, since fitting is a property of the method and tracking a
+property of the method *against a condition*. The prediction held.
+
+Two things make this stronger than the smooth-drift result rather than merely
+consistent with it. The hyperparameters were **selected at a different
+condition**, so it is not tuned-here-reported-here. And the baselines were
+**re-tuned again here**: ATC prefers `lr 0.01` under abrupt shifts where it
+preferred 0.02 under smooth drift, worth 0.0050, so it is measured against its
+own best step size.
+
+**What did not survive.** D72 concluded that the $\lambda$ family "buys
+essentially no tracking advantage over SGD", because its damage (0.0121) was
+within noise of ATC's (0.0124). Here $\lambda$ is damaged 0.0472 against ATC's
+0.0701 — a real advantage of 0.023 — while remaining 0.0026 behind the $\gamma$
+family. The ordering of the two families holds and the mechanism argument for
+*why* still stands; the strong form of the claim does not. It was drawn from a
+condition where only 13 % of ATC's error was the drift's fault, so there was
+almost nothing there to detect either way.
+
+The general lesson is the one D67 was built around and this is the second
+instance of: **a null result at a mild condition is not a null result.** Before
+concluding that a mechanism does nothing, check whether the condition gave it
+anything to do.
+
+$\gamma=1$ and $\gamma<1$ remain tied (0.1015 against 0.1007, gap 0.0008 against
+a 0.0021 floor), so carrying both forward under D71 was the right call and the
+question is still open.
+
 ---
 
 ## Open questions

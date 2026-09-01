@@ -59,6 +59,35 @@ def settled(directory: str, learner: str) -> float:
     return float(rows["value"].mean())
 
 
+def abrupt_split() -> dict[str, tuple[float, float]]:
+    """The same split at X14's worst condition, or ``{}`` if it has not run.
+
+    Uses X14's *own* control and its *own* re-tuned baselines: the learning rate
+    ATC prefers differs between the two conditions (0.01 here against 0.02 under
+    smooth drift), so borrowing X13's numbers would mix two baselines.
+    """
+    drift, control = "x14_every25_jump30", "x14_control_n4_T1500"
+    if not (ROOT / "results" / drift).exists():
+        return {}
+    out = {}
+    for learner, label in (
+        ("centralized_sgd", "Centralized SGD"),
+        ("diffusion_sgd_atc", "ATC (momentum)"),
+    ):
+        try:
+            base_still = settled(control, learner)
+            base_drift = settled(drift, learner)
+            filt_still = settled(control, FILTER_LEARNER)
+            filt_drift = settled(drift, FILTER_LEARNER)
+        except SystemExit:
+            return {}
+        out[label] = (
+            base_still - filt_still,
+            (base_drift - base_still) - (filt_drift - filt_still),
+        )
+    return out
+
+
 def main() -> int:
     ekf = (settled(f"{BEST}_control", FILTER_LEARNER), settled(f"{BEST}_full", FILTER_LEARNER))
     baselines = {
@@ -90,45 +119,67 @@ def main() -> int:
     axis.set_xticklabels(names, fontsize=9)
     axis.set_ylabel("settled error")
     axis.set_ylim(0, max(drift) * 1.22)
-    axis.set_title("(a) Each method, with and without the drift", fontsize=10, loc="left")
+    # Names its condition, because panel (b) now carries two and an unlabelled
+    # worked example would read as applying to both.
+    axis.set_title(
+        "(a) How the split is computed, at linear 0.025°/step", fontsize=10, loc="left"
+    )
     axis.legend(fontsize=8, frameon=False, loc="upper right")
     axis.grid(alpha=0.25, linewidth=0.5, axis="y")
     axis.set_axisbelow(True)
 
-    # -- (b) the split ------------------------------------------------------ #
+    # -- (b) the split, at both conditions ---------------------------------- #
+    #
+    # X14's abrupt cell is included when it exists, because the *comparison* is
+    # the point: the split is a property of the condition, not of the filter, and
+    # one column alone invites reading it as the latter.
     axis = axes[1]
     labels, fitting, tracking = [], [], []
     for name, (base_still, base_drift) in baselines.items():
-        labels.append(f"vs {name}")
+        labels.append(f"vs {name}\nlinear 0.025°/step")
         fitting.append(base_still - ekf[0])
         tracking.append((base_drift - base_still) - (ekf[1] - ekf[0]))
 
+    abrupt = abrupt_split()
+    for name, (fit, track) in abrupt.items():
+        labels.append(f"vs {name}\nevery 25, jump 30°")
+        fitting.append(fit)
+        tracking.append(track)
+
     positions = np.arange(len(labels))
-    axis.barh(positions, fitting, 0.5, color=FIT, label="already there with NO drift", zorder=3)
-    axis.barh(positions, tracking, 0.5, left=fitting, color=TRACK,
+    axis.barh(positions, fitting, 0.55, color=FIT, label="already there with NO drift", zorder=3)
+    axis.barh(positions, tracking, 0.55, left=fitting, color=TRACK,
               label="from tracking the drift", zorder=3)
 
     for index, (f, t) in enumerate(zip(fitting, tracking)):
         total = f + t
         axis.annotate(f"{f / total:.0%}", (f / 2, index), ha="center", va="center",
-                      fontsize=9, color=INK, fontweight="bold")
+                      fontsize=8.5, color=INK, fontweight="bold")
         axis.annotate(f"{t / total:.0%}", (f + t / 2, index), ha="center", va="center",
-                      fontsize=9, color="white", fontweight="bold")
-        axis.annotate(f"  total {total:+.4f}", (total, index), va="center", fontsize=8.5,
-                      color=INK)
+                      fontsize=8.5, color="white", fontweight="bold")
+        axis.annotate(f"  {total:+.4f}", (total, index), va="center", fontsize=8, color=INK)
+
+    if abrupt:
+        # The line separates conditions, not methods: above it the drift is
+        # abrupt, below it smooth, and the same filter setting produced both.
+        axis.axhline(len(baselines) - 0.5, color="#999999", linewidth=0.8, linestyle=":")
 
     axis.set_yticks(positions)
-    axis.set_yticklabels(labels, fontsize=9)
-    axis.set_xlim(0, max(f + t for f, t in zip(fitting, tracking)) * 1.32)
+    axis.set_yticklabels(labels, fontsize=8)
+    axis.set_xlim(0, max(f + t for f, t in zip(fitting, tracking)) * 1.30)
     axis.set_xlabel("advantage in settled error")
-    axis.set_title("(b) Most of the headline is not about drift", fontsize=10, loc="left")
-    # Dead centre: with two bars there is a clear band between them, and every
-    # corner is occupied by either a bar or its total.
-    axis.legend(fontsize=8, frameon=False, loc="center")
+    title = (
+        "(b) The tracking share triples where drift hurts"
+        if abrupt else "(b) Most of the headline is not about drift"
+    )
+    axis.set_title(title, fontsize=10, loc="left")
+    axis.legend(fontsize=8, frameon=False, loc="lower right")
     axis.grid(alpha=0.25, linewidth=0.5, axis="x")
     axis.set_axisbelow(True)
 
     figure.suptitle(
+        "The filter is a better optimiser and a better tracker — which dominates depends on the drift"
+        if abrupt else
         "The filter is a better optimiser and a better tracker — mostly the former, at this rate",
         fontsize=11, y=1.00,
     )
