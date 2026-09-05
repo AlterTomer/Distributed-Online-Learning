@@ -2531,3 +2531,60 @@ extra sweep, which §10.1c already accepted.
 communication ledger needs a fair matched baseline, presumably an SGD variant
 that also exchanges $\deg(v)$ gradients per step. That baseline does not exist
 yet and would have to be built and tuned.
+
+### ✅ D75. The figure layer follows the meeting documents out of the repo
+
+D46 moved the four `.docx`/`.pptx` builders out on the grounds that they "help
+nobody run or check the benchmark". The same criterion, applied consistently,
+reaches further than D46 took it. Nine more files are now untracked and
+`.gitignore`d, still on disk:
+
+| file | lines | what it draws |
+|---|---|---|
+| `make_figures.py` | 1689 | F1–F10, the phase 1–4 results figures |
+| `make_preliminary_figures.py` | 911 | environment illustrations 01–11, `SUMMARY.md` |
+| `plot_ekf_pilot.py` | 441 | figures 27–28 |
+| `plot_abrupt_vs_smooth.py` | 240 | figure 25 |
+| `plot_recurring.py` | 232 | figure 24 |
+| `plot_breaks.py` | 204 | figure 23 |
+| `plot_ekf_advantage.py` | 201 | figure 29 |
+| `plot_drift_damage.py` | 181 | figure 26 |
+| `tests/test_figures.py` | 187 | axis-label claims in `make_figures` |
+
+That is 4,286 lines, about 14 % of the tracked Python. The pattern
+`/scripts/plot_*.py` also catches the three written since (`plot_ekf_generalization`,
+`plot_gamma_vs_lambda`, `plot_shift_cycles`), so the rule holds without an edit
+per file.
+
+**`test_figures.py` went with them rather than being orphaned.** It imports
+`F3_WINDOWS`, `x4_headline` and `x4_tuned` from `make_figures`, so on a fresh
+clone it would fail at collection rather than skip. It was the only test coupled
+to the script layer — everything else in `tests/` mentions scripts solely in skip
+messages, and `src/` does not reference them at all. Verified: 1274 tests pass
+with it absent.
+
+**What stayed, and why the line is there.** The `run_*` and `sweep_*` scripts and
+the `report_*` readers are kept. Someone who clones this to check a number needs
+to regenerate the run and read it back, and those two layers are exactly that
+path; their docstrings are also the best design documentation in the repository —
+`run_ekf_sweep.py` explains why the grid is proportioned as it is, and
+`run_ekf_generalization.py` why the axes are crossed. A figure answers "what
+should the slide look like", which is our question and not a reader's.
+
+**This reverses part of D46, deliberately.** D46 kept `make_preliminary_figures.py`
+because `environment.md` §4 pointed at it as a way to *inspect* what the agents
+receive — "a checking tool that happens to also produce slides material". That
+reading no longer holds up: the section leads with `check_environment.py`, which
+prints sample streams directly and is staying, so the inspection survives without
+the renderer. `environment.md` §4 now says so rather than pointing at a file that
+is not there.
+
+**Dangling references, all fixed rather than left.** `README.md` (the run list,
+the `DEKF_FIGURES_DIR` example, the `scripts/` line in the layout tree),
+`tasks.py` (the `figures` target now explains the absence instead of naming a
+missing script), `utils/paths.py` (its docstring used `make_figures.py` as the
+worked example of the hardcoded-path wart it exists to fix),
+`docs/IMPLEMENTATION.md` (the repo tree) and `docs/figures.md` (a banner: the
+document is kept because *what each figure shows* is worth having, but every
+command in it is now a record of how a figure was made rather than something a
+clone can run).

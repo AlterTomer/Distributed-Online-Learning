@@ -2,7 +2,7 @@
 
 Measured numbers, the settings that produced them, and what they support. Every
 figure of this document is reproducible from `results/` by
-`scripts/make_figures.py`; the tuning tables come from
+the out-of-repo figure builders (D75); the tuning tables come from
 `scripts/sweep_hyperparameters.py --report`.
 
 If this document and the data disagree, the data is right and this is stale.
@@ -635,7 +635,7 @@ variant picks momentum and becomes numerically identical to ATC, making the
 payload cost exactly 0.000 in all twelve cells. That is not a small effect but a
 definition being overridden: carrying no optimizer state is precisely what makes
 the message $p$ per link rather than $2p$. Its optimum is therefore taken
-**within the plain-SGD arm only** (`make_figures.x4_tuned`).
+**within the plain-SGD arm only** (`x4_tuned`, in the out-of-repo figure builder).
 
 **Tuning accounts for about 90% of the apparent effect.** At $n{=}1,
 \pi_\text{lab}{=}0.25$ the fixed-tuning table showed $-0.232$; properly tuned it

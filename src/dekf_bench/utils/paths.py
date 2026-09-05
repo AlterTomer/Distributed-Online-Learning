@@ -1,14 +1,14 @@
 r"""Where generated figures go.
 
 **A fresh clone must be able to run every script without editing a constant.**
-The figure scripts used to hardcode one machine's OneDrive folder, which meant
-`make_figures.py` was unrunnable for anyone else and wrote nothing a reviewer
-could find. That is the same failure as shipping a personal path in a config.
+The figure scripts used to hardcode one machine's OneDrive folder, which made
+them unrunnable for anyone else and wrote nothing a reviewer could find. That is
+the same failure as shipping a personal path in a config.
 
 So the default is repo-relative and gitignored, and publishing elsewhere is an
 environment variable rather than an edit:
 
-    DEKF_FIGURES_DIR=/some/shared/folder python scripts/make_figures.py
+    DEKF_FIGURES_DIR=/some/shared/folder python scripts/run_experiment.py x1_stationary
 
 Set it once in the shell profile, or in the IDE's run configuration, and every
 script that writes or reads a figure agrees on the location -- including the

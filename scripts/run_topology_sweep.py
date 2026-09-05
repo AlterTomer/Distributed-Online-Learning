@@ -6,7 +6,7 @@ Run this file directly.
     python scripts/run_topology_sweep.py --fresh
 
 One run per topology at the horizon and seed count of the headline experiments,
-writing to `results/x3_<topology>/` so `make_figures.py` can read them like any
+writing to `results/x3_<topology>/` so any reader can consume them like any
 other experiment.
 
 **Each topology runs at its own tuned learning rate**, from

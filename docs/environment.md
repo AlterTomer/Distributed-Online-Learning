@@ -332,11 +332,14 @@ Run button, no arguments. Sections for topologies, partitions, drift schedules a
 the image pipeline, sample streams, and the composed environment — including a
 deliberate in-place mutation so you can watch G5 fire.
 
-`scripts/make_preliminary_figures.py` renders figure 10, which shows what each
-agent receives at four steps under both regimes, with identical indices in both
-halves so the only visible difference is the rotation. It writes to the
-gitignored `figures/` at the repository root, or wherever `DEKF_FIGURES_DIR`
-points — see `docs/figures.md` §1.
+That script is the inspection path, and it is self-contained: the sample-stream
+section prints what each agent receives, which is the thing worth checking.
+
+A companion renderer, `make_preliminary_figures.py`, drew the same content as
+figure 10 — four steps per agent under both regimes, identical indices in both
+halves so the only visible difference is the rotation. It is **no longer in this
+repository** (D75): it was a slide-making tool that happened to double as an
+inspection aid, and the inspection it offered is covered above without it.
 
 ---
 

@@ -36,7 +36,15 @@ PENDING: dict[str, str] = {
     "x5": "phase 4 (scripts/run_sweep.py)",
     "x6": "phase 4 (scripts/run_sweep.py)",
     "sweep": "phase 4 (scripts/run_sweep.py)",
-    "figures": "phase 4 (scripts/make_figures.py)",
+}
+
+#: Targets that exist on the author's disk but are deliberately not shipped, kept
+#: separate from `PENDING` because "built and excluded" is not "not yet built" --
+#: filing one as the other would promise something that is never going to arrive.
+EXCLUDED = {
+    "figures": "the figure builders draw PNGs for our progress reviews rather "
+               "than helping anyone run or check the benchmark (design note D75). "
+               "Use scripts/report_*.py to get the same numbers from results/.",
 }
 
 
@@ -134,10 +142,18 @@ def main() -> int:
         print("\nNot yet implemented:")
         for name, phase in PENDING.items():
             print(f"  {name:<12} arrives in {phase}")
+        print("\nDeliberately not in this repository:")
+        for name, why in EXCLUDED.items():
+            print(f"  {name:<12} {why}")
         return 0
 
     if args.target in PENDING:
         print(f"Target '{args.target}' arrives in {PENDING[args.target]}.", file=sys.stderr)
+        return 2
+
+    if args.target in EXCLUDED:
+        print(f"Target '{args.target}' is not in this repository: "
+              f"{EXCLUDED[args.target]}", file=sys.stderr)
         return 2
 
     if args.target not in TASKS:

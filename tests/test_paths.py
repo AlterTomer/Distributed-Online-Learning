@@ -3,7 +3,7 @@ r"""Where figures land.
 The property under test is *runnability from a fresh clone*: the scripts must
 write somewhere without anyone editing a constant, and every script must agree on
 where that is. The bug being guarded against already happened once -- the figure
-scripts hardcoded one machine's OneDrive folder, which made `make_figures.py`
+scripts hardcoded one machine's OneDrive folder, which made the figure builders
 unrunnable for anybody else (design note D46).
 """
 
@@ -45,7 +45,7 @@ def test_an_absolute_override_is_taken_as_given(
 def test_a_relative_override_resolves_against_the_repo_not_the_cwd(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Otherwise `make_figures.py` would write to a different place depending on
+    """Otherwise a figure script would write to a different place depending on
     whether it was launched from the IDE, the repo root, or `scripts/`."""
     monkeypatch.setenv(FIGURES_ENV, "somewhere")
     monkeypatch.chdir(tmp_path)

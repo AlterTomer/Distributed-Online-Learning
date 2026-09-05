@@ -156,7 +156,7 @@ DistributedOnlineLearning/          # repo root; .venv313/ and .venv/ live here 
 │   ├── run_experiment.py         # single run from a config
 │   ├── run_sweep.py
 │   ├── train_reference.py        # offline reference classifier
-│   ├── make_figures.py
+│   ├── report_*.py               # readers: parquet back into the quoted numbers
 │   └── check_environment.py      # graph stats, stream visualisation, smoke test
 │
 ├── tests/
@@ -414,7 +414,7 @@ A small table emitted once per experiment, in the style of Table I of [1]: one r
 
 ### 8.3 Figure specifications
 
-All produced by `scripts/make_figures.py` from logged results, with no manual steps. It caches the plotted series to `figure_data/` so a redraw at a different resolution or with different labels never re-reads `results/` — see `docs/figures.md`. Bands are ±1 s.d. over seeds unless stated.
+All produced from logged results with no manual steps, by figure builders kept outside this repository (D75); `scripts/report_*.py` reproduces the same numbers without them. The pipeline caches the plotted series to `figure_data/` so a redraw at a different resolution or with different labels never re-reads `results/` — see `docs/figures.md`. Bands are ±1 s.d. over seeds unless stated.
 
 | ID | Content | Axes | Source |
 |---|---|---|---|
@@ -521,7 +521,7 @@ Everything fits on a laptop CPU. Parallelize sweeps across seeds with a process 
 | **0** | `utils/config.py`, `utils/determinism.py`, `runner/seeding.py`, `data/mnist.py`, repo scaffolding, CI | `make test` green; MNIST loads | ✅ done |
 | **1** | `env/graph.py`, `env/partition.py`, `env/drift.py`, `env/stream.py`, `env/environment.py`, `data/transforms.py`, `scripts/check_environment.py` | `test_graph`, `test_partition`, `test_stream`, `test_drift`, `test_transforms` pass; stream visualisation renders | ✅ done |
 | **2** | `models/*`, `likelihoods/*`, `metrics/*`, `evaluation/*`, `scripts/train_reference.py` | `test_models` passes; all 16 rotation-level $e^\star$ cached, each at expected MNIST accuracy for a $196$–$14$–$10$ MLP | ✅ done |
-| **3** ✅ | `learners/*`, `learners/optim_state.py`, `runner/simulate.py`, `recording/*`, `scripts/run_experiment.py`, `scripts/sweep_hyperparameters.py`, `scripts/make_figures.py` | **`test_exactness` passes** (1.7e-15); `test_simulate` passes; X0, X1, X1b, X2, X5 produce F1, F2, F5, F8 |
+| **3** ✅ | `learners/*`, `learners/optim_state.py`, `runner/simulate.py`, `recording/*`, `scripts/run_experiment.py`, `scripts/sweep_hyperparameters.py` | **`test_exactness` passes** (1.7e-15); `test_simulate` passes; X0, X1, X1b, X2, X5 produce F1, F2, F5, F8 |
 | **4** ✅ | `runner/sweep.py`, `scripts/run_sweep.py`, `scripts/run_topology_sweep.py`, `scripts/run_sparsity_sweep.py` | X3–X7 produce F3, F4, F6a, F6b, F7, F9, F10. X3 re-tunes lr per topology; X4 is tuned per cell |
 | **5** | `learners/ekf.py`, `metrics/predictive.py`, then `learners/diffusion_ekf.py` and structured covariance | Centralized EKF matches an exact Kalman filter on the linear-Gaussian case (2.3e-14) ✅; Diff-EKF then reproduces it on a complete graph |
 

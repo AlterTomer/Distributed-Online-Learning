@@ -70,23 +70,42 @@ top, runnable from an IDE with a debugger attached:
 python scripts/run_experiment.py x1_stationary   # one of x0..x2, x5, x7; --fresh to restart
 python scripts/run_topology_sweep.py             # X3
 python scripts/run_sparsity_sweep.py             # X4 and X6
+python scripts/run_linear_sweep.py               # X12, smooth drift at four rates
+python scripts/run_recurring_sweep.py            # X11, repeated abrupt shifts
 python scripts/sweep_hyperparameters.py          # the tuning grid
-python scripts/make_figures.py                   # F1-F10
-python scripts/make_figures.py --from-cache --dpi 300
+python scripts/run_ekf_sweep.py                  # X13, the centralised filter
+python scripts/run_ekf_generalization.py         # X14, the crossed drift sweep
 ```
 
 Runs and sweeps are **resumable and exact**: the loop consumes no randomness, so
 a resumed run reproduces an uninterrupted one bit-for-bit, and re-running a sweep
 skips cells already on disk.
 
-Figures land in a gitignored `figures/` at the repository root. To publish them
-elsewhere -- a shared drive, a paper's asset folder -- set `DEKF_FIGURES_DIR`
-rather than editing a script; a relative value resolves against the repository
-root, so it means the same thing from any working directory.
+Each sweep has a matching reader that turns its parquet into the numbers the
+design notes quote:
 
 ```bash
-DEKF_FIGURES_DIR="/path/to/a/shared/folder" python scripts/make_figures.py
+python scripts/report_ekf_sweep.py               # the tuning grid, ranked
+python scripts/report_ekf_generalization.py      # damage per drift condition
+python scripts/report_breaks.py                  # where each baseline breaks
 ```
+
+Outputs land in a gitignored `results/`, and anything that writes a figure uses a
+gitignored `figures/` at the repository root. To publish elsewhere -- a shared
+drive, a paper's asset folder -- set `DEKF_FIGURES_DIR` rather than editing a
+script; a relative value resolves against the repository root, so it means the
+same thing from any working directory.
+
+```bash
+DEKF_FIGURES_DIR="/path/to/a/shared/folder" python scripts/run_experiment.py x1_stationary
+```
+
+**The figure and meeting-document builders are deliberately not in this
+repository.** They draw the PNGs and write the `.docx`/`.pptx` for our own
+progress reviews, so they answer "what should the slide look like" rather than
+"does the benchmark run" or "is this number right". Everything needed to
+reproduce a result is here: the runners above regenerate the runs, and the
+readers above turn them back into numbers.
 
 ## Tasks
 
@@ -118,7 +137,8 @@ filter is dominated by dense covariance operations, where CUDA is a 14x win
 src/dekf_bench/     the package: env, data, models, learners, metrics,
                     evaluation, runner, recording, utils
 configs/            composable YAML; every swept quantity is a config field
-scripts/            runnable entry points: experiments, sweeps, figures
+scripts/            runnable entry points: experiments, sweeps, and the readers
+                    that turn their output back into numbers
 tests/              pytest; test_exactness.py is the gate
 results/            gitignored; one parquet per seed, plus a resumable checkpoint
 data/               gitignored MNIST cache and the offline reference e*

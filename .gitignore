@@ -36,3 +36,16 @@ Thumbs.db
 /scripts/make_summary_docx.py
 /scripts/make_drift_presentation.py
 /scripts/make_drift_docx.py
+
+# The figure layer, excluded on the same grounds. Every one of these draws a PNG
+# for those documents: they answer "what should the slide look like", not "does
+# the benchmark run" or "is the result right". A reader who wants to check a
+# number wants `scripts/report_*.py`, which is kept, and the runs in `results/`.
+#
+# `tests/test_figures.py` goes with them rather than being orphaned -- it imports
+# `make_figures` to check that figure axis labels match the data, so it tests a
+# file that is no longer here and would fail to collect on a fresh clone.
+/scripts/make_figures.py
+/scripts/make_preliminary_figures.py
+/scripts/plot_*.py
+/tests/test_figures.py

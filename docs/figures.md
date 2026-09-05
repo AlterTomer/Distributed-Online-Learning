@@ -1,7 +1,16 @@
 # The figures
 
 What each one is for, how to read it, and what would count as a surprise.
-Produced by `scripts/make_figures.py` from logged results, with no manual steps.
+
+> **The builders named below are not in this repository.** `make_figures.py`,
+> `make_preliminary_figures.py` and the `plot_*.py` scripts draw PNGs for our own
+> progress reviews, so they answer "what should the slide look like" rather than
+> "does the benchmark run" or "is this number right", and they are excluded on
+> the same grounds as the `.docx`/`.pptx` builders. This document is kept because
+> **what each figure shows and how to read it** is the part worth having: it
+> describes results that `scripts/report_*.py` will reproduce as numbers from the
+> same runs. Treat every command below as a record of how a figure was made, not
+> as something a fresh clone can execute.
 
 If this document and the code disagree, the code is right and this is stale.
 
