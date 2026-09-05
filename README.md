@@ -10,6 +10,7 @@ filter (Diff-EKF).
 
 | File | What it answers |
 |---|---|
+| [`docs/experiments.md`](docs/experiments.md) | **X0–X16: what each asks, the command that runs it, and in what order** |
 | [`docs/WORKPLAN.md`](docs/WORKPLAN.md) | The research plan: questions, methods, experiments, validity checks |
 | [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md) | The repository specification: layout, interfaces, build order |
 | [`docs/environment.md`](docs/environment.md) | What each agent observes, and the guarantees the benchmark rests on |
@@ -63,18 +64,30 @@ sized for a laptop CPU.
 
 ## Running things
 
+**Start with [`docs/experiments.md`](docs/experiments.md).** It is the index of
+every experiment the benchmark has run — X0 through X16 — giving for each one the
+question it answers, the exact command, the measured runtime where we have it,
+and which experiments must run before which. `WORKPLAN.md` §6 states the *design*
+of X0–X7 and why each exists; `docs/experiments.md` is what to type.
+
 Every algorithmic entry point is a plain script with editable constants at the
 top, runnable from an IDE with a debugger attached:
 
 ```bash
-python scripts/run_experiment.py x1_stationary   # one of x0..x2, x5, x7; --fresh to restart
+python scripts/check_environment.py              # graph stats, sample streams, smoke test
+python scripts/check_data.py                     # cache MNIST, once
+python scripts/train_reference.py                # the offline reference, once
+
+python scripts/run_experiment.py x1_stationary   # x0..x2, x5, x7..x10; --fresh to restart
 python scripts/run_topology_sweep.py             # X3
 python scripts/run_sparsity_sweep.py             # X4 and X6
-python scripts/run_linear_sweep.py               # X12, smooth drift at four rates
 python scripts/run_recurring_sweep.py            # X11, repeated abrupt shifts
+python scripts/run_linear_sweep.py               # X12, smooth drift at four rates
 python scripts/sweep_hyperparameters.py          # the tuning grid
-python scripts/run_ekf_sweep.py                  # X13, the centralised filter
+python scripts/run_ekf_sweep.py                  # X13, tuning the centralised filter
 python scripts/run_ekf_generalization.py         # X14, the crossed drift sweep
+python scripts/run_ekf_retune.py                 # X15, gamma against lambda
+python scripts/run_ekf_ramp.py                   # X16, the filter on X9's ramp
 ```
 
 Runs and sweeps are **resumable and exact**: the loop consumes no randomness, so
