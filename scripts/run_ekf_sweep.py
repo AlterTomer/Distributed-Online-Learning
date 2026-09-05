@@ -101,6 +101,7 @@ from dekf_bench.evaluation.evalsets import build_evalsets  # noqa: E402
 from dekf_bench.learners.base import LearnerError  # noqa: E402
 from dekf_bench.learners.registry import build_learners  # noqa: E402
 from dekf_bench.likelihoods.categorical import Categorical  # noqa: E402
+from dekf_bench.metrics.classification import MetricError  # noqa: E402
 from dekf_bench.models.registry import build_model_from_config  # noqa: E402
 from dekf_bench.recording import recorder as rec  # noqa: E402
 from dekf_bench.recording.schema import RunContext  # noqa: E402
@@ -365,9 +366,15 @@ def run_one(config, train, test, fresh: bool) -> str:
                 build_evalsets(config, environment, test), likelihood, theta0,
                 recorder=recorder, verify_observations=False, progress_every=0,
             )
-        except LearnerError as failure:
+        except (LearnerError, MetricError) as failure:
             # A diverged cell is a measurement (design note D61). Recording it and
             # continuing keeps the other seventy-nine.
+            #
+            # MetricError is caught with it because a belief can be finite,
+            # positive definite and still diverged: it evaluates without complaint
+            # until the logits pass the float ceiling, and then softmax returns NaN
+            # and the *metrics* raise a plain ValueError. Uncaught, that ends the
+            # sweep and takes every queued cell with it.
             note = f"diverged (seed {seed}): {failure}"
             shutil.rmtree(out_dir, ignore_errors=True)
             out_dir.mkdir(parents=True, exist_ok=True)

@@ -37,6 +37,21 @@ class FilterError(LearnerError):
     """Raised when the filter's belief stops being a belief."""
 
 
+#: Default for `trust_region_ratio`: how far the mean may travel from
+#: $\bm\theta_0$, as a multiple of $\lVert\bm\theta_0\rVert$, before the belief is
+#: declared diverged. Overridable per learner in the config, because the value is
+#: **chosen rather than derived** and a different model may need a different one.
+#:
+#: Measured on 2026-09-05 at the tuned setting: a healthy filter reaches a ratio
+#: of about 1.3, and reaches it whether the data are stationary, drifting at
+#: 0.025 deg/step, or shifting every 2 steps. The diverged X15 cell reached
+#: 5.6e130. Any threshold between those two separates them, so this one is safe
+#: rather than tight, and nothing in the analysis depends on its exact value --
+#: it exists only because finiteness is not a usable test in float64 (see
+#: `_check_belief`).
+TRUST_REGION_RATIO = 1.0e6
+
+
 class CentralizedEKF:
     r"""One Gaussian belief $(\bm m,\bm P)$ over the pooled batch.
 
@@ -61,6 +76,7 @@ class CentralizedEKF:
         lambda_forget: float = 1.0,
         process_noise_q: float = 0.0,
         prior_scale: float = 1.0,
+        trust_region_ratio: float = TRUST_REGION_RATIO,
         **_ignored: Any,
     ) -> None:
         self._name = name
@@ -72,6 +88,7 @@ class CentralizedEKF:
         self.lambda_forget = lambda_forget
         self.process_noise_q = process_noise_q
         self.prior_scale = prior_scale
+        self.trust_region_ratio = trust_region_ratio
 
         #: The belief, held as **one** `LearnerState` that `state(node)` returns
         #: for every agent. Not rebuilt per call: `recorder.resume()` restores a
@@ -81,6 +98,11 @@ class CentralizedEKF:
         #: step, and the run would look clean and be nonsense (design note D68).
         self._state: LearnerState | None = None
         self._steps = 0
+        #: Set by `init`. Zero means "not initialised from a theta_0", which
+        #: disables the trust-region test rather than comparing against a scale
+        #: that was never established -- a guard that cannot be calibrated should
+        #: abstain, not guess.
+        self._initial_norm = 0.0
 
     # `_mean` and `_covariance` read and write through the single state object,
     # so the update code below stays in the notation of the derivation.
@@ -142,6 +164,11 @@ class CentralizedEKF:
                 * self.prior_scale
             },
         )
+        # The scale the trust-region test in `_check_belief` is measured against.
+        # Kept from theta0 rather than from a constant because "how far the mean
+        # has travelled" is only meaningful relative to where it started, and
+        # that depends on the model's initialisation.
+        self._initial_norm = float(theta0.detach().norm())
 
     def state(self, node: int) -> LearnerState:
         """The one belief, for every agent. Not a copy, and not a fresh object."""
@@ -211,6 +238,27 @@ class CentralizedEKF:
                 f"{self._name} diverged at step {self._steps}: the mean is not finite. "
                 f"prior_scale={self.prior_scale} is most likely too large -- the update "
                 "is a Gauss-Newton step and the covariance is its trust region."
+            )
+        # Finiteness alone is far too weak a test. float64 reaches 1.8e308, and a
+        # network whose weights are 1e131 is meaningless long before it stops
+        # being representable -- it evaluates without complaint, scores at chance,
+        # and only fails once two matmuls push the logits past the float ceiling
+        # and softmax returns NaN. At that point the failure surfaces in the
+        # metrics rather than here, as a MetricError the sweep does not catch.
+        #
+        # The threshold is deliberately enormous: no run that is still learning
+        # travels a millionfold from its initialisation, so this cannot reclassify
+        # a healthy cell, and a diverging one crosses it within a few steps of
+        # setting off.
+        norm = float(self._mean.detach().norm())
+        if self._initial_norm > 0.0 and norm > self.trust_region_ratio * self._initial_norm:
+            raise FilterError(
+                f"{self._name} left the trust region at step {self._steps}: the mean "
+                f"norm is {norm:.3e}, {norm / self._initial_norm:.2e} times its "
+                f"initial {self._initial_norm:.3e}. The update is a Gauss-Newton step "
+                "valid only near the current linearisation point, so a mean this far "
+                "from theta_0 is a diverged filter that has not yet overflowed "
+                "(design note D61)."
             )
         smallest = float(self._covariance.diagonal().min())
         if not smallest > 0.0:

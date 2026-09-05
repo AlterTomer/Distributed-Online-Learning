@@ -200,12 +200,45 @@ def test_divergence_is_raised_rather_than_returned_as_nan() -> None:
     large prior overshoots on the very first step and never recovers. A NaN
     reaching the metrics would average into a seed mean and look like a bad
     result rather than an absent one.
+
+    The match is deliberately loose about *which* guard fires. Divergence has
+    more than one signature -- a non-finite mean, a collapsed variance, or a mean
+    that is still finite but has left the region the linearisation describes --
+    and this test is about the failure being reported rather than absorbed.
+    Pinning it to one wording made it fail when the trust-region test was added
+    and started catching this case several steps earlier, which is an improvement
+    the test should not have objected to.
     """
     model = MLP(**SMALL)
     filt = _filter(model, Categorical(output_dim=4), prior_scale=1e12)
-    with pytest.raises(FilterError, match="diverged at step"):
+    with pytest.raises(FilterError, match="diverged at step|left the trust region"):
         for step in range(50):
             filt.adapt_pooled(*_batch(model, seed=step))
+
+
+def test_a_finite_but_runaway_mean_is_caught_before_the_metrics_see_it() -> None:
+    r"""Finiteness is not a usable divergence test in float64.
+
+    X15 produced a belief with $\lVert\bm m\rVert\approx3\times10^{131}$: finite,
+    positive definite, and completely diverged. It evaluated without complaint
+    until two matmuls pushed the logits past $1.8\times10^{308}$, at which point
+    softmax returned NaN and the *metrics* raised -- a plain ``ValueError`` that
+    the sweep's handler did not catch, ending the run and every cell queued
+    behind it.
+    """
+    model = MLP(**SMALL)
+    filt = _filter(model, Categorical(output_dim=4))
+    healthy = filt.flat_params(0).clone()
+
+    # Well inside the region: nothing fires, and the belief is untouched.
+    filt._mean = healthy * 1.0e3
+    filt._check_belief()
+
+    # The X15 state, in miniature. Still finite, so the isfinite test passes.
+    filt._mean = healthy * 1.0e9
+    assert bool(torch.isfinite(filt._mean).all())
+    with pytest.raises(FilterError, match="left the trust region"):
+        filt._check_belief()
 
 
 def test_persistence_tracks_the_evaluation_cadence() -> None:

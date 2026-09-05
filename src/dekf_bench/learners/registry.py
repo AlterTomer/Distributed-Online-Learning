@@ -219,6 +219,7 @@ def _build_centralized_ekf(
         lambda_forget=lambda_forget,
         process_noise_q=process_noise_q,
         prior_scale=getattr(learner_config, "prior_scale", 1.0),
+        trust_region_ratio=getattr(learner_config, "trust_region_ratio", 1.0e6),
     )
 
 

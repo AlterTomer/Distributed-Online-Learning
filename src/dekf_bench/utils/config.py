@@ -359,6 +359,24 @@ class LearnerConfig:
     #: sigma_0^2. A trust region, not just a prior: too large a value diverges on
     #: the first step rather than converging slowly (design note D61).
     prior_scale: float = 1.0
+    #: How far ||m|| may travel from ||theta_0||, as a multiple, before the belief
+    #: is declared diverged.
+    #:
+    #: **Exposed because it is chosen, not derived.** Finiteness alone is not a
+    #: usable test in float64 -- a mean of 1e131 is finite, evaluates without
+    #: complaint, and only fails once two matmuls push the logits past the float
+    #: ceiling, at which point the *metrics* raise rather than the filter. Some
+    #: bound is needed; this particular number is not implied by the mathematics.
+    #:
+    #: Measured on 2026-09-05 at gamma=0.9995, q=6e-5, sigma_0^2=0.01: a healthy
+    #: filter reaches ||m||/||theta_0|| of about 1.3, and reaches it whether the
+    #: data are stationary, drifting at 0.025 deg/step, or shifting every 2 steps.
+    #: The default therefore clears observed behaviour by roughly six orders of
+    #: magnitude, which makes it safe rather than tight: anything from ~10 to
+    #: ~1e120 would separate the same two populations on the runs done so far.
+    #: Tighten it for a model whose weights are expected to grow, and widen it
+    #: only with a reason.
+    trust_region_ratio: float = 1.0e6
 
     def __post_init__(self) -> None:
         if self.freeze_after is not None:
@@ -414,6 +432,13 @@ class LearnerConfig:
                 f"learner[{self.name}].prior_scale must be > 0, got {self.prior_scale}. "
                 "It is the initial variance, so zero is a point mass the filter can never "
                 "move away from."
+            )
+        if self.trust_region_ratio <= 1.0:
+            raise ConfigError(
+                f"learner[{self.name}].trust_region_ratio must be > 1, got "
+                f"{self.trust_region_ratio}. It is a multiple of ||theta_0||, and a healthy "
+                "filter moves away from its initialisation immediately -- a ratio of 1 or "
+                "less would abort every run on its first step."
             )
 
 

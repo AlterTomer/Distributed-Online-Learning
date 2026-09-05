@@ -92,6 +92,7 @@ from dekf_bench.evaluation.evalsets import build_evalsets  # noqa: E402
 from dekf_bench.learners.base import LearnerError  # noqa: E402
 from dekf_bench.learners.registry import build_learners  # noqa: E402
 from dekf_bench.likelihoods.categorical import Categorical  # noqa: E402
+from dekf_bench.metrics.classification import MetricError  # noqa: E402
 from dekf_bench.models.registry import build_model_from_config  # noqa: E402
 from dekf_bench.recording import recorder as rec  # noqa: E402
 from dekf_bench.recording.schema import RunContext  # noqa: E402
@@ -221,6 +222,18 @@ CONDITIONS: list[tuple[str, dict, int, int]] = [
     # The rate x state-count sweep. `every25_jump5` and `every25_jump30` are
     # already members, so they are not listed twice.
     *_sweep_conditions(),
+    # J = 20 fills the gap between the two extremes of the J axis. Reachable
+    # angles go as 2*floor(45/J)+1, so J = 15 reaches 7 and J = 30 reaches 3 --
+    # and above J = 22.5 no two jumps can chain in one direction, which forces
+    # the run back to zero after every excursion and parks it there for half the
+    # steps. J = 20 reaches 5 angles and 37% at zero: still a large jump, but not
+    # the degenerate oscillation the J = 30 column turns out to be.
+    ("every50_jump20", {"schedule": "recurring", "jump_every": 50, "jump_degrees": 20.0},
+     4, 1500),
+    ("every25_jump20", {"schedule": "recurring", "jump_every": 25, "jump_degrees": 20.0},
+     4, 1500),
+    ("every10_jump20", {"schedule": "recurring", "jump_every": 10, "jump_degrees": 20.0},
+     4, 1500),
     # Half the data, twice the horizon. One smooth and one abrupt condition at
     # the same n and T, so the contrast between them is not confounded by either.
     # alpha=0.015 x 3000 = 45 degrees, the same total travel as linear_a0p03
@@ -361,6 +374,16 @@ def run_one(config, train, test, fresh: bool) -> str:
         return "cached"
     if (out_dir / "_diverged").exists():
         return (out_dir / "_diverged").read_text(encoding="utf-8").strip()
+    # Neither marker, but files present: the debris of an INTERRUPTED run -- a
+    # Ctrl-C, a crash, a machine that slept. It has to go for the same reason a
+    # diverged cell does (design note D68). The recorder checkpoints as it goes,
+    # so leaving it lets the *recorder* resume at step N while the filter starts
+    # again from theta_0, and the cell then reports a clean 'ok' for a trajectory
+    # stitched out of two different beliefs. Nothing here is ever resumed on
+    # purpose -- a cell either completed, or it starts over -- so an unmarked
+    # directory is always debris and never state worth keeping.
+    if out_dir.exists() and any(out_dir.iterdir()):
+        shutil.rmtree(out_dir)
     rec.write_metadata(out_dir, config, {"experiment": config.run.name})
 
     for seed in config.run.seeds:
@@ -385,7 +408,17 @@ def run_one(config, train, test, fresh: bool) -> str:
                 build_evalsets(config, environment, test), likelihood, theta0,
                 recorder=recorder, verify_observations=False, progress_every=0,
             )
-        except LearnerError as failure:
+        # MetricError is caught alongside LearnerError because divergence does not
+        # always surface in the filter. A belief can be finite, positive definite
+        # and utterly diverged; it then evaluates without complaint until two
+        # matmuls push the logits past the float ceiling, at which point softmax
+        # returns NaN and the *metrics* raise. That is a ValueError rather than a
+        # LearnerError, so before this it escaped the handler and killed the whole
+        # sweep -- losing every cell still queued behind it. The trust-region test
+        # in `_check_belief` should now catch these first; this stays as a backstop
+        # for escape routes not yet thought of, on the principle that a diverged
+        # cell is a measurement and must never cost the cells after it.
+        except (LearnerError, MetricError) as failure:
             note = f"diverged (seed {seed}): {failure}"
             shutil.rmtree(out_dir, ignore_errors=True)
             out_dir.mkdir(parents=True, exist_ok=True)

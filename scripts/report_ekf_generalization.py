@@ -54,7 +54,7 @@ SHORT = {
 SEED_NOISE = 0.0021
 
 
-def condition_shape(drift: dict, horizon: int) -> tuple[float, int]:
+def condition_shape(drift: dict, horizon: int, samples: int) -> tuple[float, int]:
     r"""A condition's rate in degrees per step, and how many rotations it visits.
 
     The two together, because either alone misleads. Rate says how fast the
@@ -72,9 +72,15 @@ def condition_shape(drift: dict, horizon: int) -> tuple[float, int]:
         rate = block["jump_degrees"] / block["jump_every"]
     else:
         rate = block["total_degrees"] / horizon
+    # `samples` matters only because the shard-budget check reads it: the low-n
+    # conditions run T=3000, which is over budget at the default n=4 and exactly
+    # on it at n=2. The schedule itself does not depend on n.
     config = load_config(
         "x1_stationary",
-        overrides={"run": {"horizon": horizon, "seeds": [0]}, "env": {"drift": block}},
+        overrides={
+            "run": {"horizon": horizon, "seeds": [0]},
+            "env": {"samples_per_node_per_step": samples, "drift": block},
+        },
     )
     schedule = build_drift(config)
     return rate, len({round(schedule.rotation_at(t), 6) for t in range(horizon)})
@@ -177,7 +183,7 @@ def main() -> int:
             values.append(None if value is None or base is None else value - base)
         if all(v is None for v in values):
             continue
-        rate, states = condition_shape(drift, horizon)
+        rate, states = condition_shape(drift, horizon, samples)
         rows.append((f"{label}  ({rate:.2f}/s, {states}st, n={samples})", values))
 
     for label, values in sorted(rows, key=lambda r: r[1][learners.index("diffusion_sgd_atc")] or 0):
