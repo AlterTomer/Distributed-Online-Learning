@@ -2588,3 +2588,78 @@ worked example of the hardcoded-path wart it exists to fix),
 document is kept because *what each figure shows* is worth having, but every
 command in it is now a record of how a figure was made rather than something a
 clone can run).
+
+### ✅ D76. Multiplicative forgetting is rejected on mechanism, not on tuning
+
+D72 concluded the $\lambda$ family "buys no tracking advantage"; D73 recorded
+that this did not survive the abrupt condition and called the mechanism claim too
+strong. X14 then put $\gamma<1$ ahead across twenty-one conditions — the less
+damaged in fifteen, $\lambda$ in five, one tie. That ordering was still open to a
+fair objection, and it is the objection D71 exists to take seriously: **both
+families were running settings tuned once, at 0.025°/step, and never re-tuned.**
+$\lambda$'s memory of $1/(1-\lambda)=250$ steps is a poor match to a condition
+that shifts every 2, so it may simply have been mistuned.
+
+**The test.** Both families re-swept at `every2_jump5` — 2.50°/step, 19 distinct
+angles — chosen because it carries the largest gap in the sweep, so the objection
+had the most room to be right. Ten cells, five seeds, each family compared at its
+own optimum against its own paired stationary twin.
+
+| | selected | twin | under drift | damage |
+|---|---|---|---|---|
+| \ac{ekf}, $\gamma<1$ | $q=2\times10^{-4}$ | 0.0619 | 0.1127 | **0.0508** |
+| \ac{ekf}, $\lambda$ | $\lambda=0.996$ | 0.0562 | 0.1514 | **0.0951** |
+| diffusion \ac{atc} | lr 0.05 | 0.0798 | 0.1746 | **0.0947** |
+
+**The gap does not close — it widens, 0.0376 → 0.0443**, against a 0.0013
+threshold. And the decisive number is the last column: *$\lambda$'s damage is
+ATC's damage.* At its own optimum the multiplicative filter delivers **no
+tracking advantage over a tuned gradient method at all**; everything by which it
+beats \ac{atc} is fitting. Decomposed, $\gamma$ splits 0.0179 fitting against
+0.0439 tracking, and $\lambda$ 0.0236 against $-0.0004$.
+
+**Why it could not be tuned to the condition.** The re-tune kept $\lambda=0.996$
+— the *longest* memory tried, against a shift every 2 steps. Shortening it made
+the filter worse (0.99 → 0.2011) and then made it diverge: 0.98 at steps 943 and
+963, 0.95 at 211 and 313, at both priors tested. The useful half of the axis is
+unreachable.
+
+In information coordinates the recursion is $\bm\Omega_{t|t}=\lambda
+\bm\Omega_{t-1|t-1}+\bm\Delta_{v,t}$: a fixed **fraction** $(1-\lambda)$ of
+everything known is discarded each step, so the sustainable level is
+$\bm\Delta/(1-\lambda)$ — bounded *only if* $\bm\Delta=\bm H^{\trans}
+\bm\Lambda\bm H$ is bounded below. That is exactly \cref{as:noise}'s
+$c_{\min}>0$, and D-note `rem:cmin_fails` shows the softmax denies it: as the
+classifier grows confident $\bm\Lambda\to\zero$ in *every* direction, so the
+forgetting outruns the information arriving and $\bm P\to\infty$. Measured
+against pure unopposed inflation $\sigma_0^2\lambda^{-t}$, the divergences land
+within a factor of 2–5 — the arriving information was barely resisting at all.
+
+The additive recursion has no such exposure. $\gamma^{2}\bm P+\bm Q$ is bounded
+by $q/(1-\gamma^{2})\approx0.06$ **with no data whatsoever**, and even
+$\gamma=1$ grows linearly rather than geometrically. *$\lambda$'s stability is
+conditional on a likelihood property the softmax does not provide; $\gamma$'s is
+not conditional on anything.*
+
+**This is why the claim is about mechanism.** D72's version was drawn from a
+condition where there was almost nothing to detect, and D73 rightly withdrew it.
+This one is drawn from the condition most favourable to the opposite conclusion,
+with the family given its own optimum, and the failure has a derivation rather
+than a p-value.
+
+**What it does not establish, and the note should not be read as more.** The
+re-tune ran at *one* condition, deliberately the one where $\gamma$ already led
+by the most, and the five conditions where $\lambda$ was ahead were **not**
+re-tuned — so $\lambda$'s optimum may move there and it may genuinely track
+better at moderate rates. The recommendation does not turn on it: one setting
+must be committed to before the drift is known, $\lambda$'s best margin over
+$\gamma$ anywhere in the sweep is $+0.0083$ against a worst of $-0.0376$, and
+only one of the two families can diverge. **"$\gamma<1$ with additive $\bm Q$ is
+the right commitment" is supported; "$\gamma$ dominates everywhere" is not.**
+
+**Consequences.** The $\lambda$ convention is removed from the note's machinery —
+symbol table, time update, algorithm, the `as:noise` remedies — and survives only
+as a recorded rejection plus one live caveat: `sec:closure` keeps it as the
+simplest way to preserve matrix structure through the prediction step *above* the
+scale at which $\bm P$ must be structured, which is a regime we have not reached
+and where the same shape-preserving property that loses here would win.
