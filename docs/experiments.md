@@ -55,6 +55,7 @@ D58). Every script prints a per-cell ETA as it goes.
 | **X14** | Does the filter's advantage generalise? 21 drift conditions, rate crossed with state count | `run_ekf_generalization.py --lr` then `run_ekf_generalization.py` | 0.5 + 32 h |
 | **X15** | Is the $\gamma$/$\lambda$ ordering a mechanism or a tuning artefact? Both families re-tuned at one fast condition | `run_ekf_retune.py` | ~6 h |
 | **X16** | The filter on X9's ramp, so the break figure has a filter curve | `run_ekf_ramp.py` | 1 h |
+| **X17** | The filter under Dirichlet label skew, still and drifting — and does abrupt or smooth motion hurt more alongside skew? | `run_ekf_skew.py` | ~2.5 h |
 
 **Order matters in three places.** X13 needs `--baselines` before `--full`, or it
 compares a drift-tuned filter against a stationary-tuned baseline. X14 needs
@@ -100,3 +101,6 @@ each choice was made and, more usefully, which conclusions were later withdrawn:
 a claim that did not survive a harder condition is logged beside the one that
 replaced it. `docs/figures.md` describes what each figure shows and how to read
 it, though the figure builders themselves are not shipped (D75).
+
+To change any of this rather than re-run it as-is — a parameter, a learner, a
+drift schedule, a new experiment — see [`howto.md`](howto.md).

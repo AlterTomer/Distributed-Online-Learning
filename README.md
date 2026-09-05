@@ -10,7 +10,8 @@ filter (Diff-EKF).
 
 | File | What it answers |
 |---|---|
-| [`docs/experiments.md`](docs/experiments.md) | **X0–X16: what each asks, the command that runs it, and in what order** |
+| [`docs/experiments.md`](docs/experiments.md) | **X0–X17: what each asks, the command that runs it, and in what order** |
+| [`docs/howto.md`](docs/howto.md) | **"How do I…?" — change a parameter, add a learner, compare methods fairly** |
 | [`docs/WORKPLAN.md`](docs/WORKPLAN.md) | The research plan: questions, methods, experiments, validity checks |
 | [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md) | The repository specification: layout, interfaces, build order |
 | [`docs/environment.md`](docs/environment.md) | What each agent observes, and the guarantees the benchmark rests on |
