@@ -1136,3 +1136,70 @@ monotone linear cannot sustain for 1500 steps.
 one optimiser and one rate for all three; `local_only` then sat at chance and
 showed the *smallest* damage in the table, which would have read as the most
 drift-resistant method present (D77).
+
+## Sawtooth drift, and a refuted mechanism (X18)
+
+A **sawtooth** ramps linearly to the 45° cap over `period` steps, then resets to
+zero in one step. It is the one shape the other five schedules miss: `linear` and
+`ramp` are monotone with no reset, `recurring` resets without travelling,
+`piecewise` accumulates without ramping, `sinusoidal` reverses smoothly.
+
+It was run to test a mechanism rather than to hunt for a breaker — that framing
+had already failed three times. **Momentum is a directional memory**: at β=0.9,
+about ten steps of velocity, an asset on a monotone stretch and maximally wrong at
+a reset. A filter has no directional state at all (`Q = qI` is isotropic). So the
+prediction was about the *baselines*: `atc_plain` should gain on `atc` as the
+period shortens, with the crossover near ten steps.
+
+Five periods, ten seeds, one shared stationary twin. Damage against that twin:
+
+| period | ramp °/step | EKF γ<1 | centralized SGD | ATC (β=0.9) | ATC plain | gap |
+|---|---|---|---|---|---|---|
+| 300 | 0.15 | **0.0236** | 0.0317 | 0.0327 | 0.0323 | −0.0004 |
+| 100 | 0.45 | **0.0260** | 0.0343 | 0.0356 | 0.0346 | −0.0009 |
+| 50 | 0.90 | **0.0263** | 0.0339 | 0.0349 | 0.0344 | −0.0005 |
+| 30 | 1.50 | **0.0262** | 0.0339 | 0.0340 | 0.0349 | +0.0009 |
+| 20 | 2.25 | **0.0272** | 0.0343 | 0.0346 | 0.0363 | +0.0016 |
+
+**The prediction is refuted, and not in favour of its converse.** The
+pre-registered estimator — the per-seed slope of the gap on log₂ ramp rate — is
+**+0.00052 ± 0.00037 per doubling (t=1.41, p=0.19)**. Wrong sign, not
+significant. There is no interaction between momentum and reset frequency.
+
+⚠ **The estimator had to be a trend, because the cap forbids the control.** With
+amplitude at the 45° cap, shortening the period raises the ramp rate and shortens
+the monotone stretch together, and holding the rate fixed instead passes the cap
+by period 300. More restrictively, the fastest legal *monotone* drift is 0.03°/step
+— which damages nothing — so "sawtooth against linear at a matched rate" does not
+exist at any damaging rate. That is what a sawtooth is *for*, and the same fact
+denies it the comparison it would want.
+
+**Why the mechanism failed is narrower than "it is wrong".** Even period 20 leaves
+a **19-step monotone ramp** against momentum's ~10-step horizon, so the velocity is
+repaid before the reset invalidates it. The regime the hypothesis describes needs a
+stretch near the horizon, and that period is past the rate ceiling: period 20
+already averages 4.28°/step against the ~3°/step at which no transient completes.
+The cap and the ceiling together forbid the regime where directional memory would
+matter. Testing it needs a smaller amplitude — a different experiment.
+
+**Faster resets cost everyone a little, and nobody differentially.** From period
+300 to 20 — 15× the rate, 4 resets against 74 — every learner moves the same way:
+EKF +0.0036 (p=0.002), ATC plain +0.0039 (p=0.007), centralized SGD +0.0026
+(p=0.15), ATC +0.0019 (p=0.31). Two clear significance and two do not, but the
+spread between the four is smaller than the movement they share. The filter holds
+its ≈0.008 lead across the whole axis — which is what a null here was defined in
+advance to mean.
+
+⚠ **The five-seed reading was wrong twice over, and confidently.** At n=5 the
+slope was +0.00112 ± 0.00045 (p=0.068) and read as a near-significant *reversal*,
+and ATC looked immune to the axis (−0.0007, p=0.82) — inviting the story that
+momentum buffers the reset. Five more seeds halved the slope to p=0.19 and turned
+ATC's immunity into +0.0019 (p=0.31), an ordinary member of the common move. The
+per-seed slopes show why: seeds 0–3 gave +0.0018, +0.0009, +0.0019, +0.0015 and
+the added five averaged −0.00009. Four-of-five sign agreement at n=5 was not
+evidence of anything. Because the loop consumes no randomness the original seeds
+reproduced bit-for-bit, so the second pass cost under six hours (D78).
+
+By the D77 rule the gap **is** rankable here: the two ATC floors differ by 1.09×
+(0.0790 against 0.0863), unlike the compression that made `local_only`'s damage
+unreadable in X17.

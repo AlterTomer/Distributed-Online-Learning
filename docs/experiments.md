@@ -56,7 +56,7 @@ D58). Every script prints a per-cell ETA as it goes.
 | **X15** | Is the $\gamma$/$\lambda$ ordering a mechanism or a tuning artefact? Both families re-tuned at one fast condition | `run_ekf_retune.py` | ~6 h |
 | **X16** | The filter on X9's ramp, so the break figure has a filter curve | `run_ekf_ramp.py` | 1 h |
 | **X17** | The filter under Dirichlet label skew, still and drifting — and does abrupt or smooth motion hurt more alongside skew? | `run_ekf_skew.py --lr` then `run_ekf_skew.py` | 2 + 14 h |
-| **X18** | Sawtooth drift: is momentum's *directional* memory a liability when direction resets? `atc_plain` against `atc` across five reset periods | `run_sawtooth.py --lr` then `run_sawtooth.py` | |
+| **X18** | Sawtooth drift: is momentum's *directional* memory a liability when direction resets? `atc_plain` against `atc` across five reset periods | `run_sawtooth.py --lr` then `run_sawtooth.py` | 1.5 + 6 h |
 
 **Order matters in five places.** X13 needs `--baselines` before `--full`, or it
 compares a drift-tuned filter against a stationary-tuned baseline. X14 needs
@@ -90,6 +90,14 @@ python scripts/report_cooperation.py          # X8 and X10: does cooperation sti
 python scripts/report_ekf_sweep.py            # X13: the tuning grid, ranked
 python scripts/report_ekf_generalization.py   # X14: damage per drift condition
 ```
+
+**X18 runs at ten seeds, not the usual five**, and `run_sawtooth.py` refuses to
+start if a cell is cached at fewer. Its estimator is a trend across five periods
+rather than a single difference — the 45° cap denies it a matched monotone
+control — and at five seeds that trend read as a near-significant reversal that
+five more seeds erased (D78). Raising the seed count needs `--fresh`: a completed
+cell is cached on its marker and never resumed into, so without it the pass would
+skip every cell and report the old seed count as the new one.
 
 Runs are **resumable and exact**: the loop consumes no randomness, so a resumed
 run reproduces an uninterrupted one bit-for-bit, and re-running a sweep skips

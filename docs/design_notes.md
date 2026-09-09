@@ -2787,3 +2787,98 @@ nothing about how a *diffusion* filter would fare under skew — where each agen
 holds a skewed shard and the combine step has to reconcile them, which is
 precisely where D50's finding that cooperation pays more under label shift would
 bite. That is a phase-5 experiment and the one that matters.
+
+### ✅ D78. A sawtooth does not make momentum a liability — the mechanism is dead
+
+Asked whether a *sawtooth* drift — a sustained monotone ramp punctuated by a
+reset — would break the gradient methods where the filter survives. Worth being
+precise about why that framing was refused, because refusing it is most of what
+made X18 worth running.
+
+**Not a fourth breaker hunt.** X11, X14 and X17 all end the same way: at a shift
+the filter and the baselines take nearly the same hit (+0.0594 against +0.0635),
+because the rise is set by the shift and no causal method can pre-empt one. The
+filter wins on the floor it returns to, not on the transient. A third drift shape
+asking the same question would have got the same answer.
+
+So X18 was pointed at a mechanism instead, and the mechanism was about the
+*baselines*. Momentum is a **directional memory** — at $\beta=0.9$, roughly
+$1/(1-\beta)\approx10$ steps of velocity. On a monotone stretch that is an asset:
+the velocity points where the distribution is going, so the method effectively
+anticipates. At a reset it is maximally wrong and must unwind before it helps
+again. A filter carries no directional state at all: $\bm Q=q\bm I$ is isotropic
+and the covariance says "I am uncertain", never "I was moving that way". Hence a
+falsifiable prediction that does not mention the filter:
+
+> `diffusion_sgd_atc_plain` should gain on `diffusion_sgd_atc` as the reset
+> period shortens, with the crossover near momentum's own ten-step horizon.
+
+**The estimator had to be a trend, and the cap is why.** With amplitude pinned at
+the $45^{\circ}$ cap, shortening the period shortens the monotone stretch *and*
+raises the ramp rate together; holding the rate fixed instead needs
+$A=\text{rate}\times P$, which passes the cap by $P=300$. So the axes cannot be
+separated — the same bind D74 records for $J$ and $t'$ — and, more restrictively,
+**no matched monotone control exists at any damaging rate**: the fastest legal
+monotone drift is the cap spread over the horizon, $0.03^{\circ}$/step, which
+damages nothing. Being able to sustain motion the cap forbids is what a sawtooth
+is *for*, and it is the same reason the comparison it would want is unavailable.
+The estimator was therefore fixed in advance as the per-seed slope of the gap
+`damage(plain) - damage(atc)` on $\log_2$ ramp rate, read across
+$P\in\{300,100,50,30,20\}$.
+
+**The result is a null.** Ten seeds, one shared stationary twin, damage against
+that twin:
+
+| period | ramp °/step | \ac{ekf} | centralized \ac{sgd} | \ac{atc} ($\beta$=0.9) | \ac{atc} plain | gap |
+|---|---|---|---|---|---|---|
+| 300 | 0.15 | **0.0236** | 0.0317 | 0.0327 | 0.0323 | −0.0004 |
+| 100 | 0.45 | **0.0260** | 0.0343 | 0.0356 | 0.0346 | −0.0009 |
+| 50 | 0.90 | **0.0263** | 0.0339 | 0.0349 | 0.0344 | −0.0005 |
+| 30 | 1.50 | **0.0262** | 0.0339 | 0.0340 | 0.0349 | +0.0009 |
+| 20 | 2.25 | **0.0272** | 0.0343 | 0.0346 | 0.0363 | +0.0016 |
+
+Slope **+0.00052 ± 0.00037 per doubling of rate** ($t=1.41$, $p=0.19$). Not the
+predicted sign, and not significant. Removing momentum neither helps nor hurts
+more as resets come faster: **there is no interaction between momentum and reset
+frequency**, which is the cleanest possible refutation of the mechanism.
+
+**Why the mechanism failed, which is not the same as it being wrong.** Even the
+shortest period gives a **19-step monotone ramp** against momentum's ~10-step
+horizon, so the velocity is repaid before the reset invalidates it. The predicted
+crossover sits at a period *below* the rate ceiling: $P=20$ already runs at a mean
+$4.28^{\circ}$/step, above the $\approx3^{\circ}$/step X14 established, and going
+shorter means a faster ramp still. So this is not evidence that directional memory
+is irrelevant — it is evidence that **the cap and the rate ceiling between them
+forbid the regime where it would matter.** Testing it needs a smaller amplitude,
+which is a different experiment, not more seeds of this one.
+
+**Faster resets cost everyone a little, and nobody differentially.** From $P=300$
+to $P=20$ — a 15× rate change, 4 resets against 74 — every learner moves the same
+way: \ac{ekf} +0.0036 ($p=0.002$), plain +0.0039 ($p=0.007$), centralized
+\ac{sgd} +0.0026 ($p=0.15$), \ac{atc} +0.0019 ($p=0.31$). Two clear
+significance, two do not, but the *spread* between them is smaller than the
+common movement. The filter holds its ≈0.008 lead across the entire axis,
+unchanged, which is what a null here was defined in advance to mean: its
+advantage is structural, not sawtooth-specific.
+
+**⚠ The five-seed reading of this experiment was wrong in two ways, and both
+were confident.** At $n=5$ the slope was +0.00112 ± 0.00045 ($p=0.068$) and read
+as a near-significant *reversal*; \ac{atc} appeared **immune** to the axis
+(−0.0007, $p=0.82$), which invited the story that momentum buffers the reset. Five
+more seeds halved the slope and moved $p$ to 0.19, and \ac{atc}'s immunity became
++0.0019 ($p=0.31$) — an ordinary member of the common upward move. The per-seed
+slopes show why: seeds 0–3 gave +0.0018, +0.0009, +0.0019, +0.0015 and the five
+added seeds averaged −0.00009. **A four-of-five sign agreement at $n=5$ was not
+evidence of anything.** The rule to carry: a wrong-signed trend at $0.05<p<0.10$
+is not a weaker version of a result, it is an absence of one, and the cheapest
+way to find that out is more seeds rather than more prose. X18's second pass cost
+under six hours (D63's exactness guarantee meant seeds 0–4 reproduced
+bit-for-bit, so only the new five carried information).
+
+**What this does not establish.** Nothing about a *diffusion* filter, as ever.
+And nothing about directional memory in general — only that at
+$\beta=0.9$, with a monotone stretch never shorter than twice its horizon, it
+neither helps nor hurts. See [[D74]] for the coupled-axis bind this shares, and
+[[D77]] for why the gap here *is* rankable: the two \ac{atc} floors differ by
+1.09× (0.0790 against 0.0863), nothing like the compression that made
+`local_only`'s damage unreadable.

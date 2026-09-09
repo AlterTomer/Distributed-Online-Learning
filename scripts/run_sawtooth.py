@@ -116,7 +116,14 @@ AMPLITUDE = 45.0
 PERIODS = [300, 100, 50, 30, 20]
 
 HORIZON = 1500
-SEEDS = [0, 1, 2, 3, 4]
+
+#: Ten, not the usual five. The first pass put the pre-registered estimator --- the
+#: per-seed slope of the `atc_plain - atc` gap on log ramp rate --- at
+#: +0.00112 +- 0.00045, t = 2.48, p = 0.068: the *opposite* sign to the prediction
+#: and just outside significance, which is the least informative place to stop. At
+#: the observed effect and spread, ten seeds puts it near t = 3.5. The main pass
+#: costs about 30 min per cell, so the second five are roughly three more hours.
+SEEDS = list(range(10))
 EVAL_EVERY = 5
 
 #: `atc_plain` is the point of the experiment rather than a payload-matched
@@ -273,6 +280,23 @@ def main(fresh: bool = FRESH, tune_only: bool = False) -> int:
         if signature not in seen_twins:
             seen_twins.add(signature)
             cells.append((f"x18_control_{signature}", None, entries))
+
+    # A completed cell is cached on its `_complete` marker and `run_one` never
+    # resumes into one -- a cell either finished or it starts over (D68). So
+    # raising SEEDS without `--fresh` returns "cached" for every cell and prints a
+    # completion line in seconds, having changed nothing and silently reporting the
+    # old seed count as the new one. Refuse instead of letting that pass.
+    if not fresh:
+        stale = [name for name, _d, _e in cells
+                 if (ROOT / "results" / name / "_complete").exists()
+                 and len(list((ROOT / "results" / name).glob("seed_*.parquet"))) < len(SEEDS)]
+        if stale:
+            print(f"\n{len(stale)} cell(s) are complete at fewer than the {len(SEEDS)} seeds "
+                  f"now configured:\n  " + "\n  ".join(stale)
+                  + "\n\nThey are cached on their completion marker, so this pass would skip\n"
+                  "them and report the old seed count as the new one. Re-run them:\n"
+                  "  python scripts/run_sawtooth.py --fresh\n")
+            return 1
 
     print(f"\nX18: {len(cells)} cells at {len(SEEDS)} seeds, T={HORIZON}, "
           f"amplitude {AMPLITUDE:g} deg")
