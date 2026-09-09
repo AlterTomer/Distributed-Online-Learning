@@ -118,3 +118,10 @@ it, though the figure builders themselves are not shipped (D75).
 
 To change any of this rather than re-run it as-is — a parameter, a learner, a
 drift schedule, a new experiment — see [`howto.md`](howto.md).
+
+Everything above measures methods that either pool the data or exchange only a
+parameter vector. The diffusion filter is the first to hold a *belief* per agent,
+so most of these experiments have an analogue that asks a different question, and
+a few questions become askable for the first time. What is still owed is tracked
+in [`phase5_plan.md`](phase5_plan.md); rows move from there to the table above as
+they land.

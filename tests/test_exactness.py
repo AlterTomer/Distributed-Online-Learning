@@ -268,3 +268,116 @@ def test_the_guard_explains_why_it_is_not_a_preference() -> None:
         check_exactness_preconditions(
             load_config("x0_exactness", overrides={"run": {"dtype": "float32"}})
         )
+
+
+# =========================================================================== #
+# 3. the filter's analogue, through the runner's own dispatch
+# =========================================================================== #
+#
+# The unit tests in `test_learners.py` drive `adapt`/`combine` by hand and prove
+# the *algorithm* is right. These prove the *harness runs that algorithm*: the
+# config resolves to the variant we meant, `_advance` dispatches a per-agent
+# filter down the per-agent path and a pooled one down `adapt_pooled`, and the
+# environment hands every agent the slice the identity assumes. That gap is
+# exactly what X0 closes for SGD, and it is not hypothetical -- dispatch here is
+# by set membership in `POOLING`, and a diffusion filter wrongly listed there
+# would pool the batch and still produce a plausible curve.
+
+
+FILTER = {
+    "transition": "scalar",
+    "gamma": 1.0,
+    "process_noise_q": 0.0,
+    "lambda_forget": 1.0,
+    "prior_scale": 0.01,
+}
+
+
+def run_filters(diffusion_name: str, steps: int = 8) -> float:
+    """Drive both filters through `_advance`; return the worst disagreement.
+
+    Q = 0 and gamma = 1 deliberately: the identity is about the *update*, and a
+    process model that both filters apply identically would only mask a mismatch
+    by adding the same thing to each.
+    """
+    from dekf_bench.runner import simulate
+
+    config = load_config(
+        "x0_exactness",
+        overrides={
+            "run": {"horizon": steps, "dtype": "float64"},
+            "learners": [
+                {"name": "centralized_ekf_walk", **FILTER},
+                {"name": diffusion_name, **FILTER},
+            ],
+        },
+    )
+    environment = build_environment(config, 0, split())
+    model = build_model_from_config(config)
+    likelihood = Categorical(config.model.output_dim)
+    learners = build_learners(config, model, likelihood)
+    theta0 = model.flatten(model.init_params(environment.seeds.torch_generator("init")))
+    for learner in learners.values():
+        learner.init(theta0)
+
+    centralized = learners["centralized_ekf_walk"]
+    diffusion = learners[diffusion_name]
+    nodes = list(range(environment.n_nodes))
+
+    worst = 0.0
+    for step in range(environment.horizon):
+        observations = environment.step(step)
+        pooled_x, pooled_y = pool(observations)
+        for name, learner in learners.items():
+            simulate._advance(
+                learner, name, observations, nodes, environment.graph.weights,
+                pooled_x, pooled_y,
+            )
+        reference = centralized.flat_params(0)
+        worst = max(
+            worst,
+            max(float((diffusion.flat_params(v) - reference).abs().max()) for v in nodes),
+        )
+    return worst
+
+
+def test_the_diffusion_filter_reproduces_the_centralized_one_through_the_runner() -> None:
+    """prop:complete_graph, end to end. The filter's X0.
+
+    Held at the same 1e-12 as SGD's identity. The residual is measured at
+    **4.4e-16** -- machine epsilon, and comparable to X0's own 1.7e-15 -- which is
+    worth stating because it was not the expectation: the filter's path to each
+    parameter runs through a Cholesky solve and a p x p subtraction, so a larger
+    accumulation than a weighted mean of gradients would have been reasonable. It
+    does not appear, because both filters run the *same* `woodbury_update` on the
+    same concatenated information, in the same order.
+    """
+    assert run_filters("diffusion_ekf_onehop") < TOLERANCE
+
+
+def test_a_local_adapt_breaks_the_identity_through_the_runner() -> None:
+    """The negative half, so the positive one cannot pass vacuously.
+
+    A local adapt has each agent update on its own data and the combine average
+    covariances, which is not the same as summing information -- so the identity
+    must fail even on a complete graph. If this ever passed, the test above would
+    have stopped being evidence that one-hop is what makes the identity hold.
+    """
+    assert run_filters("diffusion_ekf_full") > 1e-6
+
+
+def test_the_mean_only_variant_also_breaks_it() -> None:
+    """And for a second, independent reason: it does not mix covariances at all."""
+    assert run_filters("diffusion_ekf") > 1e-6
+
+
+def test_the_filter_variants_are_not_dispatched_as_pooled() -> None:
+    """The dispatch bug this section exists to catch, asserted directly.
+
+    A per-agent learner listed in POOLING would consume the union of every
+    agent's batch, agree with the centralized filter for the wrong reason, and
+    produce a curve nobody could tell from a correct one.
+    """
+    from dekf_bench.learners.registry import DIFFUSION_EKF_VARIANTS, POOLING
+
+    assert not (set(DIFFUSION_EKF_VARIANTS) & POOLING)

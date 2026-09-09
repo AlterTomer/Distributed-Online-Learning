@@ -10,21 +10,30 @@ filter (Diff-EKF).
 
 | File | What it answers |
 |---|---|
-| [`docs/experiments.md`](docs/experiments.md) | **X0–X17: what each asks, the command that runs it, and in what order** |
+| [`docs/experiments.md`](docs/experiments.md) | **X0–X18: what each asks, the command that runs it, and in what order** |
+| [`docs/phase5_plan.md`](docs/phase5_plan.md) | What the diffusion filter still has to be tested on, as a checklist |
 | [`docs/howto.md`](docs/howto.md) | **"How do I…?" — change a parameter, add a learner, compare methods fairly** |
 | [`docs/WORKPLAN.md`](docs/WORKPLAN.md) | The research plan: questions, methods, experiments, validity checks |
 | [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md) | The repository specification: layout, interfaces, build order |
 | [`docs/environment.md`](docs/environment.md) | What each agent observes, and the guarantees the benchmark rests on |
-| [`docs/learners.md`](docs/learners.md) | The four methods, the exactness check, and what each transmits |
+| [`docs/learners.md`](docs/learners.md) | Every method, the exactness checks, and what each transmits |
 | [`docs/results.md`](docs/results.md) | Measured numbers, the settings behind them, and what they support |
 | [`docs/figures.md`](docs/figures.md) | What each figure shows, how to read it, and the cached figure data |
 | [`docs/configs.md`](docs/configs.md) | Every config file and field, with legal values |
 | [`docs/design_notes.md`](docs/design_notes.md) | Decisions log: what was chosen, over what, and why |
+| [`docs/filter.md`](docs/filter.md) | The filter derivation, both centralised and diffusion, and what each choice costs |
 
-**Status:** phases 0–4 complete; phase 5 (Diff-EKF) is next. X0 passes at
-1.7e-15. Every method is tuned on a held-out grid before any comparison
-(`docs/results.md` §2) — a fixed learning rate produced a headline that was an
-optimizer artefact, so this is now a standing rule rather than a convenience.
+**Status:** phases 0–4 complete. Phase 5 has begun: the diffusion filter is
+**implemented and gated, not yet measured** — both combine variants exist and
+the complete-graph exactness identity holds to 1e-10, but no experiment has
+been run on it. What is still owed is [`docs/phase5_plan.md`](docs/phase5_plan.md).
+
+X0 passes at 1.7e-15. Every method is tuned on a held-out grid before any
+comparison (`docs/results.md` §2) — a fixed learning rate produced a headline
+that was an optimizer artefact, so this is now a standing rule rather than a
+convenience. Damage is compared only across learners whose stationary levels
+are comparable, which is a rule a mis-tuned baseline taught us the hard way
+(design note D77).
 
 ### Results so far
 
@@ -66,7 +75,7 @@ sized for a laptop CPU.
 ## Running things
 
 **Start with [`docs/experiments.md`](docs/experiments.md).** It is the index of
-every experiment the benchmark has run — X0 through X16 — giving for each one the
+every experiment the benchmark has run — X0 through X18 — giving for each one the
 question it answers, the exact command, the measured runtime where we have it,
 and which experiments must run before which. `WORKPLAN.md` §6 states the *design*
 of X0–X7 and why each exists; `docs/experiments.md` is what to type.
@@ -89,7 +98,14 @@ python scripts/run_ekf_sweep.py                  # X13, tuning the centralised f
 python scripts/run_ekf_generalization.py         # X14, the crossed drift sweep
 python scripts/run_ekf_retune.py                 # X15, gamma against lambda
 python scripts/run_ekf_ramp.py                   # X16, the filter on X9's ramp
+python scripts/run_ekf_skew.py --lr              # X17, the filter under label skew
+python scripts/run_sawtooth.py --lr              # X18, sawtooth drift
 ```
+
+Several take a `--lr` pass first and **refuse to start without it**, rather than
+carrying a learning rate chosen for another condition. That is not caution: doing
+it wrong once put a baseline at chance and inverted a damage ordering, and the
+result read as a finding until the stationary column was looked at (D77).
 
 Runs and sweeps are **resumable and exact**: the loop consumes no randomness, so
 a resumed run reproduces an uninterrupted one bit-for-bit, and re-running a sweep
