@@ -1060,3 +1060,79 @@ is why X10's error bars are an order of magnitude wider than X8's.*
 | The X11 crossover | needs a design that can sustain smooth drift past 300 steps at 0.15°/step, which the 45° cap forbids |
 | Where cooperation reverses | X8 at a wider `per_node_spread` than 0.5 |
 | X8/X10 for the other learners | recorded, not yet reported; `--learner` on the report scripts |
+
+## Label skew, and abrupt against smooth (X17)
+
+Every filter result above uses an **IID partition**. X17 is the only one that
+does not.
+
+| settled error, stationary | β=0.1 | β=1 | β=100 | spread |
+|---|---|---|---|---|
+| EKF, γ<1 | 0.0557 | 0.0568 | 0.0560 | **0.0011** |
+| centralized SGD (pooled) | 0.0766 | 0.0779 | 0.0758 | 0.0021 |
+| diffusion ATC (per-agent) | 0.0974 | 0.0816 | 0.0767 | 0.0207 |
+| local only (per-agent) | 0.6266 | 0.2692 | 0.1359 | 0.4906 |
+
+The filter's spread is the only one below the 0.0013 threshold, and it holds
+under drift: at 15° every 25 steps it is damaged **0.0350 at β=0.1 against
+0.0370 IID**, twins 0.0557 and 0.0561.
+
+**Read that as pooling defusing the skew, not as robustness to heterogeneity.**
+The centralised filter trains on the union of every shard, so it barely meets the
+skew at all; a *diffusion* filter, where each agent holds its own shard, is
+untested and is the case that matters (D77).
+
+| damage against its own twin | stationary twin | abrupt: 15° every 25 | smooth: 0.6° every step |
+|---|---|---|---|
+| EKF, γ<1 | 0.0557 | 0.0350 | 0.0011 |
+| centralized SGD | 0.0766 | 0.0509 | 0.0041 |
+| diffusion ATC | 0.0974 | 0.0805 | 0.0086 |
+| local only | **0.6266** | 0.0321 | 0.0015 |
+
+Both cells run at 0.60°/step and cover 885° against 899° of total travel, so only
+the delivery differs.
+
+⚠ **`local_only`'s damage column cannot be ranked against the others**, and the
+stationary column is why it is printed beside it. Damage is a paired difference in
+error rate, which removes the stationary gap but is not scale-free: error rate is
+bounded above, so a fixed amount of degradation compresses as the base climbs, and
+0.0321 measured from 0.6266 is not the same quantity as 0.0350 measured from
+0.0557. X11 settles it without a new run — `x11_every25_jump15` is this exact drift
+under an IID partition:
+
+| same drift, 15° every 25 steps | stationary twin | drifting | damage |
+|---|---|---|---|
+| centralized SGD, IID | 0.0761 | 0.1265 | 0.0505 |
+| diffusion ATC, IID | 0.0775 | 0.1293 | 0.0518 |
+| local only, IID | 0.1379 | 0.2088 | **0.0709** |
+
+Under IID `local_only` is the **most** drift-damaged of the three. Adding skew
+*lowers* its damage to 0.0321 while nothing about the drift changes — its floor
+moves from 0.1379 to 0.6266 and there is less left to lose. A method does not
+become drift-robust because its data got harder. At β=0.1 each node holds a narrow
+slice of the label space and `local_only` never pools, so its error is already
+dominated by classes it structurally cannot predict; rotating the features
+perturbs a boundary it never fit.
+
+The negative claim is the one that survives, because the normalisations disagree
+about the positive one. By headroom to chance the ordering inverts outright
+(`local_only` 0.118, ATC 0.100, SGD 0.062, EKF 0.042); by the ratio
+drifting/stationary it inverts the other way (`local_only` 1.05× against 1.6–1.8×).
+Error rate has no scale on which one of these is canonical, so the table reports
+the raw difference and the base together, and the claim made is only that
+`local_only`'s small number is not robustness.
+
+Note the contrast this draws with the two pooled and per-agent methods either
+side of it. `centralized_sgd` pools, so skew never reaches it and its damage is
+unchanged from IID (0.0505 → 0.0509). ATC is per-agent, so skew does reach it —
+its stationary level rises 0.0775 → 0.0974 and its damage rises with it, 0.0518 →
+0.0805. ATC and `local_only` are both hurt by the skew; they differ in that ATC is
+still low enough to have room left to degrade. ⚠ This is **not** the abrupt-against-smooth comparison
+above and does not contradict it: that put jumps against *monotone linear* drift
+at ≤0.15°/step, while "smooth" here is a reflecting random walk at 0.60, a rate
+monotone linear cannot sustain for 1500 steps.
+
+**The baselines are tuned per condition and per learner.** The first attempt used
+one optimiser and one rate for all three; `local_only` then sat at chance and
+showed the *smallest* damage in the table, which would have read as the most
+drift-resistant method present (D77).

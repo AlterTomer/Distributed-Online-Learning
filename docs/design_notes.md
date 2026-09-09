@@ -2663,3 +2663,127 @@ as a recorded rejection plus one live caveat: `sec:closure` keeps it as the
 simplest way to preserve matrix structure through the prediction step *above* the
 scale at which $\bm P$ must be structured, which is a regime we have not reached
 and where the same shape-preserving property that loses here would win.
+
+### ✅ D77. Label skew does not reach the filter, and a broken baseline looks robust
+
+Asked whether the filter had ever been tested under label skew. It had not: of
+242 completed runs exactly three used a Dirichlet partition, and all three were
+X6, which predates the filter. Everything from X9 onward — the 21/21
+generalisation of D74, the $\gamma$/$\lambda$ decision of D76, the break rate of
+X16 — was measured IID. True, unstated, and the kind of gap that survives until
+someone asks.
+
+**The obvious experiment would have measured almost nothing, and X6 said so in
+advance.** The centralised filter trains on $\bigcup_v\mathcal D_t^v$, and skew
+is a statement about how labels are split *across* agents; pooling undoes it.
+X6's settled error across $\beta\in\{0.1,1,100\}$:
+
+| | $\beta=0.1$ | $1$ | $100$ | spread |
+|---|---|---|---|---|
+| centralized \ac{sgd} (pooled) | 0.0788 | 0.0777 | 0.0797 | 0.0020 |
+| \ac{atc} (per-agent) | 0.1021 | 0.0812 | 0.0809 | 0.0212 |
+| local only (per-agent) | 0.6301 | 0.2757 | 0.1419 | 0.4882 |
+
+So it was run for two sharper questions instead.
+
+**(a) The curvature hypothesis, and it is refuted.** Under skew the per-step
+pooled batch has higher variance in its label *composition* even though the
+marginal is right. \ac{sgd} averages gradients and cannot see that; the filter
+estimates $\bm H^{\trans}\bm\Lambda\bm H$ from the same batch, and $\bm\Lambda$
+depends on the predicted class distribution — so it *could* be more
+skew-sensitive despite seeing the same marginal. It is **less**:
+
+| | $\beta=0.1$ | $1$ | $100$ | spread |
+|---|---|---|---|---|
+| \ac{ekf} $\gamma<1$ | 0.0557 | 0.0568 | 0.0560 | **0.0011** |
+| centralized \ac{sgd} | 0.0766 | 0.0779 | 0.0758 | 0.0021 |
+
+0.0011 is below the 0.0013 threshold; the pooled baseline's 0.0021 is not. And it
+holds under drift: at `every25_jump15` the filter is damaged **0.0350 at
+$\beta=0.1$ against 0.0370 IID**, twins 0.0557 and 0.0561. Strong skew moves the
+filter by less than the noise floor, still or drifting.
+
+**(b) Abrupt against smooth at a matched rate.** Two cells at the same
+0.60°/step and near-identical total travel (885° against 899°) — 15° every 25
+steps against 0.6° every step. Damage, all four learners:
+
+| | abrupt | smooth |
+|---|---|---|
+| \ac{ekf} | 0.0350 | 0.0011 |
+| centralized \ac{sgd} | 0.0509 | 0.0041 |
+| \ac{atc} | 0.0805 | 0.0086 |
+| local only | 0.0321 | 0.0015 |
+
+Continuous motion at that rate is nearly free; the same average delivered as
+jumps costs 9–32× more. **This is not the X11-vs-X12 comparison** and does not
+contradict it: that one put repeated jumps against *monotone linear* drift at
+$\bar\alpha\le0.15$°/step, whereas this "smooth" is a reflecting random walk at
+0.60. Monotone linear cannot run at 0.60 for 1500 steps at all — it reaches the
+45° cap at $t=75$ — so the two live in different rate regimes.
+
+**The first attempt was invalid, and the reason is D39 arrived at from the other
+side.** All three baselines were given one optimiser and one learning rate,
+momentum 0.9 at lr 0.05, carried over from a 2.50°/step *drift* condition. The
+re-tune, five rates per condition per learner, showed what that cost: 0.015–0.044
+for the two momentum methods. For `local_only` the rate was in fact right —
+0.05, exactly what X6 chose — and the *optimiser* was wrong, since momentum at
+that rate gives an effective step $\eta/(1-\beta)=0.5$, the instability
+`sweep_hyperparameters.py` exists to document. It sat at 0.859, essentially
+chance, against X6's 0.630.
+
+**Two things fall out of that mistake worth keeping.**
+
+*A broken baseline looks robust.* `local_only`'s damage went from 0.0158 to
+**0.0321** when it was fixed — it got *worse* on the drift metric by being
+repaired. A learner pinned at chance cannot be damaged much further, so breaking
+it made it the most drift-resistant method in the table. Read without the
+stationary column beside it, that column says the opposite of the truth. The
+existing rule was "a mis-tuned baseline shifts a number"; it should be **a
+mis-tuned baseline can invert an ordering**.
+
+*And repairing it did not remove the compression, only the pathology.* At 0.0321
+`local_only` is still the smallest damage in the (b) table, and that is still not
+robustness. X11 shows it without a new run: `x11_every25_jump15` is this exact
+drift under an \ac{iid} partition, and there `local_only` is damaged **0.0709**,
+the largest of the three learners the two sweeps share — against 0.0505 for
+centralized \ac{sgd} and 0.0518 for \ac{atc}. Adding skew *lowered* its damage,
+0.0709 → 0.0321, while the drift was held fixed. What moved was its floor,
+0.1379 → 0.6266.
+
+The mechanism is that damage is a paired difference in a **bounded** coordinate.
+Pairing removes the stationary gap, which is what it is for, but error rate is
+capped — for ten classes a uniform guess errs at 0.9 — so a fixed degradation
+compresses as the base rises: 0.0321 from 0.6266 and 0.0350 from 0.0557 are not
+the same quantity. At $\beta=0.1$ each node holds a narrow slice of the label
+space and `local_only` never pools, so its error is already dominated by classes
+it structurally cannot predict, and rotating the features perturbs a boundary it
+never fit.
+
+**No normalisation fixes this, which is why the claim is kept negative.**
+Dividing by headroom to chance inverts the ordering one way (`local_only` 0.118,
+\ac{atc} 0.100, \ac{sgd} 0.062, \ac{ekf} 0.042); the ratio drifting/stationary
+inverts it the other (`local_only` 1.05$\times$ against 1.6–1.8$\times$). Error
+rate carries no scale that makes one of the three canonical. So the rule is
+narrower than "normalise it": **damage is comparable only between learners whose
+stationary levels are comparable**, and where they are not, the stationary level
+is reported beside it and no ranking is claimed. Figure 33(b) prints the base
+under each bar for that reason.
+
+The rest of the (b) table is consistent with this once read that way.
+`centralized_sgd` pools, so skew never reaches it and its damage is unchanged
+from \ac{iid}, 0.0505 → 0.0509. \ac{atc} is per-agent, so skew does reach it —
+stationary 0.0775 → 0.0974, damage 0.0518 → 0.0805. \ac{atc} and `local_only` are
+both hurt by skew and differ only in that \ac{atc} still has room to degrade.
+
+*Correcting it strengthened the claim.* Against \ac{atc} at the abrupt cell the
+total advantage fell from +0.1143 to +0.0873 — but the whole of that came out of
+the *fitting* term (+0.0713 → +0.0418), exactly where a too-large step size would
+put it, while tracking rose slightly (+0.0430 → +0.0455). The tracking share went
+**38% → 52%**. The invalid run had inflated the headline and understated the part
+the project actually claims.
+
+**What this does not establish.** The centralised filter pools, so this says
+nothing about how a *diffusion* filter would fare under skew — where each agent
+holds a skewed shard and the combine step has to reconcile them, which is
+precisely where D50's finding that cooperation pays more under label shift would
+bite. That is a phase-5 experiment and the one that matters.
