@@ -1,0 +1,35 @@
+# The diffusion EKF, full covariance sharing: eq. cov_combine, the CEILING.
+#
+#   adapt    (P^psi_v)^-1 = P_v^-1 + Delta_v          local data only
+#   combine  m_v <- sum_u a_vu psi_u                  O(p) per link
+#            P_v <- sum_u a_vu P^psi_u                O(p^2) per link -- 68 MB
+#
+# Undeployable at any interesting p, and measured first anyway. The two variants
+# are not competing designs to be chosen between on cost; they are an upper bound
+# and a candidate. This one shares everything the derivation makes available, so
+# whatever diffusion can achieve on a given graph it achieves here. Measuring the
+# cheap variant alone would leave every shortfall ambiguous between "diffusion
+# does not recover the centralised filter here" and "mean-only sharing was the
+# part that cost us", and no amount of tuning separates those afterwards.
+#
+# The averaged covariance is NOT the exact covariance of the diffused estimate --
+# the neighbours' errors are correlated through shared history. It is a
+# conservative upper bound on it, for any cross-correlation, and the bound is
+# attained when those errors coincide. See lemma `lem:conservative`; this is a
+# convex combination of covariances, NOT covariance intersection, which combines
+# in the information domain and would give a tighter bound at the cost of an
+# inverse per fusion.
+name: diffusion_ekf_full
+
+adapt_scope: local          # M_v = {v}
+covariance_sharing: full    # P_v <- sum_u a_vu P^psi_u
+
+# Identical to `diffusion_ekf` in every other respect, which is the point: the
+# two differ in ONE line of the combine step, so the gap between them measures
+# covariance sharing and nothing else.
+transition: scalar
+gamma: 1.0
+forgetting: process_noise
+process_noise_q: 1.0e-5
+lambda_forget: 1.0
+prior_scale: 0.01

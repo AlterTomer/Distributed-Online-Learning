@@ -52,6 +52,79 @@ class FilterError(LearnerError):
 TRUST_REGION_RATIO = 1.0e6
 
 
+def information_pair(
+    model: Model, likelihood: Any, mean: torch.Tensor, x: torch.Tensor, y: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    r"""The pair $(\bar{\bm B},\ \bm H^{\mathsf T}\bm s)$ at one linearisation point.
+
+    $\bar{\bm B}$ has shape $(p, nq)$ and satisfies $\bar{\bm B}\bar{\bm B}^{\mathsf T}
+    =\sum_i\bm\Delta_i$, the information the batch contributes; the second return
+    is the summed score.
+
+    **Module level, and shared by both filters.** The centralised filter forms
+    this once on the pooled batch; the diffusion filter forms it per agent, and
+    under a one-hop adapt step concatenates several of them. That the three cases
+    are one function is what makes `prop:complete_graph` testable as an
+    *identity* rather than as an approximate agreement --- the same argument
+    `base.py` makes for having exactly one gradient function.
+    """
+    params = model.unflatten(mean)
+    logits = model.forward(params, x)
+    jacobians = model.per_sample_jacobian(params, x)  # (n, q, p)
+    factor = likelihood.fisher_factor(logits)  # (n, q, q)
+
+    batch, outputs, _ = jacobians.shape
+    # B_i = H_i^T G_i, stacked along the column axis into (p, n*q).
+    stacked = torch.einsum("nqp,nqr->pnr", jacobians, factor).reshape(-1, batch * outputs)
+    # The score, not the innovation: they differ off the canonical link, and the
+    # factor between them is not one the covariance can absorb (D60).
+    score = torch.einsum("nqp,nq->p", jacobians, likelihood.score(logits, y))
+    return stacked, score
+
+
+def woodbury_update(
+    mean: torch.Tensor,
+    covariance: torch.Tensor,
+    stacked: torch.Tensor,
+    score: torch.Tensor,
+    context: str = "",
+) -> tuple[torch.Tensor, torch.Tensor]:
+    r"""One stacked measurement update, via Woodbury.
+
+    The information increment $\bar{\bm B}\bar{\bm B}^{\mathsf T}$ has rank at
+    most $n(q-1)$ -- 360 here against $p=2908$ -- so the identity turns a
+    $p\times p$ inverse into an $(nq)\times(nq)$ one. Direct inversion is
+    $O(p^3)\approx2.5\times10^{10}$ flops a step, about an hour a seed before any
+    sweep (D59).
+
+    ``context`` is appended to the divergence message: the caller knows which
+    hyperparameter is the likely culprit and this function does not.
+    """
+    product = covariance @ stacked  # (p, n*q)
+    gram = stacked.transpose(0, 1) @ product  # (n*q, n*q)
+    gram.diagonal().add_(1.0)
+
+    # $\bm I + \bar{\bm B}^{\mathsf T}\bm P\bar{\bm B}$ is symmetric positive
+    # definite by construction -- identity plus a Gram matrix -- so it gets a
+    # Cholesky solve rather than a general LU one. Cheaper, better conditioned,
+    # and its failure carries information a general solver's does not: the only
+    # way to lose definiteness here is for $\bar{\bm B}^{\mathsf T}\bm P\bar{\bm
+    # B}$ to be so large that adding the identity is lost to rounding, which is
+    # D61's divergence caught one step before the mean goes non-finite.
+    try:
+        factor = torch.linalg.cholesky(gram)
+    except torch.linalg.LinAlgError as failure:
+        raise FilterError(
+            "the innovation covariance is singular, so P has grown until the identity "
+            f"is negligible beside it. {context}"
+        ) from failure
+
+    solved = torch.cholesky_solve(product.transpose(0, 1), factor)  # (n*q, p)
+    updated = covariance - product @ solved
+    updated = 0.5 * (updated + updated.transpose(0, 1))
+    return mean + updated @ score, updated
+
+
 class CentralizedEKF:
     r"""One Gaussian belief $(\bm m,\bm P)$ over the pooled batch.
 
@@ -291,60 +364,35 @@ class CentralizedEKF:
         assert self._mean is not None and self._covariance is not None
         mean, covariance = self._mean, self._covariance
 
-        params = self.model.unflatten(mean)
-        logits = self.model.forward(params, x)
-        jacobians = self.model.per_sample_jacobian(params, x)  # (n, q, p)
-        factor = self.likelihood.fisher_factor(logits)  # (n, q, q)
-
-        batch, outputs, _ = jacobians.shape
-        # B_i = H_i^T G_i, stacked along the column axis into (p, n*q).
-        stacked = torch.einsum("nqp,nqr->pnr", jacobians, factor).reshape(-1, batch * outputs)
-        # The score, not the innovation: they differ off the canonical link, and
-        # the factor between them is not one the covariance can absorb (D60).
-        score = torch.einsum("nqp,nq->p", jacobians, self.likelihood.score(logits, y))
-
-        product = covariance @ stacked  # (p, n*q)
-        gram = stacked.transpose(0, 1) @ product  # (n*q, n*q)
-        gram.diagonal().add_(1.0)
-
-        # $\bm I + \bar{\bm B}^{\mathsf T}\bm P\bar{\bm B}$ is symmetric positive
-        # definite by construction -- identity plus a Gram matrix -- so it gets a
-        # Cholesky solve rather than a general LU one. Cheaper, better
-        # conditioned, and its failure carries information a general solver's
-        # does not: the only way to lose definiteness here is for
-        # $\bar{\bm B}^{\mathsf T}\bm P\bar{\bm B}$ to be so large that adding
-        # the identity is lost to rounding, which is D61's divergence caught one
-        # step before the mean goes non-finite.
+        stacked, score = information_pair(self.model, self.likelihood, mean, x, y)
         try:
-            factor = torch.linalg.cholesky(gram)
-        except torch.linalg.LinAlgError as failure:
-            # Report the state that actually caused it rather than guessing at a
-            # cause. P can reach this by two routes -- too large a prior, or
-            # forgetting that outruns the information arriving -- and naming the
-            # wrong one sends the reader to the wrong hyperparameter. X13 hit it
-            # at prior_scale=0.01, which is mid-range and blameless; the culprit
-            # was lambda=0.993 inflating P by 0.7% a step for 860 steps.
-            variance = float(covariance.diagonal().mean())
-            inflation = (
-                f"lambda={self.lambda_forget} inflates P by "
-                f"{1 / self.lambda_forget - 1:.2%} per step"
-                if self.lambda_forget < 1.0
-                else f"Q={self.process_noise_q} adds to P each step"
+            self._mean, self._covariance = woodbury_update(
+                mean, covariance, stacked, score, context=self._divergence_context(covariance)
             )
-            raise FilterError(
-                f"{self._name} diverged at step {self._steps}: the innovation covariance "
-                f"is singular, so P has grown until the identity is negligible beside it. "
-                f"Mean variance is {variance:.3e}, from prior_scale={self.prior_scale}; "
-                f"{inflation}. Either the prior is too large or the forgetting outruns "
-                "the information arriving (design note D61)."
-            ) from failure
+        except FilterError as failure:
+            raise FilterError(f"{self._name} diverged at step {self._steps}: {failure}") from failure
 
-        solved = torch.cholesky_solve(product.transpose(0, 1), factor)  # (n*q, p)
-        updated = covariance - product @ solved
-        updated = 0.5 * (updated + updated.transpose(0, 1))
+    def _divergence_context(self, covariance: torch.Tensor) -> str:
+        """Which hyperparameter to blame, from the state that actually caused it.
 
-        self._covariance = updated
-        self._mean = mean + updated @ score
+        P can reach a singular innovation covariance by two routes -- too large a
+        prior, or forgetting that outruns the information arriving -- and naming
+        the wrong one sends the reader to the wrong hyperparameter. X13 hit it at
+        prior_scale=0.01, which is mid-range and blameless; the culprit was
+        lambda=0.993 inflating P by 0.7% a step for 860 steps.
+        """
+        variance = float(covariance.diagonal().mean())
+        inflation = (
+            f"lambda={self.lambda_forget} inflates P by "
+            f"{1 / self.lambda_forget - 1:.2%} per step"
+            if self.lambda_forget < 1.0
+            else f"Q={self.process_noise_q} adds to P each step"
+        )
+        return (
+            f"Mean variance is {variance:.3e}, from prior_scale={self.prior_scale}; "
+            f"{inflation}. Either the prior is too large or the forgetting outruns "
+            "the information arriving (design note D61)."
+        )
 
     # -- what no SGD baseline can report ------------------------------------ #
 

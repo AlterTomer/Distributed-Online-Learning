@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-import torch
-
-from dekf_bench.learners.base import Intermediate, LearnerError, LearnerState
-from dekf_bench.learners.ekf import CentralizedEKF
+from dekf_bench.learners.base import LearnerError
+from dekf_bench.learners.diffusion_ekf import DiffusionEKF
+from dekf_bench.learners.ekf import TRUST_REGION_RATIO, CentralizedEKF
 from dekf_bench.learners.optim_state import build_optimizer
 from dekf_bench.learners.sgd import (
     CentralizedSGD,
@@ -17,54 +16,24 @@ from dekf_bench.learners.sgd import (
 )
 from dekf_bench.models.base import Model
 
-
-class DiffusionEKF:
-    """Phase 5. The interface only, so the type checker exercises it now.
-
-    Present rather than absent because IMPLEMENTATION.md §13.5 asks for the
-    adapt/combine split to be *exercised* before the filter arrives: if the
-    interface were shaped only around SGD, discovering that the filter does not
-    fit would happen at the point where changing it is most expensive.
-    """
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self._name = "diffusion_ekf"
-
-    @property
-    def name(self) -> str:
-        return self._name
-
-    @property
-    def n_nodes(self) -> int:
-        raise NotImplementedError(_MESSAGE)
-
-    def init(self, theta0: torch.Tensor) -> None:
-        raise NotImplementedError(_MESSAGE)
-
-    def adapt(self, node: int, observation: Any) -> Intermediate:
-        raise NotImplementedError(_MESSAGE)
-
-    def combine(self, intermediates: dict[int, Intermediate], weights: torch.Tensor) -> None:
-        raise NotImplementedError(_MESSAGE)
-
-    def predict(self, node: int, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError(_MESSAGE)
-
-    def state(self, node: int) -> LearnerState:
-        raise NotImplementedError(_MESSAGE)
-
-    def flat_params(self, node: int) -> torch.Tensor:
-        raise NotImplementedError(_MESSAGE)
-
-    def comm_scalars_per_step(self, n_edges: int) -> int:
-        raise NotImplementedError(_MESSAGE)
-
-
-_MESSAGE = (
-    "diffusion_ekf arrives in phase 5. The interface exists now so that the "
-    "adapt/combine split is exercised before the filter is written -- see "
-    "IMPLEMENTATION.md section 13.5."
-)
+#: The diffusion filter's three names, and the (adapt_scope, covariance_sharing)
+#: each pins. Separate names rather than one name with config fields, for the
+#: reason D71 records: two variants have to appear in a *single* run to be
+#: compared as a paired difference, and one name cannot appear twice.
+DIFFUSION_EKF_VARIANTS = {
+    # The expensive ceiling: shares everything the derivation makes available, so
+    # whatever diffusion can achieve on a graph it achieves here. Implemented and
+    # measured first precisely because it bounds the cheap one.
+    "diffusion_ekf_full": ("local", "full"),
+    # The deployable reduction, and what the communication claim will rest on.
+    # Its gap to the above is the price of not shipping covariances.
+    "diffusion_ekf": ("local", "local"),
+    # Not a competitor: the correctness fixture. On a complete graph one-hop
+    # makes the measurement set the whole vertex set, which is the hypothesis of
+    # prop:complete_graph, and the filter must then reproduce the centralized one
+    # exactly. Without it the diffusion filter has no analogue of X0.
+    "diffusion_ekf_onehop": ("one_hop", "full"),
+}
 
 #: Every learner a config may name. `diffusion_sgd_atc_plain` shares the ATC
 #: implementation; it differs only in carrying no optimizer state, which is what
@@ -76,6 +45,8 @@ BUILDERS = {
     "diffusion_sgd_atc_plain": DiffusionSGDATC,
     "diffusion_sgd_cta": DiffusionSGDCTA,
     "diffusion_ekf": DiffusionEKF,
+    "diffusion_ekf_full": DiffusionEKF,
+    "diffusion_ekf_onehop": DiffusionEKF,
     # Two names, one class. The gamma and lambda families are the same recursion
     # under different transition models, and the config picks which by setting
     # `transition` -- so a run that names both gets a genuine comparison rather
@@ -97,7 +68,12 @@ BUILDERS = {
 
 #: Learners whose combine step actually transmits. `centralized_sgd` and
 #: `local_only` are both False, for opposite reasons.
-DIFFUSING = {"diffusion_sgd_atc", "diffusion_sgd_atc_plain", "diffusion_sgd_cta", "diffusion_ekf"}
+DIFFUSING = {
+    "diffusion_sgd_atc",
+    "diffusion_sgd_atc_plain",
+    "diffusion_sgd_cta",
+    *DIFFUSION_EKF_VARIANTS,
+}
 
 #: Learners that consume the *pooled* batch instead of adapting per agent. A set
 #: rather than a name check in the runner: the centralized filter joined
@@ -116,7 +92,7 @@ BAYESIAN = {
     "centralized_ekf_gamma",
     "centralized_ekf_lambda",
     "centralized_ekf_walk",
-    "diffusion_ekf",
+    *DIFFUSION_EKF_VARIANTS,
 }
 
 #: Every name the centralized filter answers to. One class, three names, each
@@ -129,8 +105,8 @@ def build_learner(learner_config: Any, model: Model, likelihood: Any, n_nodes: i
     name = learner_config.name
     if name not in BUILDERS:
         raise LearnerError(f"unknown learner {name!r}; available: {sorted(BUILDERS)}")
-    if name == "diffusion_ekf":
-        return DiffusionEKF()
+    if name in DIFFUSION_EKF_VARIANTS:
+        return _build_diffusion_ekf(learner_config, model, likelihood, n_nodes)
     if name in CENTRALIZED_EKF:
         return _build_centralized_ekf(learner_config, model, likelihood, n_nodes)
 
@@ -144,6 +120,64 @@ def build_learner(learner_config: Any, model: Model, likelihood: Any, n_nodes: i
         freeze_after=getattr(learner_config, "freeze_after", None),
     )
 
+
+def _build_diffusion_ekf(
+    learner_config: Any, model: Model, likelihood: Any, n_nodes: int
+) -> DiffusionEKF:
+    r"""The diffusion filter, with both axes fixed by the learner's name.
+
+    **The name chooses the variant, and the config may not contradict it**, for
+    the reason `_build_centralized_ekf` documents: a config that says
+    `covariance_sharing: local` under `diffusion_ekf_full` would run happily and
+    produce a variant nobody chose, and in a sweep that is how two cells end up
+    disagreeing for a reason no one can find afterwards.
+
+    The state model is the gamma family throughout. The lambda family was
+    rejected for the centralized filter in D76 -- multiplicative forgetting has
+    no sustainable level when the information arriving is bounded below only by
+    a softmax Fisher that decays to zero -- and nothing about diffusing the
+    belief repairs that argument. Sharing covariances would in fact make it
+    worse: an inflated P propagates to neighbours.
+    """
+    name = learner_config.name
+    scope, sharing = DIFFUSION_EKF_VARIANTS[name]
+
+    for field, chosen, expected in (
+        ("adapt_scope", getattr(learner_config, "adapt_scope", scope), scope),
+        (
+            "covariance_sharing",
+            getattr(learner_config, "covariance_sharing", sharing),
+            sharing,
+        ),
+    ):
+        if chosen != expected:
+            raise LearnerError(
+                f"learner[{name}] requires {field}={expected!r}, got {chosen!r}. The name "
+                "and the variant must agree; they are the same choice written twice."
+            )
+
+    if getattr(learner_config, "lambda_forget", 1.0) != 1.0:
+        raise LearnerError(
+            f"{name} is the gamma family (F = gamma I, P <- gamma^2 P + Q) and has no "
+            "forgetting factor. Multiplicative forgetting was rejected for the "
+            "centralized filter in design note D76, and sharing covariances would "
+            "propagate an inflated P to every neighbour rather than contain it."
+        )
+
+    return DiffusionEKF(
+        name=name,
+        model=model,
+        likelihood=likelihood,
+        n_nodes=n_nodes,
+        transition="scalar",
+        gamma=getattr(learner_config, "gamma", 1.0),
+        lambda_forget=1.0,
+        process_noise_q=getattr(learner_config, "process_noise_q", 0.0),
+        prior_scale=getattr(learner_config, "prior_scale", 1.0),
+        trust_region_ratio=getattr(learner_config, "trust_region_ratio", TRUST_REGION_RATIO),
+        adapt_scope=scope,
+        covariance_sharing=sharing,
+    )
 
 def _build_centralized_ekf(
     learner_config: Any, model: Model, likelihood: Any, n_nodes: int

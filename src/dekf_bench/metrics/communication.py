@@ -20,6 +20,7 @@ learner                         per link     note
 ``diffusion_sgd_atc`` all       $3p$         AdamW, two moments
 ``diffusion_ekf`` local         $p$          covariance stays local
 ``diffusion_ekf`` one_hop       $p(q'{+}1)$  exchanges $(\\bm B, \\bm H^{\\mathsf T}\\bm\\nu)$
+``diffusion_ekf_full``          $p(p{+}1)$   ships the covariance; the measured ceiling
 ==============================  ===========  ===================================
 
 So "at identical communication" is a claim about a *particular* pairing, and X1
@@ -97,6 +98,7 @@ def diffusion_cost(
     mix_optimizer_state: str = "none",
     adapt_scope: str = "local",
     fisher_rank: int = 0,
+    covariance_sharing: str = "local",
 ) -> CommunicationCost:
     """The per-step cost of a diffusion learner.
 
@@ -124,6 +126,15 @@ def diffusion_cost(
         # (B, H^T nu): a p x q' factor plus one p-vector.
         vectors = fisher_rank + 1
         note = f"psi plus the information pair (B, H^T nu) at rank {fisher_rank}"
+
+    if covariance_sharing == "full":
+        # A p x p covariance is exactly p further p-vectors. That it fits the
+        # same unit is a coincidence of shape, not a sign the cost is comparable:
+        # this is the O(p^2) row, three orders of magnitude above the others at
+        # p = 2908, and it is measured once as a ceiling rather than proposed as
+        # a deployable configuration.
+        vectors += num_params
+        note += f"; plus the full p x p covariance ({num_params} more p-vectors)"
 
     return CommunicationCost(
         learner=learner,
@@ -191,6 +202,7 @@ def cost_for(
         mix_optimizer_state=getattr(learner_config, "mix_optimizer_state", "none"),
         adapt_scope=getattr(learner_config, "adapt_scope", "local"),
         fisher_rank=kwargs.get("fisher_rank", 0),
+        covariance_sharing=getattr(learner_config, "covariance_sharing", "local"),
     )
 
 

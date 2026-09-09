@@ -283,19 +283,54 @@ ignores both the linearisation remainder and model misspecification — so
 recording it from day one makes the calibration claim measurable rather than
 assertable.
 
-## 8. What is deferred
+## 8. The diffusion version
 
-The diffusion version (phase 5 proper) adds two axes this document does not
-cover, and the centralised code is shaped so they drop in rather than require
-restructuring:
+Built, in `learners/diffusion_ekf.py`. It shares this document's `information_pair`
+and `woodbury_update` rather than reimplementing them, so the complete-graph
+identity below is an identity *within* one implementation rather than an agreement
+between two — which is what makes it usable as a correctness gate.
 
-* **What the combine step sends.** The mean only (eq 45, the standard diffusion
-  choice, $O(p)$ per link) or the mean and covariance (eq 46, covariance
-  intersection, $O(p^2)$ per link and realistic only for small or structured
-  $\bm P$). Crossed with the two state models this gives the four variants.
-* **The adapt scope.** Local (no communication) or one-hop (neighbours exchange
-  $(\bm B_{u,t},\bm H_{u,t}^{\top}\bm\nu_{u,t})$). Complete-graph exactness —
-  the filter's analogue of X0 — holds **only** for the one-hop variant, because
-  the EKF gain is data-dependent where SGD's step size is fixed. That is a
-  tenfold difference in communication and it decides which row of the
-  communication ledger the phase-5 claim can be stated in. See open question Q5.
+Two independent axes, each pinned by a learner name so a config cannot contradict
+the variant it asked for:
+
+* **What the combine step sends.** `diffusion_ekf` sends the mean only (eq 45,
+  the standard diffusion choice, $O(p)$ per link — 23 kB); `diffusion_ekf_full`
+  sends the mean and the covariance (eq 46, $O(p^2)$ — 68 MB). The second is
+  undeployable and is measured first anyway: the two are not competing designs to
+  choose between on cost, they are an upper bound and a candidate, and the gap
+  between them is the price of not shipping covariances.
+
+  ⚠ Eq 46 is **not** covariance intersection, and an earlier version of this
+  document and of the research note both said it was. CI combines in the
+  *information* domain, $\bm P^{-1}=\sum_i\omega_i\bm P_i^{-1}$, and weights the
+  fused mean by the information matrices; eq 46 averages covariances under the
+  same $a_{vu}$ that weight the mean. The conservativeness CI was being cited for
+  holds anyway and is proved directly — a convex combination of consistent
+  covariances bounds the covariance of the convexly combined estimate for *any*
+  cross-correlation, by Jensen, with equality when the errors coincide. CI would
+  give a strictly tighter bound (harmonic below arithmetic) at the cost of an
+  inverse per fusion.
+
+* **The adapt scope.** `local` (no communication) or `one_hop` (neighbours
+  exchange $(\bm B_{u,t},\bm H_{u,t}^{\top}\bm s_{u,t})$, $O(pq')$ per link).
+  Complete-graph exactness — the filter's analogue of X0 — holds **only** for
+  one-hop, because on $K_N$ that makes the measurement set the whole vertex set,
+  which is the hypothesis of the exactness proposition. Under a local adapt each
+  agent updates on its own data and the combine averages covariances, which is
+  not the same as summing information, so the two filters differ even on a
+  complete graph.
+
+  `diffusion_ekf_onehop` therefore exists as a **fixture, not a competitor**: it
+  is not tuned and not swept. `tests/test_learners.py` asserts both halves — that
+  one-hop reproduces the centralised filter to 1e-10, and that local does not —
+  so the positive test cannot pass vacuously. Whether one-hop buys anything on a
+  *sparse* graph is unmeasured; the note asserts it propagates information a hop
+  faster and that claim is not yet evidence.
+
+**Memory, not compute, is what binds.** Each agent holds a $p\times p$
+covariance: 64.5 MiB at $p=2908$ in float64, so ten agents cost 645 MiB, and full
+sharing needs a second set live during the mix because every $\bm P^{\psi}_u$ must
+survive until the last $\bm P_{v,t|t}$ is written. A measured run carrying both
+diffusion variants and the centralised filter peaked at **3.3 GiB**. Compute is
+roughly centralised-equal: $N$ updates on $1/N$ of the data each cost about what
+one pooled update costs.

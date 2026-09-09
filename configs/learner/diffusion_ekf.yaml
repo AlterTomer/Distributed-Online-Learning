@@ -1,22 +1,38 @@
-# Phase 5 placeholder. Interface only; raises NotImplementedError in phase 1.
+# The diffusion EKF, mean-only sharing: eq. cov_local, the DEPLOYABLE variant.
 #
-# The state model has TWO independent axes (design note D26):
+#   adapt    (P^psi_v)^-1 = P_v^-1 + Delta_v          local data only
+#   combine  m_v <- sum_u a_vu psi_u                  O(p) per link
+#            P_v <- P^psi_v                           the covariance stays home
 #
-#   transition   F_t = I  or  F_t = gamma*I    -- acts on the MEAN
-#   forgetting   P *= 1/lambda  or  P += Q     -- acts on the COVARIANCE
+# An agent accepts its neighbours' ESTIMATES but keeps its own CONFIDENCE. This
+# is the standard diffusion choice and what the communication claim ultimately
+# rests on: 23 kB per link per step against 68 MB for the full variant.
 #
-# gamma is often called a "forgetting factor" but is not one: its covariance
-# effect is gamma^2 <= 1, which *contracts*. What it actually does is pull the
-# estimate geometrically toward the origin -- L2 weight decay in state-space
-# form. All four combinations are selectable so the comparison can be measured.
+# Its gap to `diffusion_ekf_full` is the price of not shipping covariances, and
+# that gap is the reason the expensive variant is measured at all.
+#
+# NOT exact on a complete graph. With a local adapt step each agent updates on
+# its own data and the combine averages covariances, which is not the same as
+# summing information -- see `diffusion_ekf_onehop` for the variant that is.
 name: diffusion_ekf
-adapt_scope: local          # Prop. 1 exactness needs one_hop, not local
 
-transition: identity        # identity | scalar
-gamma: 1.0                  # F_t = gamma*I; only under transition: scalar
+adapt_scope: local          # M_v = {v}; the name pins this and the builder checks it
+covariance_sharing: local   # P_v <- P^psi_v
 
-forgetting: lambda          # lambda | process_noise
-lambda_forget: 0.997        # memory ~ 1/(1-lambda) = 333 steps ~ 10 deg of drift
-process_noise_q: 1.0e-6     # only under forgetting: process_noise
+# The gamma family throughout. Multiplicative forgetting was rejected for the
+# centralised filter in design note D76 -- with a softmax Fisher that decays to
+# zero, lambda has no sustainable level -- and diffusing the belief does not
+# repair that argument. The builder refuses lambda_forget != 1.
+transition: scalar
+gamma: 1.0
+forgetting: process_noise
+process_noise_q: 1.0e-5
+lambda_forget: 1.0
 
-prior_scale: 1.0            # P_0 = prior_scale * I; the most sensitive hyperparameter
+# sigma_0^2: a TRUST REGION, not merely a prior. Carried at X13's selected value
+# rather than re-tuned, which is the X14 discipline -- a setting chosen for the
+# centralised filter and never adjusted, so that any shortfall is attributable
+# to diffusion rather than confounded with tuning. Each agent sees 1/N of the
+# information at the same forgetting rate, so if the belief settles too diffuse
+# this is the first knob to revisit.
+prior_scale: 0.01

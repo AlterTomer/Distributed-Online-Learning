@@ -1,0 +1,39 @@
+# The diffusion EKF with a one-hop adapt step: the CORRECTNESS FIXTURE.
+#
+#   adapt    (P^psi_v)^-1 = P_v^-1 + sum_{u in N_v u {v}} Delta_u
+#            psi_v = m_v + P^psi_v sum_{u in N_v u {v}} H_u^T s_u
+#   combine  as in diffusion_ekf_full
+#
+# Neighbours exchange the information pair (B_u, H_u^T s_u), which costs
+# O(p q') per link instead of O(p) -- but the sum is UNWEIGHTED: a_vu weights
+# the combine, never the measurement set.
+#
+# This is not a competitor and is not tuned. It exists because
+# `prop:complete_graph` holds only for M_v = V, and on a complete graph one-hop
+# is exactly that: every agent's measurement set is the whole vertex set, so
+# every agent's (psi, P^psi) is identical and the filter must reproduce the
+# CENTRALISED one exactly. That identity is the diffusion filter's analogue of
+# X0, and without it a shortfall against the centralised filter could not be
+# distinguished from a bug in the combine step.
+#
+# Under a *local* adapt the identity does not hold even on a complete graph:
+# each agent updates on its own data and averaging covariances is not summing
+# information. `tests/test_learners.py` asserts both halves -- that one-hop
+# reproduces the centralised filter to 1e-10, and that local does not -- so the
+# positive test cannot pass vacuously.
+#
+# On a sparse graph this variant is a genuine method and the note claims it
+# "propagates measurement information one hop faster". That claim is UNMEASURED;
+# quantifying it is a separate experiment, not part of the full-vs-mean-only
+# comparison these settings support.
+name: diffusion_ekf_onehop
+
+adapt_scope: one_hop        # M_v = N^c_v union {v}; = V on a complete graph
+covariance_sharing: full
+
+transition: scalar
+gamma: 1.0
+forgetting: process_noise
+process_noise_q: 1.0e-5
+lambda_forget: 1.0
+prior_scale: 0.01

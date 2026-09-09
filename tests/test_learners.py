@@ -341,7 +341,7 @@ def test_local_only_never_moves_toward_its_neighbours(model: MLP, likelihood: Ca
     before = [learner.flat_params(v).clone() for v in range(N_NODES)]
     learner.combine(
         {
-            v: Intermediate(node=v, psi=torch.zeros(model.num_params, dtype=DTYPE))
+            v: Intermediate(node=v, psi=_theta0(model))
             for v in range(N_NODES)
         },
         uniform_weights(),
@@ -666,14 +666,229 @@ def test_an_unknown_learner_lists_the_available_ones(model: MLP, likelihood: Cat
         build_learner(config, model, likelihood, N_NODES)
 
 
-def test_the_filter_stub_raises_pointing_at_phase_five() -> None:
-    """It exists so the adapt/combine split is exercised by the type checker
-    before the filter is written."""
-    from dekf_bench.learners.registry import DiffusionEKF
+# -- the diffusion filter ------------------------------------------------- #
 
-    stub = DiffusionEKF()
-    assert stub.name == "diffusion_ekf"
-    with pytest.raises(NotImplementedError, match="phase 5"):
-        stub.init(torch.zeros(3))
-    with pytest.raises(NotImplementedError, match="13.5"):
-        stub.adapt(0, None)
+
+def _diffusion_ekf(model: MLP, likelihood: Categorical, name: str, **kwargs: object):
+    from dekf_bench.learners.diffusion_ekf import DiffusionEKF
+    from dekf_bench.learners.registry import DIFFUSION_EKF_VARIANTS
+
+    scope, sharing = DIFFUSION_EKF_VARIANTS[name]
+    return DiffusionEKF(
+        name=name,
+        model=model,
+        likelihood=likelihood,
+        n_nodes=N_NODES,
+        transition="scalar",
+        gamma=1.0,
+        prior_scale=0.01,
+        adapt_scope=scope,
+        covariance_sharing=sharing,
+        **kwargs,
+    )
+
+
+def _theta0(model: MLP) -> torch.Tensor:
+    """A generic point, not the origin.
+
+    At theta = 0 every weight is zero, so the hidden activations vanish and the
+    Jacobian is the same for every input -- the agents' covariances would then
+    coincide because the model is degenerate there, not because the algorithm
+    made them agree. Every identity below would hold vacuously.
+    """
+    generator = torch.Generator().manual_seed(20260909)
+    return torch.randn(model.num_params, generator=generator, dtype=DTYPE) * 0.1
+
+
+def _uniform_weights(n: int) -> torch.Tensor:
+    """The complete graph with Metropolis weights, which are uniform on K_n."""
+    return torch.full((n, n), 1.0 / n, dtype=DTYPE)
+
+
+def _run_step(learner, model: MLP, weights: torch.Tensor, step: int = 0) -> None:
+    intermediates = {
+        node: learner.adapt(node, observation(model, node=node, n=2)) for node in range(N_NODES)
+    }
+    learner.combine(intermediates, weights)
+
+
+@pytest.mark.parametrize("name", ["diffusion_ekf", "diffusion_ekf_full", "diffusion_ekf_onehop"])
+def test_every_variant_holds_one_belief_per_agent(
+    model: MLP, likelihood: Categorical, name: str
+) -> None:
+    learner = _diffusion_ekf(model, likelihood, name)
+    theta0 = _theta0(model)
+    learner.init(theta0)
+    assert learner.n_nodes == N_NODES
+    # Separate tensors, not one aliased prior: they diverge from the first update
+    # and aliasing would make one agent's update visible before any message.
+    first, second = learner.covariance(0), learner.covariance(1)
+    assert first is not second
+    assert torch.equal(first, second)
+
+
+def test_the_complete_graph_identity_holds_for_one_hop(
+    model: MLP, likelihood: Categorical
+) -> None:
+    r"""prop:complete_graph: with M_v = V the diffusion filter *is* the centralized one.
+
+    This is the filter's analogue of X0. It holds only for the one-hop adapt
+    step: with a local adapt each agent updates on its own data and the combine
+    averages covariances, which is not the same as summing information, so the
+    two filters differ even on a complete graph.
+    """
+    from dekf_bench.learners.ekf import CentralizedEKF
+
+    theta0 = _theta0(model)
+    weights = _uniform_weights(N_NODES)
+
+    diffusion = _diffusion_ekf(model, likelihood, "diffusion_ekf_onehop")
+    diffusion.init(theta0)
+
+    centralized = CentralizedEKF(
+        name="centralized_ekf_walk",
+        model=model,
+        likelihood=likelihood,
+        n_nodes=N_NODES,
+        transition="scalar",
+        gamma=1.0,
+        prior_scale=0.01,
+    )
+    centralized.init(theta0)
+
+    for step in range(3):
+        observations = [observation(model, node=node, n=2) for node in range(N_NODES)]
+        intermediates = {
+            node: diffusion.adapt(node, obs) for node, obs in enumerate(observations)
+        }
+        diffusion.combine(intermediates, weights)
+        centralized.adapt_pooled(
+            torch.cat([obs.x for obs in observations]),
+            torch.cat([obs.y for obs in observations]),
+        )
+        reference = centralized.flat_params(0)
+        for node in range(N_NODES):
+            assert torch.allclose(diffusion.flat_params(node), reference, atol=1e-10), (
+                f"agent {node} left the centralized mean at step {step}"
+            )
+            assert torch.allclose(diffusion.covariance(node), centralized.covariance, atol=1e-10)
+
+
+def test_a_local_adapt_does_not_reproduce_the_centralized_filter(
+    model: MLP, likelihood: Categorical
+) -> None:
+    """The negative half of the gate, so the positive half cannot pass vacuously.
+
+    If this ever started passing, `test_the_complete_graph_identity_holds_for_one_hop`
+    would no longer be evidence that one-hop is what makes the identity hold.
+    """
+    from dekf_bench.learners.ekf import CentralizedEKF
+
+    theta0 = _theta0(model)
+    weights = _uniform_weights(N_NODES)
+
+    diffusion = _diffusion_ekf(model, likelihood, "diffusion_ekf_full")
+    diffusion.init(theta0)
+    centralized = CentralizedEKF(
+        name="centralized_ekf_walk",
+        model=model,
+        likelihood=likelihood,
+        n_nodes=N_NODES,
+        transition="scalar",
+        gamma=1.0,
+        prior_scale=0.01,
+    )
+    centralized.init(theta0)
+
+    observations = [observation(model, node=node, n=2) for node in range(N_NODES)]
+    intermediates = {node: diffusion.adapt(node, obs) for node, obs in enumerate(observations)}
+    diffusion.combine(intermediates, weights)
+    centralized.adapt_pooled(
+        torch.cat([obs.x for obs in observations]), torch.cat([obs.y for obs in observations])
+    )
+    assert not torch.allclose(diffusion.flat_params(0), centralized.flat_params(0), atol=1e-10)
+
+
+def test_full_sharing_leaves_every_agent_with_the_same_covariance(
+    model: MLP, likelihood: Categorical
+) -> None:
+    """On a complete graph the covariance combine is an average over all agents."""
+    learner = _diffusion_ekf(model, likelihood, "diffusion_ekf_full")
+    learner.init(_theta0(model))
+    _run_step(learner, model, _uniform_weights(N_NODES))
+    for node in range(1, N_NODES):
+        assert torch.allclose(learner.covariance(node), learner.covariance(0), atol=1e-12)
+
+
+def test_mean_only_sharing_keeps_the_covariances_apart(
+    model: MLP, likelihood: Categorical
+) -> None:
+    """eq:cov_local: an agent accepts its neighbours' estimates, not their confidence."""
+    learner = _diffusion_ekf(model, likelihood, "diffusion_ekf")
+    learner.init(_theta0(model))
+    _run_step(learner, model, _uniform_weights(N_NODES))
+    # The means agree on a complete graph; the covariances must not, because each
+    # agent saw different data and kept its own.
+    assert torch.allclose(learner.flat_params(1), learner.flat_params(0), atol=1e-12)
+    assert not torch.allclose(learner.covariance(1), learner.covariance(0), atol=1e-12)
+
+
+def test_an_unlabelled_agent_passes_through_and_still_combines(
+    model: MLP, likelihood: Categorical
+) -> None:
+    """Line `line:missing`: no label means psi = the predictive mean, not a skip."""
+    learner = _diffusion_ekf(model, likelihood, "diffusion_ekf")
+    learner.init(_theta0(model))
+    before = learner.flat_params(0).clone()
+    intermediates = {
+        node: learner.adapt(node, observation(model, node=node, n=2, labelled=node != 0))
+        for node in range(N_NODES)
+    }
+    assert torch.equal(intermediates[0].psi, before)
+    learner.combine(intermediates, _uniform_weights(N_NODES))
+    # It moved anyway -- through its neighbours, which is the property that makes
+    # diffusion attractive under partial labelling.
+    assert not torch.equal(learner.flat_params(0), before)
+
+
+def test_the_covariance_stays_symmetric_under_full_sharing(
+    model: MLP, likelihood: Categorical
+) -> None:
+    learner = _diffusion_ekf(model, likelihood, "diffusion_ekf_full")
+    learner.init(_theta0(model))
+    for step in range(3):
+        _run_step(learner, model, _uniform_weights(N_NODES), step=step)
+    covariance = learner.covariance(0)
+    assert torch.allclose(covariance, covariance.transpose(0, 1), atol=1e-14)
+
+
+def test_the_ledger_prices_full_sharing_at_p_extra_vectors(
+    model: MLP, likelihood: Categorical
+) -> None:
+    """A p x p covariance is p further p-vectors, which is the whole objection to it."""
+    mean_only = _diffusion_ekf(model, likelihood, "diffusion_ekf")
+    full = _diffusion_ekf(model, likelihood, "diffusion_ekf_full")
+    p = model.num_params
+    assert mean_only.comm_scalars_per_step(n_edges=3) == 1 * p * 2 * 3
+    assert full.comm_scalars_per_step(n_edges=3) == (1 + p) * p * 2 * 3
+
+
+def test_a_name_and_a_contradicting_variant_are_refused(
+    model: MLP, likelihood: Categorical
+) -> None:
+    config = load_config("x1_stationary").learners[0]
+    object.__setattr__(config, "name", "diffusion_ekf_full")
+    object.__setattr__(config, "covariance_sharing", "local")
+    with pytest.raises(LearnerError, match="same choice written twice"):
+        build_learner(config, model, likelihood, N_NODES)
+
+
+def test_the_diffusion_filter_refuses_a_forgetting_factor(
+    model: MLP, likelihood: Categorical
+) -> None:
+    """D76 rejected multiplicative forgetting; sharing covariances would spread it."""
+    config = load_config("x1_stationary").learners[0]
+    object.__setattr__(config, "name", "diffusion_ekf")
+    object.__setattr__(config, "lambda_forget", 0.99)
+    with pytest.raises(LearnerError, match="D76"):
+        build_learner(config, model, likelihood, N_NODES)

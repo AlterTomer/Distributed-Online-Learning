@@ -230,6 +230,7 @@ At $N{=}10$ on a ring, $p = 2908$:
 | `diffusion_sgd_atc` | $2p$ | 116 320 | 2.0× |
 | `diffusion_ekf` (local) | $p$ | 58 160 | 1.0× |
 | `diffusion_ekf` (one_hop) | $p(q'{+}1)$ | 581 600 | 10.0× |
+| `diffusion_ekf_full` | $p(p{+}1)$ | 169 165 280 | 2908× |
 
 So **"at identical communication" is a claim about a particular pairing**. X1
 runs both ATC variants, so phase 5 can state the claim against the matched

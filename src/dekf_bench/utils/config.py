@@ -68,6 +68,14 @@ INIT_STRATEGIES = ("shared_seed", "independent_seeds", "warm_start")
 #: How the reference picks the epoch to report.
 SELECTION_RULES = ("validation", "fixed_budget")
 TRANSITIONS = ("identity", "scalar")
+
+#: The diffusion filter's two axes. `adapt_scope` selects M_{v,t}, whose
+#: likelihood information an agent uses; `covariance_sharing` selects what it
+#: does with its confidence in the combine step. Both are pinned by the
+#: learner name -- the fields exist so a config that contradicts the name is a
+#: refusal rather than a silently different method.
+ADAPT_SCOPES = ("local", "one_hop")
+COVARIANCE_SHARING = ("full", "local")
 FORGETTING_RULES = ("lambda", "process_noise")
 
 
@@ -344,6 +352,10 @@ class LearnerConfig:
     #: decay in state-space form, not forgetting. See design note D26.
     transition: str = "identity"
     gamma: float = 1.0
+    #: Diffusion filter only. Defaults match `diffusion_ekf`, the deployable
+    #: mean-only variant; `_build_diffusion_ekf` checks them against the name.
+    adapt_scope: str = "local"
+    covariance_sharing: str = "local"
     #: How the covariance is loosened. Multiplicative inflation is exactly
     #: structure-preserving in the information domain; additive process noise is
     #: not, but is anisotropic and cheap while the covariance stays dense.
@@ -412,6 +424,12 @@ class LearnerConfig:
                 "'sgd' if you want no mixing."
             )
         _one_of(self.transition, TRANSITIONS, f"learner[{self.name}].transition")
+        _one_of(self.adapt_scope, ADAPT_SCOPES, f"learner[{self.name}].adapt_scope")
+        _one_of(
+            self.covariance_sharing,
+            COVARIANCE_SHARING,
+            f"learner[{self.name}].covariance_sharing",
+        )
         _one_of(self.forgetting, FORGETTING_RULES, f"learner[{self.name}].forgetting")
         if not 0.0 < self.gamma <= 1.0:
             raise ConfigError(f"learner[{self.name}].gamma must lie in (0, 1], got {self.gamma}")
