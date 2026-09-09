@@ -45,7 +45,7 @@ diffusion filters in one process will not fit; two do.
   the positive one cannot pass vacuously. `tests/test_learners.py`.
 - [x] **P5.0b** The same identity through the *runner*'s own dispatch. Residual
   **4.4e-16** — machine epsilon, and comparable to X0's 1.7e-15, which was not
-  the expectation: a Cholesky solve and a $p	imes p$ subtraction per step could
+  the expectation: a Cholesky solve and a $p\times p$ subtraction per step could
   reasonably have accumulated more than a weighted mean of gradients does. It
   does not, because both filters run the *same* `woodbury_update` on the same
   concatenated information in the same order. Both local-adapt variants miss by
@@ -55,12 +55,21 @@ diffusion filters in one process will not fit; two do.
 ## First measurement
 
 - [ ] **P5.1** *(X19)* **Stationary plus two drift rates, on ER $p=0.3$ and the
-  complete graph.** Script written: `scripts/run_diffusion_ekf.py`. The headline: does the diffusion filter recover the
-  centralised one, and what does mean-only sharing cost against full sharing?
-  The complete graph earns its place here for a reason it never did for SGD —
-  with a *local* adapt the filter is closest to, but still not equal to, the
-  centralised one, so that cell isolates what the local adapt costs, with graph
-  sparsity removed. 6 cells + stationary twins.
+  complete graph.** Script written and pre-flighted:
+  `scripts/run_diffusion_ekf.py --lr`, then without the flag. Does the diffusion
+  filter recover the centralised one, and what does mean-only sharing cost
+  against full sharing? The complete graph earns its place here for a reason it
+  never did for SGD — with a *local* adapt the filter is closest to, but still
+  not equal to, the centralised one, so that cell isolates what the local adapt
+  costs, with graph sparsity removed; the ER cells then add what sparsity costs
+  on top. 6 cells + 4 stationary twins.
+
+  ⚠ The harsh condition is **not** monotone, and cannot be: over $T=1500$ the
+  45° cap makes 0.03°/step the fastest legal linear drift, while X14 put the
+  gradient methods' break at 0.038–0.044. No legal monotone rate reaches even
+  the mild end of where methods fail, so the harsh end is delivered as jumps
+  (`every25_jump15`, 0.60°/step), which X11 and X17 have already characterised.
+  The same bind X18 documents.
 
 ## Every earlier experiment that has an analogue
 
