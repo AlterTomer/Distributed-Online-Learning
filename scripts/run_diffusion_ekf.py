@@ -103,8 +103,16 @@ CONDITIONS: list[tuple[str, dict | None]] = [
 ]
 
 #: Both graphs, for the decomposition the docstring describes: `complete` isolates
-#: what the local adapt costs, `erdos_renyi` (p_edge 0.3) adds what sparsity costs.
-TOPOLOGIES = ["complete", "erdos_renyi"]
+#: what the local adapt costs, `erdos_renyi` adds what sparsity costs on top.
+#:
+#: Carried with their params, not just their names. `x1_stationary` includes
+#: `graph: ring`, which has no params, so overriding the topology alone leaves
+#: `erdos_renyi` without its p -- and the config validates happily, because the
+#: requirement is enforced by the *graph builder* rather than by the schema.
+TOPOLOGIES: list[tuple[str, dict]] = [
+    ("complete", {}),
+    ("erdos_renyi", {"p": 0.3}),
+]
 
 HORIZON = 1500
 SEEDS = [0, 1, 2, 3, 4]
@@ -123,6 +131,9 @@ LR_SEEDS = [0, 1]
 DEVICE = "auto"
 DTYPE = "float64"
 FRESH = False
+
+TOPOLOGY_PARAMS = dict(TOPOLOGIES)
+TOPOLOGY_NAMES = [name for name, _p in TOPOLOGIES]
 
 DATA_ROOT = ROOT / "data"
 STATUS = ROOT / "results" / "x19_status.json"
@@ -167,6 +178,7 @@ def selected_rates(condition: str, topology: str) -> dict[str, float] | None:
 def config_for(name: str, drift: dict | None, topology: str, entries: list[dict],
                seeds: list[int] | None = None):
     block = {"schedule": "stationary", "total_degrees": 0.0} if drift is None else dict(drift)
+    params = dict(TOPOLOGY_PARAMS[topology])
     return load_config(
         "x1_stationary",
         overrides={
@@ -174,7 +186,7 @@ def config_for(name: str, drift: dict | None, topology: str, entries: list[dict]
                 "name": name, "horizon": HORIZON, "eval_every": EVAL_EVERY,
                 "seeds": seeds or SEEDS, "device": DEVICE, "dtype": DTYPE,
             },
-            "graph": {"topology": topology},
+            "graph": {"topology": topology, "params": params},
             "env": {"drift": block},
             "learners": entries,
             "eval": {"evalsets": ["prequential", "current"]},
@@ -194,7 +206,7 @@ def save_status(status: dict) -> None:
 def tune(train, test, fresh: bool) -> int:
     """The SGD baselines only. The filter carries X13's setting by design."""
     status = load_status()
-    cells = [(c, t) for c, _d in CONDITIONS for t in TOPOLOGIES]
+    cells = [(c, t) for c, _d in CONDITIONS for t in TOPOLOGY_NAMES]
     total = len(cells) * len(LEARNING_RATES)
     print(f"X19 lr re-tune: {len(cells)} cells x {len(LEARNING_RATES)} rates "
           f"at {len(LR_SEEDS)} seeds\n", flush=True)
@@ -235,7 +247,7 @@ def main(fresh: bool = FRESH, tune_only: bool = False) -> int:
     setting = next(s for s in tuned_settings() if s["name"] == "centralized_ekf_gamma")
     filter_fields = {k: v for k, v in setting.items() if k != "name"}
 
-    cells_wanted = [(c, t) for c, _d in CONDITIONS for t in TOPOLOGIES]
+    cells_wanted = [(c, t) for c, _d in CONDITIONS for t in TOPOLOGY_NAMES]
     rates = {(c, t): selected_rates(c, t) for c, t in cells_wanted}
     missing = sorted(condition_name(c, t) for (c, t), r in rates.items() if r is None)
     if missing:
