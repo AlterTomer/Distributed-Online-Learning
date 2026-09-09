@@ -50,7 +50,9 @@ TOPOLOGIES = (
 )
 WEIGHT_RULES = ("metropolis", "relative_degree", "uniform")
 PARTITIONS = ("iid", "dirichlet")
-SCHEDULES = ("stationary", "linear", "ramp", "recurring", "piecewise", "sinusoidal")
+SCHEDULES = (
+    "stationary", "linear", "ramp", "recurring", "piecewise", "sinusoidal", "sawtooth",
+)
 DRIFT_SCOPES = ("global", "per_node")
 OPTIMIZERS = ("sgd", "sgd_momentum", "adamw")
 MIX_POLICIES = ("none", "momentum", "all")

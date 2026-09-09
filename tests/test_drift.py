@@ -21,6 +21,7 @@ from dekf_bench.env.drift import (
     Piecewise,
     Ramp,
     Recurring,
+    Sawtooth,
     Sinusoidal,
     Stationary,
     build_drift,
@@ -119,8 +120,64 @@ def test_every_schedule_reports_its_name() -> None:
         Linear(45.0, HORIZON).name,
         Piecewise((500,), 15.0).name,
         Sinusoidal(30.0, 500).name,
+        Sawtooth(45.0, 300).name,
     }
-    assert names == {"stationary", "linear", "piecewise", "sinusoidal"}
+    assert names == {"stationary", "linear", "piecewise", "sinusoidal", "sawtooth"}
+
+
+# -- sawtooth: a monotone ramp punctuated by a reset ------------------------ #
+
+
+def test_sawtooth_ramps_linearly_within_a_cycle() -> None:
+    """The segment must be a *ramp*, not a staircase.
+
+    The whole point of the schedule is a sustained monotone stretch long enough
+    for a momentum term to become useful before the reset invalidates it. A
+    constant rate between resets is what makes that stretch sustained.
+    """
+    saw = Sawtooth(amplitude_degrees=45.0, period=300)
+    rates = [saw.rate_at(step) for step in range(1, 300)]
+    assert all(math.isclose(rate, 45.0 / 300, rel_tol=1e-12) for rate in rates)
+
+
+def test_sawtooth_resets_in_a_single_step() -> None:
+    """The reset is one step, and it is the largest motion in the run."""
+    saw = Sawtooth(amplitude_degrees=45.0, period=300)
+    assert math.isclose(saw.rotation_at(299), 45.0 * 299 / 300, rel_tol=1e-12)
+    assert saw.rotation_at(300) == 0.0
+    assert saw.rate_at(300) < 0
+    assert math.isclose(abs(saw.rate_at(300)), 45.0 * 299 / 300, rel_tol=1e-12)
+
+
+def test_sawtooth_peak_rate_is_the_reset_not_the_ramp() -> None:
+    """Documented so the number is not read as a drift rate.
+
+    `peak_rate` feeds the break analysis, which reports rates. For a sawtooth it
+    reports the discontinuity, which is honest -- that *is* the fastest the
+    distribution moves -- but it means a sawtooth's peak rate is not comparable
+    with a `linear` one, and a reader who assumes it is will conclude the
+    schedule is a hundred times faster than it is.
+    """
+    saw = Sawtooth(amplitude_degrees=45.0, period=300)
+    ramp_rate = 45.0 / 300
+    assert saw.peak_rate(900) > 100 * ramp_rate
+
+
+def test_sawtooth_stays_inside_the_band_and_revisits_states() -> None:
+    saw = Sawtooth(amplitude_degrees=45.0, period=300)
+    angles = [saw.rotation_at(step) for step in range(900)]
+    assert max(angles) < MAX_WELL_POSED_DEGREES
+    assert min(angles) == 0.0
+    # Three identical cycles: a state seen in the first is seen again later,
+    # which is what makes forgetting measurable here as it is under sinusoidal.
+    assert math.isclose(angles[100], angles[400], rel_tol=1e-12)
+    assert math.isclose(angles[100], angles[700], rel_tol=1e-12)
+
+
+def test_sawtooth_refuses_a_period_below_two() -> None:
+    """At period 1 every step is a reset, which is `recurring` under this name."""
+    with pytest.raises(DriftError, match="period >= 2"):
+        Sawtooth(amplitude_degrees=45.0, period=1)
 
 
 # =========================================================================== #

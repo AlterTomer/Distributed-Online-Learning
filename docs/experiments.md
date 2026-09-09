@@ -55,13 +55,19 @@ D58). Every script prints a per-cell ETA as it goes.
 | **X14** | Does the filter's advantage generalise? 21 drift conditions, rate crossed with state count | `run_ekf_generalization.py --lr` then `run_ekf_generalization.py` | 0.5 + 32 h |
 | **X15** | Is the $\gamma$/$\lambda$ ordering a mechanism or a tuning artefact? Both families re-tuned at one fast condition | `run_ekf_retune.py` | ~6 h |
 | **X16** | The filter on X9's ramp, so the break figure has a filter curve | `run_ekf_ramp.py` | 1 h |
-| **X17** | The filter under Dirichlet label skew, still and drifting — and does abrupt or smooth motion hurt more alongside skew? | `run_ekf_skew.py` | ~2.5 h |
+| **X17** | The filter under Dirichlet label skew, still and drifting — and does abrupt or smooth motion hurt more alongside skew? | `run_ekf_skew.py --lr` then `run_ekf_skew.py` | 2 + 14 h |
+| **X18** | Sawtooth drift: is momentum's *directional* memory a liability when direction resets? `atc_plain` against `atc` across five reset periods | `run_sawtooth.py --lr` then `run_sawtooth.py` | |
 
-**Order matters in three places.** X13 needs `--baselines` before `--full`, or it
+**Order matters in five places.** X13 needs `--baselines` before `--full`, or it
 compares a drift-tuned filter against a stationary-tuned baseline. X14 needs
 `--lr` first, for the same reason. X15 and X16 read settings that X13 selected
 and pair against runs X14 and X9 produced, so they refuse to start until those
-exist rather than silently substituting a default.
+exist rather than silently substituting a default. X17 needs its own `--lr`
+first, and refuses without it: the first attempt carried one learning rate across
+stationary and drifting cells, which put `local_only` at chance and inverted the
+damage ordering (D77). X18 refuses on the same grounds, and for a sharper reason
+— it compares two learners that differ only in a momentum term, so a learning
+rate imported from another condition would confound exactly the axis it measures.
 
 **Controls are experiments too.** Every drifting run is paired with a stationary
 twin identical in seed, data order and every hyperparameter — `x9_control`,

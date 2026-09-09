@@ -386,6 +386,61 @@ class Sinusoidal(DriftSchedule):
         return "sinusoidal"
 
 
+@dataclass(frozen=True)
+class Sawtooth(DriftSchedule):
+    r"""Ramp to ``amplitude_degrees`` over ``period`` steps, then reset to zero.
+
+    **The one shape the other five do not reach.** ``linear`` and ``ramp`` are
+    monotone with no reset; ``recurring`` resets constantly but never travels;
+    ``piecewise`` accumulates without ramping between; ``sinusoidal`` reverses
+    smoothly rather than abruptly. Sawtooth is a sustained monotone segment
+    punctuated by a discontinuity, which is the combination none of them give.
+
+    It exists to isolate a mechanism rather than to be harder. Momentum is a
+    *directional* memory --- at $\beta=0.9$, roughly ten steps of velocity --- and
+    a monotone segment is exactly where that pays: the velocity points the way
+    the distribution is going and effectively anticipates it. At the reset it is
+    maximally wrong, and must unwind before it can help again. A filter carries
+    no directional state at all: $\bm Q=q\bm I$ is isotropic, and the covariance
+    says "I am uncertain", never "I was moving that way".
+
+    So the sharp prediction is not that the filter wins. It is that
+    ``diffusion_sgd_atc_plain`` should beat ``diffusion_sgd_atc`` here and not
+    under ``linear`` at the same rate -- and the effect should grow as the period
+    shortens toward momentum's own horizon, since a velocity invalidated every
+    twenty steps never repays what it costs.
+
+    **The reset is one step and dominates ``peak_rate``.** Within a segment the
+    rate is ``amplitude/period``; across the reset it is about ``-amplitude``.
+    That is the honest reading -- the reset *is* the fastest the distribution ever
+    moves -- but it means the break analysis of `metrics/breaks.py` reports the
+    reset rather than the ramp, so a sawtooth's peak rate is not comparable with a
+    ``linear`` one. Compare on ``mean_rate`` or on the ramp rate instead.
+    """
+
+    amplitude_degrees: float
+    period: int
+
+    def __post_init__(self) -> None:
+        if self.period < 2:
+            raise DriftError(
+                f"sawtooth drift needs period >= 2, got {self.period}. At a period of 1 "
+                "every step is a reset and there is no ramp left to reset from, which is "
+                "a different experiment (`recurring`) wearing this one's name."
+            )
+
+    def progress_at(self, step: int) -> float:
+        return (step % self.period) / self.period
+
+    @property
+    def degrees_scale(self) -> float:
+        return self.amplitude_degrees
+
+    @property
+    def name(self) -> str:
+        return "sawtooth"
+
+
 # --------------------------------------------------------------------------- #
 # scope
 # --------------------------------------------------------------------------- #
@@ -520,6 +575,10 @@ def build_schedule(drift_config: Any, horizon: int) -> DriftSchedule:
         )
     if kind == "sinusoidal":
         return Sinusoidal(
+            amplitude_degrees=drift_config.amplitude_degrees, period=drift_config.period
+        )
+    if kind == "sawtooth":
+        return Sawtooth(
             amplitude_degrees=drift_config.amplitude_degrees, period=drift_config.period
         )
     raise DriftError(f"unknown drift schedule {kind!r}")
