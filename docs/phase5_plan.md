@@ -157,6 +157,94 @@ Ordered by what each would change if it came out badly, not by experiment number
   there is no reason to expect diffusion to be the first exception. Run them to
   close the grid, not to learn something.
 
+## Algorithmic paths out of the information deficit
+
+D79's finding is that a local adapt gathers $\bm\Delta_v$ where the centralised
+filter sums $\sum_v\bm\Delta_v$, and that **no combine rule reaches that** —
+averaging information is not summing it. So every candidate below is a change to
+what an agent *gathers* or to how it *reports its confidence*, never to the fusion
+rule. Ordered by value per unit of work.
+
+- [ ] **P5.15 — the covariance is never told the mean was averaged.** ⭐ The
+  cheapest idea on this page and the most directly aimed at the mechanism. After
+  $\bm m_v\leftarrow\sum_u a_{vu}\bm\psi_u$, the *estimate* has been averaged over
+  $|\mathcal M_v|$ agents but the *covariance* still describes one agent's
+  evidence. Two extremes bracket the truth:
+
+  $$\bm P_v\leftarrow\sum_u a_{vu}\bm P^{\psi}_u \quad\text{(perfect correlation, what we do)}$$
+  $$\bm P_v\leftarrow\sum_u a_{vu}^2\,\bm P^{\psi}_u \quad\text{(independent errors)}$$
+
+  The first is `lem:conservative`, tight exactly when the neighbours' errors
+  coincide. The second is what independence gives, and is smaller by roughly
+  $|\mathcal M_v|$ — which is the same factor D79 says the belief is inflated by.
+  **It costs no extra communication at all**: one line in `combine`. Interpolate
+  with $\bm P_v\leftarrow\sum_u a_{vu}^{\beta}\bm P^{\psi}_u$, $\beta\in[1,2]$.
+
+  ⚠ The risk is real and is the reason to measure before adopting: the errors
+  *are* correlated through shared history, so $\beta=2$ is over-confident and an
+  over-confident EKF can diverge (D61). **P5.14 is the prerequisite** — it
+  measures where in $[1,2]$ the truth actually sits by comparing reported variance
+  against realised squared error.
+
+- [ ] **P5.16 — LO-FI: diagonal-plus-low-rank precision.** Represent
+  $\bm\Lambda_v\approx\bm D_v+\bm W_v\bm W_v^{\trans}$, $\bm W_v\in\mathbb
+  R^{p\times L}$ (Chang et al., CoLLAs 2023). Memory $O(pL)$ instead of $O(p^2)$;
+  the only dense inverse is $L\times L$.
+
+  **This does not fix the information deficit** — it changes how the covariance is
+  *represented*, not what enters it — and at $p=2908$ we do not yet have the
+  memory problem it solves. Its value is elsewhere, and it is real:
+
+  * $\bm J^{\trans}\bm\Delta\bm J=\bm B\bm B^{\trans}$ is low-rank *before* any
+    approximation, and $\bm B$ is precisely what a one-hop exchange already ships.
+    The two compose: append received blocks to $\bm W$, compress. One-hop first is
+    not wasted work.
+  * It reopens the **prior-corrected information combine**, $\bm\Omega_v\leftarrow
+    \sum_{u}\bm\Omega_u-(|\mathcal M|-1)\bm\Omega_{\text{prior}}$, which D79
+    dismissed as $O(p^3)$. That is true only in dense form; in factored precision
+    form there is no $p\times p$ inverse anywhere. Shipping $\bm W_u$ costs $Lp
+    \approx 29\,000$ scalars at $L=10$ against a full covariance's 8.4 M.
+  * It answers the obvious reviewer objection to an $O(p^2)$-per-agent method.
+
+  ⚠ **The blocker is data incest, and it must be solved rather than assumed
+  away.** Summing *accumulated* precisions double-counts evidence that already
+  travelled — which is why conservative fusion and \ac{ci} exist at all. Averaging
+  is incest-safe and transfers nothing; summing transfers everything and
+  double-counts. One-hop threads the needle because it sums *measurement*
+  information, fresh each step and entering each neighbourhood exactly once, which
+  is why it is exact on a complete graph rather than merely better. A LO-FI
+  precision exchange has no such guarantee and would need channel filters or
+  equivalent bookkeeping.
+
+  ⚠ Second risk, specific to us: truncation **discards** information and we are
+  already short of it. But $p=2908$ is the one scale where this is checkable — the
+  exact full-covariance filter is computable here, so rank $L$ can be scored
+  against ground truth. That is the right moment to adopt an approximation, before
+  it becomes the only option.
+
+- [ ] **P5.17 — multi-round information flooding, and the reductio it forces.**
+  One round of one-hop gives $\mathcal M_v=\N_v\cup\{v\}$. $L$ rounds with
+  **source-tagged** blocks (so each $\bm\Delta_u$ is counted once) give the
+  $L$-hop neighbourhood, and at $L=\operatorname{diam}(\G)$ that is $\V$ — i.e.
+  **exactly the centralised filter**. Our \ac{er} $p=0.3$ graph has diameter 2–3,
+  so two or three rounds would close the deficit entirely, and with the raw-sample
+  encoding the payload is a few $p$ per link.
+
+  ⚠ **Worth writing down precisely because it is the honest reductio.** At that
+  point every agent holds every agent's data and the method *is* the centralised
+  filter, replicated. `communication.py` already records the uncomfortable fact
+  this lands on: at these dimensions, shipping raw samples to a fusion centre is
+  *less* traffic than ring diffusion. So flooding cannot be the answer we argue
+  for — it would mean the decentralised paradigm is justified by privacy and data
+  sovereignty, not by bandwidth. Useful as an **upper bound to measure against**,
+  not as a method to propose.
+
+- [ ] **P5.18 — channel filters.** The textbook incest fix: track per-link what
+  has already been shared and subtract it. At $p=2908$ each channel filter is
+  another covariance per link, so this is almost certainly infeasible here.
+  Recorded so that "why not just do decentralised data fusion properly" has an
+  answer.
+
 ## Questions only this method can be asked
 
 Nothing in X0–X18 could pose these, because no earlier method held a belief per
