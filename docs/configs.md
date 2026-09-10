@@ -499,7 +499,10 @@ Shared fields:
 | `lr` | float | `0.05` | > 0 | |
 | `momentum` | float | `0.9` | $[0,1)$ | Must be 0 for X0 |
 | `mix_optimizer_state` | str | `momentum` | `none`, `momentum`, `all` | Whether the combine step mixes optimizer moments as well as parameters |
-| `adapt_scope` | str | `local` | `local`, `one_hop` | Phase 5; `one_hop` raises today |
+| `adapt_scope` | str | `local` | `local`, `one_hop` | Whose likelihood information an agent uses. `one_hop` is the canonical diffusion Kalman filter; `local` is a reduction of it. Pinned by the learner name |
+| `adapt_rounds` | int | `1` | `>= 1` | Hops of measurement information. `1` is one-hop; `>= diam(G)` makes the measurement set the whole graph, so the filter equals the centralised one. Only under `adapt_scope: one_hop` |
+| `covariance_sharing` | str | `local` | `full`, `local` | `full` is eq. 46, `local` is eq. 45. X19 measured the difference at +0.0002 to +0.0007 for 2909x the bandwidth. Pinned by the learner name |
+| `combine_exponent` | float | `1.0` | `[1, 2]` | `P <- sum a^beta P`. `1` is the conservative bound, `2` what independent errors give. Costs no communication |
 | `freeze_after` | int \| null | `null` | ≥ 1 | Stop adapting *and* transmitting at this step |
 | `transition` | str | `identity` | `identity`, `scalar` | Phase 5; $\bm F_t$ |
 | `gamma` | float | `1.0` | $(0,1]$ | Phase 5; $\bm F_t = \gamma\bm I$ under `scalar` |
@@ -571,7 +574,10 @@ Three validation rules worth knowing before you hit them:
 | `diffusion_sgd_atc.yaml` | **Primary.** Adapt-then-combine. Diff-EKF is also ATC, so phase 5 differs in the adapt step alone |
 | `diffusion_sgd_cta.yaml` | Combine-then-adapt, eq. (17) of Olshevskyi et al. Measured in X1b so the ATC choice is reported rather than assumed |
 | `local_only.yaml` | Lower reference. No communication; the gap to ATC *is* the value of cooperation |
-| `diffusion_ekf.yaml` | Phase-5 placeholder. Interface only; raises today |
+| `diffusion_ekf.yaml` | Local adapt, mean-only combine: the deployable variant |
+| `diffusion_ekf_full.yaml` | Local adapt, full covariance sharing: the measured ceiling (X19) |
+| `diffusion_ekf_onehop.yaml` | One-hop adapt, full sharing: the exactness fixture, not tuned |
+| `diffusion_ekf_onehop_mean.yaml` | One-hop adapt, mean-only: the canonical algorithm at the deployable payload |
 
 ---
 
@@ -674,5 +680,8 @@ env.prior_drift.enabled   false | true
 learner.optimizer         sgd | sgd_momentum | adamw
 learner.mix_optimizer_state   none | momentum | all
 learner.adapt_scope       local | one_hop
+learner.adapt_rounds      >= 1 (one_hop only)
+learner.covariance_sharing  full | local
+learner.combine_exponent  1.0 .. 2.0
 eval.evalsets             prequential | current | backward | canonical
 ```

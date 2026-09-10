@@ -99,6 +99,7 @@ def diffusion_cost(
     adapt_scope: str = "local",
     fisher_rank: int = 0,
     covariance_sharing: str = "local",
+    adapt_rounds: int = 1,
 ) -> CommunicationCost:
     """The per-step cost of a diffusion learner.
 
@@ -124,8 +125,13 @@ def diffusion_cost(
         if fisher_rank < 1:
             raise LedgerError("one_hop adapt needs a positive fisher_rank")
         # (B, H^T nu): a p x q' factor plus one p-vector.
-        vectors = fisher_rank + 1
-        note = f"psi plus the information pair (B, H^T nu) at rank {fisher_rank}"
+        # Each round forwards what the previous one delivered, so the information
+        # payload is paid once per round. L rounds reach the L-hop neighbourhood;
+        # at L >= diam(G) that is the whole graph, and the filter equals the
+        # centralised one -- at L times the price.
+        vectors = adapt_rounds * (fisher_rank + 1)
+        note = (f"psi plus the information pair (B, H^T nu) at rank {fisher_rank}"
+                + (f", over {adapt_rounds} rounds" if adapt_rounds > 1 else ""))
 
     if covariance_sharing == "full":
         # A p x p covariance is exactly p further p-vectors. That it fits the
@@ -203,6 +209,7 @@ def cost_for(
         adapt_scope=getattr(learner_config, "adapt_scope", "local"),
         fisher_rank=kwargs.get("fisher_rank", 0),
         covariance_sharing=getattr(learner_config, "covariance_sharing", "local"),
+        adapt_rounds=getattr(learner_config, "adapt_rounds", 1),
     )
 
 

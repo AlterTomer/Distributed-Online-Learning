@@ -84,8 +84,8 @@ unmatched baseline and a filter tuned for ten times the data it has.
 
 - [ ] **P5.1a** *(X20)* **Re-tune $q$ and $\sigma_0^2$ for the diffusion
   information rate.** Script: `run_diffusion_tuning.py --tune`, a 5x5 grid, two
-  decades either side of the predicted $6	imes10^{-6}$ and including the
-  centralised $6	imes10^{-5}$ so "no change" is expressible. It refuses to
+  decades either side of the predicted $6\times10^{-6}$ and including the
+  centralised $6\times10^{-5}$ so "no change" is expressible. It refuses to
   select an argmin that lands on a grid edge. The mechanism in D79 names $q$ as the mis-scaled parameter
   and gives the direction: it was chosen to balance an influx of $N\bm\Delta$ per
   step and now faces $\bm\Delta$, so it should fall by roughly $N$. The grid spans
@@ -365,14 +365,14 @@ the linear case in 2010. Our contribution is not the phenomenon — it is measur
 what it costs for a nonlinear filter on a real network, where the deficit turned
 out to be 0.023–0.041 and to grow with drift.
 
-**4. ⭐ And the exact correction P5.15 is groping for already exists.** Section IV
-derives the *true* network estimation covariance as a Lyapunov-like recursion
-(their eq. 32), with a closed-form steady state (41) under a time-invariant model.
-So instead of interpolating $\sum_u a_{vu}^{\beta}\bm P^{\psi}_u$ between the
-conservative and independent extremes, we can implement the covariance the
-analysis says is correct. Caveat: their derivation assumes a linear model with
-known matrices, so for an \ac{ekf} it is an approximation — but a principled one
-rather than a fitted exponent.
+**4. Section IV derives the true covariance — but it is not implementable.**
+⚠ Corrected from an earlier claim here. Their eq. (32) is a Lyapunov recursion
+over the *augmented* error vector collecting every node: an $Np\times Np$ matrix,
+6.8 GB at our size, and it needs the true model matrices. It computes theoretical
+\ac{msd}; an agent cannot propagate it. So the interpolation
+$\sum_u a_{vu}^{\beta}\bm P^{\psi}_u$ stays the practical route, and what the
+paper contributes here is confirmation of the phenomenon rather than a runnable
+correction.
 
 **5. Algorithm 1 exchanges raw measurements**, $\{\bm H_l,\bm R_l,\bm y_l\}$, plus
 $\bm\psi_l$ — not information factors. Algorithm 2 exchanges
@@ -380,6 +380,54 @@ $\bm H^{\trans}\bm R^{-1}\bm H$ and $\bm H^{\trans}\bm R^{-1}\bm y$, which is wh
 our one-hop implements. The paper treats them as alternatives and notes Algorithm
 1 can send a Cholesky factor to economise, which independently vindicates the
 finding that at $p\gg d$ the measurements are the cheaper encoding.
+
+## Built in this pass
+
+Two mechanisms, both landed with tests, both available to X20 and everything
+after it. Neither needed a new learner class: they are dials on `DiffusionEKF`.
+
+- [x] **`combine_exponent`** — `eq:combine_exponent`, $\bm P_v\leftarrow\sum_u
+  a_{vu}^{\beta}\bm P^{\psi}_u$ with $\beta\in[1,2]$. P5.15, implemented.
+  Verified numerically: on a complete graph with uniform weights, $\beta=2$
+  divides the covariance by exactly $N$ — which is the factor D79 says the belief
+  is inflated by, arrived at independently. **Costs no communication at all.**
+  Default stays $\beta=1$, so nothing changes until it is asked for.
+- [x] **`adapt_rounds`** — the measurement set becomes the $L$-hop neighbourhood.
+  $L=1$ is the canonical diffusion Kalman filter's incremental step; $L\ge
+  \operatorname{diam}(\G)$ makes it the whole vertex set, so the filter equals the
+  centralised one on *any* connected graph. P5.19 and P5.21 collapse into this one
+  parameter, and P5.22's rescaling is `combine_exponent` in the other domain.
+
+  **Reachability is boolean, and that is the incest guard**: each agent's
+  $\bm\Delta_u$ enters once however many paths carry it, which is source-tagged
+  flooding expressed as a set rather than a sum along paths. Tested directly on a
+  complete graph at three rounds, where the naive version would multiply-count
+  everything.
+
+## Deferred, deliberately, with the reason
+
+Not forgotten — these are here so the decision is visible rather than implicit.
+
+- **LO-FI, diagonal-plus-low-rank precision (P5.16).** A large change — a new
+  representation touching every covariance operation — that does **not** address
+  the deficit X20 is about to measure. It should follow the combine decision, not
+  precede it: if `adapt_rounds` closes the gap, LO-FI becomes the scalability
+  story and is the right answer to "your filter needs $O(p^2)$ per agent"; if it
+  does not, LO-FI's factored form is the route to P5.20 and becomes algorithmic
+  rather than engineering. Either way the argument for it is *stronger* after
+  X20, and building it now would be building against a moving target.
+- **Channel filters (P5.20).** Needs LO-FI to be feasible at all — one covariance
+  per link is 1.4 GB dense — so it is blocked behind P5.16 by construction.
+- **The exact network covariance recursion.** ⚠ **Withdrawn as an implementation
+  target.** Cattivelli & Sayed's eq. (32) is a Lyapunov recursion over the
+  *augmented* error vector across all nodes: $Np\times Np$, which is 6.8 GB here,
+  and it requires the true model matrices. It is an analysis tool for computing
+  theoretical \ac{msd}, not something an agent can propagate. An earlier note in
+  this file claimed we could "implement what the analysis says is correct" — that
+  was wrong, and `combine_exponent` is the practical route instead.
+- **`diffusion_ekf_full` in future comparisons.** X19 priced covariance sharing
+  at $+0.0002$ to $+0.0007$ for $2909\times$ the bandwidth. Carrying it further
+  costs 1.3 GiB to re-confirm a null.
 
 ## Questions only this method can be asked
 

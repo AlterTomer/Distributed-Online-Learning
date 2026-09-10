@@ -15,20 +15,46 @@ $\mathcal M_{v,t}$ of `eq:adapt`::
 
 ``covariance_sharing`` -- what an agent does with its *confidence* in combine::
 
-    full      P_v <- sum_u a_vu P^psi_u  eq:cov_combine, O(p^2) per link
-    local     P_v <- P^psi_v             eq:cov_local, O(p) per link
+    full      P_v <- sum_u a_vu^beta P^psi_u  eq:cov_combine, O(p^2) per link
+    local     P_v <- P^psi_v                  eq:cov_local, O(p) per link
 
 The mean update $\bm m_{v,t|t}=\sum_u a_{vu,t}\bm\psi_{u,t}$ is common to every
 combination: the choice is about confidence, never about the estimate.
 
-**Why one-hop exists here at all.** `prop:complete_graph` holds only for
-$\mathcal M_{v,t}=\V$, which on a complete graph is what one-hop delivers. Under
-a *local* adapt step the diffusion filter does **not** reduce to the centralised
-one even on a complete graph -- each agent updates on its own data and the
-combine averages covariances, which is not the same as summing information. So
-without one-hop there is no exact reference to validate the implementation
-against, and this filter would have no analogue of the X0 gate that every SGD
-learner has. It is a correctness fixture first and a method second.
+Two further dials, added after X19 measured what a local adapt costs. Unlike the
+axes above these are **not pinned by the learner name**, being continuous
+settings rather than variant identities:
+
+``adapt_rounds`` -- how many hops of measurement information reach an agent. One
+is the canonical incremental step; $L$ hops make $\mathcal M_{v,t}$ the $L$-hop
+neighbourhood, and at $L\ge\operatorname{diam}(\G)$ it is the whole vertex set,
+so the filter equals the centralised one on *any* connected graph rather than
+only on a complete one. Reachability is a boolean set, never a sum along paths,
+which is what keeps each agent's information counted exactly once.
+
+``combine_exponent`` -- the $\beta$ above, in $[1,2]$. One is the conservative
+bound of `lem:conservative`, which holds for any cross-correlation and is
+attained when the neighbours' errors coincide; two is what *independent* errors
+give and is smaller by about $|\mathcal M_v|$ -- the same factor a local adapt
+leaves the belief inflated by. It costs no communication at all: it tells the
+covariance what the mean update already did, which is the gap Cattivelli & Sayed
+flag when they note their propagated matrices "do not represent the covariances
+of the state estimation errors any longer, since the diffusion update is not
+taken into account in the recursions for these matrices".
+
+**One-hop is the canonical algorithm, not an optional extra.** The incremental
+step of the diffusion Kalman filter of Cattivelli & Sayed (IEEE TAC 55(9), 2010)
+loops over the neighbours of agent $v$ -- "for every neighboring node $l$ in
+$N_k$, repeat" -- in both its covariance form (their Algorithm 1) and its
+information form (Algorithm 2). A *local* adapt is a reduction of it, and X19
+measured what that reduction costs: +0.0228 to +0.0411, growing with drift.
+
+`prop:complete_graph` holds only for $\mathcal M_{v,t}=\V$, which one-hop
+delivers on a complete graph. Under a local adapt the filter does **not** reduce
+to the centralised one even there -- each agent updates on its own data and the
+combine averages covariances, which is not summing information -- so without
+one-hop there is no exact reference to validate against, and this filter would
+lack the analogue of the X0 gate that every SGD learner has.
 
 **Memory is the binding constraint, not compute.** Each agent holds a $p\times p$
 covariance: at $p=2908$ in float64 that is 64.5 MiB, so $N=10$ agents cost
@@ -84,6 +110,8 @@ class DiffusionEKF:
         trust_region_ratio: float = TRUST_REGION_RATIO,
         adapt_scope: str = "local",
         covariance_sharing: str = "local",
+        adapt_rounds: int = 1,
+        combine_exponent: float = 1.0,
         **_ignored: Any,
     ) -> None:
         if adapt_scope not in ADAPT_SCOPES:
@@ -93,10 +121,24 @@ class DiffusionEKF:
                 f"covariance_sharing must be one of {COVARIANCE_SHARING}, "
                 f"got {covariance_sharing!r}"
             )
+        if adapt_rounds < 1:
+            raise FilterError(
+                f"adapt_rounds must be >= 1, got {adapt_rounds}. A local adapt is "
+                "adapt_scope='local', not zero rounds of a one-hop one."
+            )
+        if not 1.0 <= combine_exponent <= 2.0:
+            raise FilterError(
+                f"combine_exponent must lie in [1, 2], got {combine_exponent}. 1 is the "
+                "conservative bound of lem:conservative, 2 is what independent errors "
+                "give; outside that range the covariance is neither."
+            )
         self._name = name
         self.model = model
         self.likelihood = likelihood
         self._n_nodes = n_nodes
+        self.adapt_rounds = adapt_rounds
+        self.combine_exponent = combine_exponent
+        self._reach: torch.Tensor | None = None
         self.transition = transition
         self.gamma = gamma
         self.lambda_forget = lambda_forget
@@ -138,7 +180,9 @@ class DiffusionEKF:
         if self.covariance_sharing == "full":
             vectors += p
         if self.adapt_scope == "one_hop":
-            vectors += self._fisher_rank() + 1
+            # Each extra round forwards what was received, so the information
+            # payload is paid once per round.
+            vectors += self.adapt_rounds * (self._fisher_rank() + 1)
         return vectors * p * 2 * n_edges
 
     def _fisher_rank(self) -> int:
@@ -275,7 +319,24 @@ class DiffusionEKF:
                 for column, other in enumerate(order):
                     weight = float(mixing[row, column])
                     if weight != 0.0:
-                        total.add_(cov_psi[other], alpha=weight)
+                        # a^beta, not a. beta = 1 is lem:conservative -- the bound
+                        # that holds for any cross-correlation and is attained when
+                        # the neighbours' errors coincide. beta = 2 is what those
+                        # errors being *independent* gives, since
+                        # Cov(sum a_u e_u) = sum a_u^2 Cov(e_u), and is smaller by
+                        # about |M_v| -- the same factor D79 says the belief is
+                        # inflated by. The truth lies between, because the errors
+                        # are correlated through shared history but not perfectly.
+                        #
+                        # This is the one correction that costs no communication at
+                        # all: the covariance is simply told that the estimate was
+                        # averaged, which the mean update already did and the
+                        # covariance recursion never learned. Cattivelli & Sayed
+                        # note the same gap for the linear filter -- their
+                        # propagated matrices "do not represent the covariances of
+                        # the state estimation errors any longer, since the
+                        # diffusion update is not taken into account".
+                        total.add_(cov_psi[other], alpha=weight**self.combine_exponent)
                 # Symmetrise: without it the recursion loses positive
                 # definiteness within a few hundred steps, and under full sharing
                 # this also repairs the asymmetry accumulated across blocks that
@@ -302,6 +363,7 @@ class DiffusionEKF:
         mixing matrix's sparsity, which for Metropolis weights is exactly
         $\N^{\mathrm c}_v\cup\{v\}$ with every entry strictly positive.
         """
+        reach = self._reachability(mixing)
         psi: dict[int, torch.Tensor] = {}
         cov_psi: dict[int, torch.Tensor] = {}
         for row, node in enumerate(order):
@@ -310,12 +372,12 @@ class DiffusionEKF:
             columns = [
                 self._pending[other][0]
                 for column, other in enumerate(order)
-                if float(mixing[row, column]) != 0.0 and self._pending[other][0] is not None
+                if bool(reach[row, column]) and self._pending[other][0] is not None
             ]
             scores = [
                 self._pending[other][1]
                 for column, other in enumerate(order)
-                if float(mixing[row, column]) != 0.0 and self._pending[other][1] is not None
+                if bool(reach[row, column]) and self._pending[other][1] is not None
             ]
             if columns:
                 # Concatenating the B blocks column-wise gives sum_u B_u B_u^T in
@@ -326,6 +388,36 @@ class DiffusionEKF:
                 mean, covariance = self._apply(node, mean, covariance, stacked, score)
             psi[node], cov_psi[node] = mean, covariance
         return psi, cov_psi
+
+    def _reachability(self, mixing: torch.Tensor) -> torch.Tensor:
+        r"""Which agents' measurements reach $v$ in ``adapt_rounds`` hops.
+
+        One round is $\N^{\mathrm c}_v\cup\{v\}$, the canonical diffusion Kalman
+        filter's incremental step (Cattivelli & Sayed 2010, Algorithm 1: "for
+        every neighboring node $l\in\N_k$, repeat"). $L$ rounds is the $L$-hop
+        neighbourhood, and at $L\ge\operatorname{diam}(\G)$ it is the whole vertex
+        set --- which is `prop:complete_graph`'s hypothesis, so the filter then
+        *is* the centralised one on any connected graph rather than only on a
+        complete one.
+
+        **Reachability is boolean, and that is what keeps it incest-free.** Each
+        agent's $\bm\Delta_u$ enters the sum once regardless of how many paths
+        carry it, which is the source-tagging of a flooding scheme expressed as a
+        set. Summing along paths instead would count the same evidence twice --
+        the failure that conservative fusion and covariance intersection exist to
+        avoid.
+
+        Cached: the mixing matrix is rebuilt each step but the graph is fixed
+        within a run, and a boolean matrix power per step would be waste.
+        """
+        if self._reach is not None:
+            return self._reach
+        adjacency = mixing != 0.0
+        reach = adjacency.clone()
+        for _round in range(self.adapt_rounds - 1):
+            reach = (reach.to(torch.float32) @ adjacency.to(torch.float32)) != 0.0
+        self._reach = reach
+        return reach
 
     def _apply(
         self,
@@ -415,6 +507,8 @@ class DiffusionEKF:
         return {
             "adapt_scope": self.adapt_scope,
             "covariance_sharing": self.covariance_sharing,
+            "adapt_rounds": self.adapt_rounds,
+            "combine_exponent": self.combine_exponent,
             "transition": self.transition,
             "gamma": self.gamma,
             "lambda_forget": self.lambda_forget,

@@ -189,6 +189,10 @@ def _build_diffusion_ekf(
         trust_region_ratio=getattr(learner_config, "trust_region_ratio", TRUST_REGION_RATIO),
         adapt_scope=scope,
         covariance_sharing=sharing,
+        # Dials, not variant identity, so unlike scope and sharing these are read
+        # from the config rather than pinned by the name.
+        adapt_rounds=getattr(learner_config, "adapt_rounds", 1),
+        combine_exponent=getattr(learner_config, "combine_exponent", 1.0),
     )
 
 def _build_centralized_ekf(

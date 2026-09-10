@@ -356,6 +356,18 @@ class LearnerConfig:
     #: mean-only variant; `_build_diffusion_ekf` checks them against the name.
     adapt_scope: str = "local"
     covariance_sharing: str = "local"
+    #: How many hops of measurement information reach an agent. 1 is the
+    #: canonical diffusion Kalman filter's incremental step; L >= diam(G) makes
+    #: the measurement set the whole vertex set, so the filter equals the
+    #: centralised one on any connected graph. Only meaningful under
+    #: adapt_scope: one_hop. NOT pinned by the learner name -- it is a dial like a
+    #: learning rate, not a variant identity.
+    adapt_rounds: int = 1
+    #: P_v <- sum_u a_vu^beta P^psi_u. beta = 1 is the conservative bound that
+    #: holds for any cross-correlation; beta = 2 is what independent errors give
+    #: and is smaller by about |M_v|. The truth is between: the errors are
+    #: correlated through shared history but not perfectly.
+    combine_exponent: float = 1.0
     #: How the covariance is loosened. Multiplicative inflation is exactly
     #: structure-preserving in the information domain; additive process noise is
     #: not, but is anisotropic and cheap while the covariance stays dense.
@@ -430,6 +442,17 @@ class LearnerConfig:
             COVARIANCE_SHARING,
             f"learner[{self.name}].covariance_sharing",
         )
+        if self.adapt_rounds < 1:
+            raise ConfigError(
+                f"learner[{self.name}].adapt_rounds must be >= 1, got "
+                f"{self.adapt_rounds}. A local adapt is adapt_scope='local'."
+            )
+        if not 1.0 <= self.combine_exponent <= 2.0:
+            raise ConfigError(
+                f"learner[{self.name}].combine_exponent must lie in [1, 2], got "
+                f"{self.combine_exponent}. 1 is the conservative bound, 2 is what "
+                "independent errors give; outside that the covariance is neither."
+            )
         _one_of(self.forgetting, FORGETTING_RULES, f"learner[{self.name}].forgetting")
         if not 0.0 < self.gamma <= 1.0:
             raise ConfigError(f"learner[{self.name}].gamma must lie in (0, 1], got {self.gamma}")

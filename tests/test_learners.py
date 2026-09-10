@@ -873,6 +873,114 @@ def test_the_ledger_prices_full_sharing_at_p_extra_vectors(
     assert full.comm_scalars_per_step(n_edges=3) == (1 + p) * p * 2 * 3
 
 
+def test_more_rounds_reach_more_agents(model: MLP, likelihood: Categorical) -> None:
+    r"""adapt_rounds = L makes the measurement set the L-hop neighbourhood.
+
+    On a ring, one round reaches 3 agents (self and two neighbours) and two
+    rounds reach 5. At L >= diameter it is the whole vertex set, which is
+    prop:complete_graph's hypothesis on *any* connected graph rather than only on
+    a complete one.
+    """
+    from dekf_bench.learners.diffusion_ekf import DiffusionEKF
+
+    ring = torch.zeros(N_NODES, N_NODES, dtype=DTYPE)
+    for node in range(N_NODES):
+        for other in (node, (node - 1) % N_NODES, (node + 1) % N_NODES):
+            ring[node, other] = 1.0 / 3.0
+
+    reached = []
+    for rounds in (1, 2, 3, N_NODES):
+        learner = DiffusionEKF(
+            name="diffusion_ekf_onehop_mean", model=model, likelihood=likelihood,
+            n_nodes=N_NODES, transition="scalar", gamma=1.0, prior_scale=0.01,
+            adapt_scope="one_hop", covariance_sharing="local", adapt_rounds=rounds,
+        )
+        learner.init(_theta0(model))
+        reached.append(int(learner._reachability(ring)[0].sum()))
+    assert reached[0] == 3, reached
+    assert reached[1] == 5, reached
+    assert reached[-1] == N_NODES, reached
+    assert reached == sorted(reached), "reach must be non-decreasing in rounds"
+
+
+def test_reachability_is_boolean_so_evidence_is_counted_once(
+    model: MLP, likelihood: Categorical
+) -> None:
+    """The incest guard. Two paths to the same agent must not double its data.
+
+    On a complete graph every agent is reachable by many paths at two rounds; the
+    measurement set must still be the vertex set exactly once, which is what makes
+    a multi-round adapt a flooding scheme rather than a sum along paths.
+    """
+    from dekf_bench.learners.diffusion_ekf import DiffusionEKF
+
+    learner = DiffusionEKF(
+        name="diffusion_ekf_onehop_mean", model=model, likelihood=likelihood,
+        n_nodes=N_NODES, transition="scalar", gamma=1.0, prior_scale=0.01,
+        adapt_scope="one_hop", covariance_sharing="local", adapt_rounds=3,
+    )
+    learner.init(_theta0(model))
+    reach = learner._reachability(_uniform_weights(N_NODES))
+    assert reach.dtype == torch.bool
+    assert int(reach.sum()) == N_NODES * N_NODES
+
+
+def test_the_combine_exponent_shrinks_the_covariance(
+    model: MLP, likelihood: Categorical
+) -> None:
+    r"""beta = 2 is the independent-errors covariance and must be smaller than beta = 1.
+
+    sum a^2 P <= sum a P because a in [0, 1], with the gap growing as the
+    neighbourhood does -- which is the factor D79 says the belief is inflated by.
+    """
+    from dekf_bench.learners.diffusion_ekf import DiffusionEKF
+
+    traces = {}
+    for beta in (1.0, 1.5, 2.0):
+        learner = DiffusionEKF(
+            name="diffusion_ekf_full", model=model, likelihood=likelihood,
+            n_nodes=N_NODES, transition="scalar", gamma=1.0, prior_scale=0.01,
+            adapt_scope="local", covariance_sharing="full", combine_exponent=beta,
+        )
+        learner.init(_theta0(model))
+        _run_step(learner, model, _uniform_weights(N_NODES))
+        traces[beta] = float(learner.covariance(0).diagonal().mean())
+    assert traces[2.0] < traces[1.5] < traces[1.0]
+    # On a complete graph with uniform weights a = 1/N, so beta = 2 divides by N.
+    assert traces[2.0] == pytest.approx(traces[1.0] / N_NODES, rel=1e-9)
+
+
+def test_an_exponent_outside_the_bracket_is_refused(
+    model: MLP, likelihood: Categorical
+) -> None:
+    """Below 1 is more conservative than the bound; above 2 claims independence
+    that even independence does not give."""
+    from dekf_bench.learners.diffusion_ekf import DiffusionEKF
+    from dekf_bench.learners.ekf import FilterError
+
+    for beta in (0.5, 2.5):
+        with pytest.raises(FilterError, match=r"combine_exponent"):
+            DiffusionEKF(
+                name="diffusion_ekf", model=model, likelihood=likelihood,
+                n_nodes=N_NODES, adapt_scope="local", covariance_sharing="local",
+                combine_exponent=beta,
+            )
+
+
+def test_zero_rounds_is_refused_because_local_is_a_different_scope(
+    model: MLP, likelihood: Categorical
+) -> None:
+    from dekf_bench.learners.diffusion_ekf import DiffusionEKF
+    from dekf_bench.learners.ekf import FilterError
+
+    with pytest.raises(FilterError, match="adapt_rounds"):
+        DiffusionEKF(
+            name="diffusion_ekf_onehop_mean", model=model, likelihood=likelihood,
+            n_nodes=N_NODES, adapt_scope="one_hop", covariance_sharing="local",
+            adapt_rounds=0,
+        )
+
+
 def test_a_name_and_a_contradicting_variant_are_refused(
     model: MLP, likelihood: Categorical
 ) -> None:
