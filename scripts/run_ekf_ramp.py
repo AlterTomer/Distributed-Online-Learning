@@ -42,9 +42,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from dekf_bench.data.mnist import is_cached, load_mnist  # noqa: E402
-from dekf_bench.utils.config import load_config  # noqa: E402
 from run_ekf_generalization import run_one, tuned_settings  # noqa: E402
+
+from dekf_bench.data.registry import dataset_is_cached, load_dataset  # noqa: E402
+from dekf_bench.utils.config import load_config  # noqa: E402
 
 #: X9's own settings, so the pairing holds. `eval_every` is denser than the
 #: default because the whole point is to locate a takeoff in t, and the
@@ -55,6 +56,11 @@ SEEDS = [0, 1, 2, 3, 4]
 DEVICE = "auto"
 DTYPE = "float64"
 FRESH = False
+
+#: The dataset every cell in this sweep consumes. A name, not an import,
+#: so a second dataset is a one-line change here rather than a new script
+#: (IMPLEMENTATION.md section 15).
+DATASET = "mnist"
 
 DATA_ROOT = ROOT / "data"
 
@@ -79,14 +85,14 @@ def config_for(name: str, *, drifting: bool, learner: dict):
 
 
 def main(fresh: bool = FRESH) -> int:
-    if not is_cached(DATA_ROOT):
+    if not dataset_is_cached(DATASET, DATA_ROOT):
         print("MNIST is not cached. Run scripts/check_data.py once, then retry.")
         return 1
     for reference in ("x9_rate_ramp", "x9_control"):
         if not (ROOT / "results" / reference).exists():
             print(f"X16 pairs against {reference}, which has not been run.")
             return 1
-    train, test = load_mnist(DATA_ROOT, download=False)
+    train, test = load_dataset(DATASET, DATA_ROOT, download=False)
 
     print("X13's selected setting, carried here unchanged:")
     setting = next(s for s in tuned_settings() if s["name"] == "centralized_ekf_gamma")

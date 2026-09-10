@@ -83,7 +83,7 @@ from run_diffusion_ekf import (  # noqa: E402
 )
 from run_ekf_generalization import run_one  # noqa: E402
 
-from dekf_bench.data.mnist import is_cached, load_mnist  # noqa: E402
+from dekf_bench.data.registry import dataset_is_cached, load_dataset  # noqa: E402
 from dekf_bench.utils.config import load_config  # noqa: E402
 
 #: Two decades either side of the scaling argument's 6e-6, with the centralised
@@ -107,6 +107,11 @@ PLAIN = {"name": "diffusion_sgd_atc_plain", "optimizer": "sgd", "momentum": 0.0,
 DEVICE = "auto"
 DTYPE = "float64"
 FRESH = False
+
+#: The dataset every cell in this sweep consumes. A name, not an import,
+#: so a second dataset is a one-line change here rather than a new script
+#: (IMPLEMENTATION.md section 15).
+DATASET = "mnist"
 
 DATA_ROOT = ROOT / "data"
 STATUS = ROOT / "results" / "x20_status.json"
@@ -159,7 +164,7 @@ def config_for(name: str, drift: dict | None, topology: str, entries: list[dict]
             "run": {"name": name, "horizon": HORIZON, "eval_every": EVAL_EVERY,
                     "seeds": seeds or SEEDS, "device": DEVICE, "dtype": DTYPE},
             "graph": {"topology": topology, "params": dict(TOPOLOGY_PARAMS[topology])},
-            "env": {"drift": block},
+            "env": {"dataset": DATASET, "drift": block},
             "learners": entries,
             "eval": {"evalsets": ["prequential", "current"]},
         },
@@ -234,10 +239,10 @@ def tune(train, test, fresh: bool) -> int:
 
 
 def main(fresh: bool = FRESH, tune_only: bool = False) -> int:
-    if not is_cached(DATA_ROOT):
+    if not dataset_is_cached(DATASET, DATA_ROOT):
         print("MNIST is not cached. Run scripts/check_data.py once, then retry.")
         return 1
-    train, test = load_mnist(DATA_ROOT, download=False)
+    train, test = load_dataset(DATASET, DATA_ROOT, download=False)
     if tune_only:
         return tune(train, test, fresh)
 

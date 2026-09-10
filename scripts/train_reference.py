@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import time
 
-from dekf_bench.data.mnist import is_cached, load_mnist
+from dekf_bench.data.registry import dataset_is_cached, load_dataset
 from dekf_bench.data.transforms import build_transform
 from dekf_bench.evaluation import reference as ref
 from dekf_bench.models.registry import build_model_from_config
@@ -39,6 +39,11 @@ EPOCHS: int | None = None  # None keeps the config's value
 COMPARE = False  # build all three init strategies and compare
 REPEAT_SEEDS = 0  # >0: retrain one rotation this many times to measure seed noise
 REPEAT_AT_DEGREES = 0.0  # which rotation to repeat
+#: The dataset the offline reference is trained on. A name, not an import,
+#: so a second dataset needs an entry in data/registry.py rather than a
+#: second copy of this script (IMPLEMENTATION.md section 15).
+DATASET = "mnist"
+
 DATA_ROOT = default_configs_dir().parent / "data"
 
 
@@ -55,7 +60,7 @@ def build(strategy: str) -> ref.Reference:
     config = load_config(EXPERIMENT, overrides=overrides())
     config.reference.init_strategy = strategy
 
-    train, test = load_mnist(DATA_ROOT, download=False)
+    train, test = load_dataset(DATASET, DATA_ROOT, download=False)
     model = build_model_from_config(config)
     transform = build_transform(train.images, config.model.input_size)
 
@@ -98,7 +103,7 @@ def measure_seed_noise() -> int:
     and the binomial floor a 10 000-image test set imposes.
     """
     config = load_config(EXPERIMENT, overrides=overrides())
-    train, test = load_mnist(DATA_ROOT, download=False)
+    train, test = load_dataset(DATASET, DATA_ROOT, download=False)
     model = build_model_from_config(config)
     transform = build_transform(train.images, config.model.input_size)
 
@@ -135,7 +140,7 @@ def measure_seed_noise() -> int:
 
 
 def main() -> int:
-    if not is_cached(DATA_ROOT):
+    if not dataset_is_cached(DATASET, DATA_ROOT):
         print("MNIST is not cached. Run scripts/check_data.py once, then retry.")
         return 1
 

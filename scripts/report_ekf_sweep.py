@@ -33,7 +33,6 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import pandas as pd  # noqa: E402
-
 from run_ekf_sweep import (  # noqa: E402
     ALPHA,
     BASELINE_LRS,

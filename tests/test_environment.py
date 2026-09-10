@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from dekf_bench.data.mnist import MnistSplit
+from dekf_bench.data.mnist import ImageSplit
 from dekf_bench.env.environment import (
     EnvironmentError,
     Observation,
@@ -24,20 +24,20 @@ N_NODES = 10
 HORIZON = 40
 
 
-def synthetic_split(n: int = 4000) -> MnistSplit:
+def synthetic_split(n: int = 4000) -> ImageSplit:
     """Distinct images, so an image can be traced back to its index."""
     generator = torch.Generator().manual_seed(0)
     images = torch.rand(n, 1, 28, 28, generator=generator)
     labels = torch.arange(n, dtype=torch.int64) % 10
-    return MnistSplit(images=images, labels=labels, split="synthetic")
+    return ImageSplit(images=images, labels=labels, split="synthetic")
 
 
 @pytest.fixture(scope="module")
-def train() -> MnistSplit:
+def train() -> ImageSplit:
     return synthetic_split()
 
 
-def make(train: MnistSplit, experiment: str = "x1_stationary", seed: int = 0, **overrides):
+def make(train: ImageSplit, experiment: str = "x1_stationary", seed: int = 0, **overrides):
     """An environment on the synthetic split, with a short horizon.
 
     A short horizon costs nothing in coverage: alpha is derived as
@@ -55,12 +55,12 @@ def make(train: MnistSplit, experiment: str = "x1_stationary", seed: int = 0, **
 # =========================================================================== #
 
 
-def test_step_covers_every_agent(train: MnistSplit) -> None:
+def test_step_covers_every_agent(train: ImageSplit) -> None:
     env = make(train)
     assert set(env.step(0)) == set(range(N_NODES))
 
 
-def test_observation_shapes_match_the_transform(train: MnistSplit) -> None:
+def test_observation_shapes_match_the_transform(train: ImageSplit) -> None:
     env = make(train)
     obs = env.step(0)[0]
     n = load_config("x1_stationary").env.samples_per_node_per_step
@@ -70,7 +70,7 @@ def test_observation_shapes_match_the_transform(train: MnistSplit) -> None:
     assert obs.has_label
 
 
-def test_labels_are_int64_and_in_range(train: MnistSplit) -> None:
+def test_labels_are_int64_and_in_range(train: ImageSplit) -> None:
     env = make(train)
     for obs in env.step(0).values():
         assert obs.y is not None
@@ -78,7 +78,7 @@ def test_labels_are_int64_and_in_range(train: MnistSplit) -> None:
         assert int(obs.y.min()) >= 0 and int(obs.y.max()) < 10
 
 
-def test_idle_agents_yield_an_empty_observation(train: MnistSplit) -> None:
+def test_idle_agents_yield_an_empty_observation(train: ImageSplit) -> None:
     env = make(train, env={"label_availability": 0.5})
     idle = [obs for step in range(HORIZON) for obs in env.step(step).values() if not obs.has_label]
     assert idle, "the fixture must actually produce idle agents"
@@ -89,14 +89,14 @@ def test_idle_agents_yield_an_empty_observation(train: MnistSplit) -> None:
         assert len(obs) == 0
 
 
-def test_observation_records_where_it_came_from(train: MnistSplit) -> None:
+def test_observation_records_where_it_came_from(train: ImageSplit) -> None:
     env = make(train)
     obs = env.step(7)[3]
     assert obs.node == 3
     assert obs.step == 7
 
 
-def test_every_active_agent_receives_the_same_count(train: MnistSplit) -> None:
+def test_every_active_agent_receives_the_same_count(train: ImageSplit) -> None:
     """A precondition of the exactness identity."""
     env = make(train)
     for step in range(HORIZON):
@@ -109,7 +109,7 @@ def test_every_active_agent_receives_the_same_count(train: MnistSplit) -> None:
 # =========================================================================== #
 
 
-def test_labels_match_the_images_they_came_with(train: MnistSplit) -> None:
+def test_labels_match_the_images_they_came_with(train: ImageSplit) -> None:
     """The transform must not permute the batch. If it did, every method would
     train on mismatched pairs and simply fail to learn -- with no error."""
     env = make(train)
@@ -123,7 +123,7 @@ def test_labels_match_the_images_they_came_with(train: MnistSplit) -> None:
             assert torch.equal(obs.x, expected)
 
 
-def test_agents_never_see_another_agents_shard(train: MnistSplit) -> None:
+def test_agents_never_see_another_agents_shard(train: ImageSplit) -> None:
     env = make(train)
     for node in range(N_NODES):
         own = set(env.partition[node].tolist())
@@ -131,7 +131,7 @@ def test_agents_never_see_another_agents_shard(train: MnistSplit) -> None:
             assert set(env.stream.indices_at(node, step).tolist()) <= own
 
 
-def test_no_sample_reaches_two_agents_over_a_run(train: MnistSplit) -> None:
+def test_no_sample_reaches_two_agents_over_a_run(train: ImageSplit) -> None:
     env = make(train)
     served = torch.cat([env.stream.consumed_by(node, HORIZON - 1) for node in range(N_NODES)])
     assert served.numel() == len(torch.unique(served))
@@ -142,7 +142,7 @@ def test_no_sample_reaches_two_agents_over_a_run(train: MnistSplit) -> None:
 # =========================================================================== #
 
 
-def test_the_same_step_returns_the_same_data(train: MnistSplit) -> None:
+def test_the_same_step_returns_the_same_data(train: ImageSplit) -> None:
     """step(t) is called once and shared by every learner, so calling it again
     must not advance anything."""
     env = make(train)
@@ -152,7 +152,7 @@ def test_the_same_step_returns_the_same_data(train: MnistSplit) -> None:
         assert torch.equal(first[node].y, second[node].y)  # type: ignore[arg-type]
 
 
-def test_steps_can_be_visited_out_of_order(train: MnistSplit) -> None:
+def test_steps_can_be_visited_out_of_order(train: ImageSplit) -> None:
     env = make(train)
     direct = env.step(30)[0].x.clone()
     for step in range(31):
@@ -160,7 +160,7 @@ def test_steps_can_be_visited_out_of_order(train: MnistSplit) -> None:
     assert torch.equal(env.step(30)[0].x, direct)
 
 
-def test_observation_is_frozen(train: MnistSplit) -> None:
+def test_observation_is_frozen(train: ImageSplit) -> None:
     import dataclasses
 
     obs = make(train).step(0)[0]
@@ -169,7 +169,7 @@ def test_observation_is_frozen(train: MnistSplit) -> None:
         setattr(obs, "has_label", False)  # noqa: B010
 
 
-def test_environment_is_frozen(train: MnistSplit) -> None:
+def test_environment_is_frozen(train: ImageSplit) -> None:
     import dataclasses
 
     env = make(train)
@@ -177,7 +177,7 @@ def test_environment_is_frozen(train: MnistSplit) -> None:
         setattr(env, "config", None)  # noqa: B010
 
 
-def test_in_place_mutation_of_a_shared_observation_is_caught(train: MnistSplit) -> None:
+def test_in_place_mutation_of_a_shared_observation_is_caught(train: ImageSplit) -> None:
     """A frozen dataclass cannot stop `obs.x.add_(1)`; this is the positive
     check the runner makes so a misbehaving learner cannot corrupt the ones
     that run after it."""
@@ -190,7 +190,7 @@ def test_in_place_mutation_of_a_shared_observation_is_caught(train: MnistSplit) 
         env.assert_unmodified(observations, 2)
 
 
-def test_label_mutation_is_caught_too(train: MnistSplit) -> None:
+def test_label_mutation_is_caught_too(train: ImageSplit) -> None:
     env = make(train)
     observations = env.step(2)
     observations[1].y.add_(1)  # type: ignore[union-attr]
@@ -198,7 +198,7 @@ def test_label_mutation_is_caught_too(train: MnistSplit) -> None:
         env.assert_unmodified(observations, 2)
 
 
-def test_labels_are_copied_not_aliased(train: MnistSplit) -> None:
+def test_labels_are_copied_not_aliased(train: ImageSplit) -> None:
     """Mutating an observation must not corrupt the underlying dataset."""
     env = make(train)
     before = train.labels.clone()
@@ -211,7 +211,7 @@ def test_labels_are_copied_not_aliased(train: MnistSplit) -> None:
 # =========================================================================== #
 
 
-def test_pooled_batch_is_exactly_the_union(train: MnistSplit) -> None:
+def test_pooled_batch_is_exactly_the_union(train: ImageSplit) -> None:
     """The exactness identity depends on the centralized learner's batch being
     the union of the per-agent ones, with nothing added or dropped."""
     env = make(train)
@@ -225,7 +225,7 @@ def test_pooled_batch_is_exactly_the_union(train: MnistSplit) -> None:
     assert torch.equal(ys, torch.cat([observations[v].y for v in range(N_NODES)]))  # type: ignore[misc]
 
 
-def test_pooling_skips_idle_agents(train: MnistSplit) -> None:
+def test_pooling_skips_idle_agents(train: ImageSplit) -> None:
     env = make(train, env={"label_availability": 0.5})
     for step in range(HORIZON):
         observations = env.step(step)
@@ -233,14 +233,14 @@ def test_pooling_skips_idle_agents(train: MnistSplit) -> None:
         assert xs.shape[0] == sum(obs.n_samples for obs in observations.values())
 
 
-def test_pooling_an_entirely_idle_step_gives_an_empty_batch(train: MnistSplit) -> None:
+def test_pooling_an_entirely_idle_step_gives_an_empty_batch(train: ImageSplit) -> None:
     env = make(train, env={"label_availability": 0.0})
     xs, ys = pool(env.step(0))
     assert xs.shape == (0, 1, 14, 14)
     assert ys.shape == (0,)
 
 
-def test_pooled_dtype_follows_the_run(train: MnistSplit) -> None:
+def test_pooled_dtype_follows_the_run(train: ImageSplit) -> None:
     env = make(train, "x0_exactness")
     xs, _ = pool(env.step(0))
     assert xs.dtype == torch.float64
@@ -251,7 +251,7 @@ def test_pooled_dtype_follows_the_run(train: MnistSplit) -> None:
 # =========================================================================== #
 
 
-def test_stationary_runs_show_no_rotation(train: MnistSplit) -> None:
+def test_stationary_runs_show_no_rotation(train: ImageSplit) -> None:
     env = make(train)
     for step in (0, 10, 39):
         assert env.drift_state(step).rotation_degrees == 0.0
@@ -259,7 +259,7 @@ def test_stationary_runs_show_no_rotation(train: MnistSplit) -> None:
 
 
 def test_rotation_recorded_on_the_observation_matches_the_schedule(
-    train: MnistSplit,
+    train: ImageSplit,
 ) -> None:
     env = make(train, "x2_rotating")
     for step in (0, 20, 39):
@@ -267,7 +267,7 @@ def test_rotation_recorded_on_the_observation_matches_the_schedule(
         assert env.step(step)[0].rotation_degrees == pytest.approx(expected)
 
 
-def test_drift_actually_changes_the_pixels(train: MnistSplit) -> None:
+def test_drift_actually_changes_the_pixels(train: ImageSplit) -> None:
     """Otherwise the rotation would be recorded but never applied -- the exact
     failure mode 'the same transform for train and eval' is meant to prevent.
 
@@ -284,13 +284,13 @@ def test_drift_actually_changes_the_pixels(train: MnistSplit) -> None:
     assert not torch.allclose(early, late)
 
 
-def test_per_node_drift_gives_agents_different_rotations(train: MnistSplit) -> None:
+def test_per_node_drift_gives_agents_different_rotations(train: ImageSplit) -> None:
     env = make(train, "x2_rotating", env={"drift_scope": "per_node"})
     rotations = {obs.rotation_degrees for obs in env.step(HORIZON - 1).values()}
     assert len(rotations) == N_NODES
 
 
-def test_global_drift_gives_every_agent_the_same_rotation(train: MnistSplit) -> None:
+def test_global_drift_gives_every_agent_the_same_rotation(train: ImageSplit) -> None:
     env = make(train, "x2_rotating")
     rotations = {obs.rotation_degrees for obs in env.step(HORIZON - 1).values()}
     assert len(rotations) == 1
@@ -301,14 +301,14 @@ def test_global_drift_gives_every_agent_the_same_rotation(train: MnistSplit) -> 
 # =========================================================================== #
 
 
-def test_images_are_downsampled_and_normalized(train: MnistSplit) -> None:
+def test_images_are_downsampled_and_normalized(train: ImageSplit) -> None:
     env = make(train)
     obs = env.step(0)[0]
     assert obs.x.shape[-1] == env.transform.size == 14
     assert float(obs.x.min()) < 0.0, "normalized data straddles zero"
 
 
-def test_full_resolution_model_gets_full_resolution_input(train: MnistSplit) -> None:
+def test_full_resolution_model_gets_full_resolution_input(train: ImageSplit) -> None:
     env = make(train, include={"model": "mlp"})
     assert env.transform.size == 28
     n = load_config("x1_stationary").env.samples_per_node_per_step
@@ -316,7 +316,7 @@ def test_full_resolution_model_gets_full_resolution_input(train: MnistSplit) -> 
     assert env.transform.input_dim == 784
 
 
-def test_exactness_run_is_float64_end_to_end(train: MnistSplit) -> None:
+def test_exactness_run_is_float64_end_to_end(train: ImageSplit) -> None:
     env = make(train, "x0_exactness")
     assert env.step(0)[0].x.dtype == torch.float64
 
@@ -326,17 +326,17 @@ def test_exactness_run_is_float64_end_to_end(train: MnistSplit) -> None:
 # =========================================================================== #
 
 
-def test_the_same_seed_gives_the_same_environment(train: MnistSplit) -> None:
+def test_the_same_seed_gives_the_same_environment(train: ImageSplit) -> None:
     a, b = make(train, seed=3), make(train, seed=3)
     assert torch.equal(a.step(5)[2].x, b.step(5)[2].x)
 
 
-def test_different_seeds_give_different_environments(train: MnistSplit) -> None:
+def test_different_seeds_give_different_environments(train: ImageSplit) -> None:
     a, b = make(train, seed=1), make(train, seed=2)
     assert not torch.equal(a.step(5)[2].x, b.step(5)[2].x)
 
 
-def test_reset_returns_a_new_environment_at_another_seed(train: MnistSplit) -> None:
+def test_reset_returns_a_new_environment_at_another_seed(train: ImageSplit) -> None:
     env = make(train, seed=0)
     other = env.reset(1)
     assert other is not env
@@ -344,7 +344,7 @@ def test_reset_returns_a_new_environment_at_another_seed(train: MnistSplit) -> N
     assert not torch.equal(env.step(0)[0].x, other.step(0)[0].x)
 
 
-def test_the_graphs_stay_separable(train: MnistSplit) -> None:
+def test_the_graphs_stay_separable(train: ImageSplit) -> None:
     env = make(train)
     assert env.graph is env.graphs.comm
     assert env.graphs.data.n_edges == 0
@@ -356,7 +356,7 @@ def test_the_graphs_stay_separable(train: MnistSplit) -> None:
 # =========================================================================== #
 
 
-def test_step_outside_the_horizon_is_rejected(train: MnistSplit) -> None:
+def test_step_outside_the_horizon_is_rejected(train: ImageSplit) -> None:
     env = make(train)
     with pytest.raises(EnvironmentError, match="outside 0..39"):
         env.step(HORIZON)
@@ -364,13 +364,13 @@ def test_step_outside_the_horizon_is_rejected(train: MnistSplit) -> None:
         env.step(-1)
 
 
-def test_horizon_and_node_count_agree_with_the_config(train: MnistSplit) -> None:
+def test_horizon_and_node_count_agree_with_the_config(train: ImageSplit) -> None:
     env = make(train)
     assert env.horizon == HORIZON
     assert env.n_nodes == N_NODES == env.graph.n_nodes
 
 
-def test_summary_covers_every_component(train: MnistSplit) -> None:
+def test_summary_covers_every_component(train: ImageSplit) -> None:
     summary = make(train).summary()
     assert summary["n_nodes"] == N_NODES
     for prefix in ("graph_", "stream_", "drift_"):
@@ -428,7 +428,7 @@ def test_an_idle_observation_must_not_carry_labels() -> None:
 
 
 @pytest.fixture(scope="session")
-def mnist_train() -> MnistSplit:
+def mnist_train() -> ImageSplit:
     from dekf_bench.data.mnist import is_cached, load_split
 
     if not is_cached():
@@ -437,7 +437,7 @@ def mnist_train() -> MnistSplit:
 
 
 @pytest.mark.needs_data
-def test_a_default_run_builds_and_steps(mnist_train: MnistSplit) -> None:
+def test_a_default_run_builds_and_steps(mnist_train: ImageSplit) -> None:
     env = build_environment(load_config("x1_stationary"), 0, mnist_train)
     assert env.horizon == 1500
     xs, ys = pool(env.step(0))
@@ -448,7 +448,7 @@ def test_a_default_run_builds_and_steps(mnist_train: MnistSplit) -> None:
 
 
 @pytest.mark.needs_data
-def test_the_whole_rotating_run_stays_inside_the_cap(mnist_train: MnistSplit) -> None:
+def test_the_whole_rotating_run_stays_inside_the_cap(mnist_train: ImageSplit) -> None:
     env = build_environment(load_config("x2_rotating"), 0, mnist_train)
     rotations = [env.drift_state(step).rotation_degrees for step in range(0, 1500, 100)]
     assert max(rotations) <= 45.0
@@ -457,7 +457,7 @@ def test_the_whole_rotating_run_stays_inside_the_cap(mnist_train: MnistSplit) ->
 
 @pytest.mark.needs_data
 @pytest.mark.slow
-def test_exactly_once_holds_across_a_full_run(mnist_train: MnistSplit) -> None:
+def test_exactly_once_holds_across_a_full_run(mnist_train: ImageSplit) -> None:
     env = build_environment(load_config("x1_stationary"), 0, mnist_train)
     served = torch.cat([env.stream.consumed_by(node) for node in range(env.n_nodes)])
     # N*n*T = 10*4*1500: the default run now sits exactly on the shard budget,

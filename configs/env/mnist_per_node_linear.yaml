@@ -11,6 +11,7 @@
 # Multipliers are spread over [1 - per_node_spread, 1] and top out at 1, so the
 # spread slows the laggards rather than carrying the leaders past the 45-degree
 # cap the schedule was validated against.
+dataset: mnist          # resolved through data/registry.py
 drift:
   schedule: linear
   total_degrees: 45.0

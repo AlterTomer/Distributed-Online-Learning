@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 import torch
 
-from dekf_bench.data.mnist import MnistSplit
+from dekf_bench.data.mnist import ImageSplit
 from dekf_bench.env.environment import build_environment
 from dekf_bench.evaluation.evalsets import build_evalsets
 from dekf_bench.learners.registry import build_learners
@@ -35,17 +35,17 @@ STEPS = 12
 
 
 @pytest.fixture(scope="module")
-def data() -> tuple[MnistSplit, MnistSplit]:
+def data() -> tuple[ImageSplit, ImageSplit]:
     """Synthetic, so the suite does not need the MNIST cache. Shapes and dtypes
     match the real split; the runner cannot tell the difference."""
     generator = torch.Generator().manual_seed(0)
     return (
-        MnistSplit(
+        ImageSplit(
             images=torch.rand(4000, 1, 28, 28, generator=generator),
             labels=torch.randint(0, 10, (4000,), generator=generator),
             split="train",
         ),
-        MnistSplit(
+        ImageSplit(
             images=torch.rand(400, 1, 28, 28, generator=generator),
             labels=torch.randint(0, 10, (400,), generator=generator),
             split="test",
@@ -56,7 +56,7 @@ def data() -> tuple[MnistSplit, MnistSplit]:
 def setup(
     experiment: str = "x1_stationary",
     seed: int = 0,
-    data: tuple[MnistSplit, MnistSplit] | None = None,
+    data: tuple[ImageSplit, ImageSplit] | None = None,
     **overrides: Any,
 ):
     """A run's worth of objects, wired exactly as ``run_experiment.py`` wires

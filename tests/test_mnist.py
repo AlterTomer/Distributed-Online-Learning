@@ -20,7 +20,7 @@ from dekf_bench.data.mnist import (
     NUM_CLASSES,
     SPLIT_SIZES,
     DataError,
-    MnistSplit,
+    ImageSplit,
     _load_cache,
     _write_cache,
     channel_statistics,
@@ -34,10 +34,10 @@ from dekf_bench.data.mnist import (
 needs_data = pytest.mark.needs_data
 
 
-def synthetic(n: int = 8, split: str = "train") -> MnistSplit:
+def synthetic(n: int = 8, split: str = "train") -> ImageSplit:
     """A structurally valid split, without touching the dataset."""
     generator = torch.Generator().manual_seed(0)
-    return MnistSplit(
+    return ImageSplit(
         images=torch.rand(n, 1, IMAGE_SIZE, IMAGE_SIZE, generator=generator),
         labels=torch.arange(n, dtype=torch.int64) % NUM_CLASSES,
         split=split,
@@ -45,7 +45,7 @@ def synthetic(n: int = 8, split: str = "train") -> MnistSplit:
 
 
 @pytest.fixture(scope="session")
-def real_train() -> MnistSplit:
+def real_train() -> ImageSplit:
     if not is_cached():
         pytest.skip("MNIST not cached; run scripts/check_data.py once")
     return load_split("train", download=False)
@@ -62,14 +62,14 @@ def test_split_reports_its_length() -> None:
 
 def test_wrong_image_shape_is_rejected() -> None:
     with pytest.raises(DataError, match="expected images of shape"):
-        MnistSplit(
+        ImageSplit(
             images=torch.rand(4, 28, 28), labels=torch.zeros(4, dtype=torch.int64), split="x"
         )
 
 
 def test_label_count_must_match_image_count() -> None:
     with pytest.raises(DataError, match="4 images but"):
-        MnistSplit(
+        ImageSplit(
             images=torch.rand(4, 1, IMAGE_SIZE, IMAGE_SIZE),
             labels=torch.zeros(3, dtype=torch.int64),
             split="x",
@@ -79,7 +79,7 @@ def test_label_count_must_match_image_count() -> None:
 def test_integer_images_are_rejected() -> None:
     """uint8 here means the /255 conversion was skipped."""
     with pytest.raises(DataError, match="must be float32 or float64"):
-        MnistSplit(
+        ImageSplit(
             images=torch.zeros(2, 1, IMAGE_SIZE, IMAGE_SIZE, dtype=torch.uint8),
             labels=torch.zeros(2, dtype=torch.int64),
             split="x",
@@ -88,7 +88,7 @@ def test_integer_images_are_rejected() -> None:
 
 def test_float64_images_are_allowed() -> None:
     """The exactness check runs the whole pipeline in double precision."""
-    data = MnistSplit(
+    data = ImageSplit(
         images=torch.rand(2, 1, IMAGE_SIZE, IMAGE_SIZE, dtype=torch.float64),
         labels=torch.zeros(2, dtype=torch.int64),
         split="x",
@@ -98,7 +98,7 @@ def test_float64_images_are_allowed() -> None:
 
 def test_labels_must_be_int64() -> None:
     with pytest.raises(DataError, match="must be int64"):
-        MnistSplit(
+        ImageSplit(
             images=torch.rand(2, 1, IMAGE_SIZE, IMAGE_SIZE),
             labels=torch.zeros(2, dtype=torch.int32),
             split="x",
@@ -226,12 +226,12 @@ def test_missing_data_without_download_raises_rather_than_fetching(tmp_path: Pat
 
 
 @needs_data
-def test_split_sizes_are_exact(real_train: MnistSplit) -> None:
+def test_split_sizes_are_exact(real_train: ImageSplit) -> None:
     assert len(real_train) == SPLIT_SIZES["train"]
 
 
 @needs_data
-def test_intensities_are_raw_and_unnormalized(real_train: MnistSplit) -> None:
+def test_intensities_are_raw_and_unnormalized(real_train: ImageSplit) -> None:
     """This module must not normalize: rotation fills with zero, and zero has to
     remain the black background (see the module docstring)."""
     assert float(real_train.images.min()) == 0.0
@@ -239,7 +239,7 @@ def test_intensities_are_raw_and_unnormalized(real_train: MnistSplit) -> None:
 
 
 @needs_data
-def test_conversion_reproduces_the_canonical_statistics(real_train: MnistSplit) -> None:
+def test_conversion_reproduces_the_canonical_statistics(real_train: ImageSplit) -> None:
     """A wrong uint8 scaling would show up here and nowhere else."""
     mean, std = channel_statistics(real_train.images)
     assert mean == pytest.approx(MNIST_MEAN, abs=1e-4)
@@ -247,7 +247,7 @@ def test_conversion_reproduces_the_canonical_statistics(real_train: MnistSplit) 
 
 
 @needs_data
-def test_every_class_is_present(real_train: MnistSplit) -> None:
+def test_every_class_is_present(real_train: ImageSplit) -> None:
     counts = class_counts(real_train)
     assert int(counts.min()) > 0
     assert int(counts.sum()) == SPLIT_SIZES["train"]
@@ -269,7 +269,7 @@ def test_cached_load_does_not_need_the_network() -> None:
 
 
 @needs_data
-def test_shard_sized_subset_is_what_an_agent_will_hold(real_train: MnistSplit) -> None:
+def test_shard_sized_subset_is_what_an_agent_will_hold(real_train: ImageSplit) -> None:
     """6000 samples: one agent's shard at N=10."""
     shard = real_train.subset(torch.arange(6000))
     assert len(shard) == 6000

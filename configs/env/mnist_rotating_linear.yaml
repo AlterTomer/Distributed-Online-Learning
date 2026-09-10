@@ -1,5 +1,6 @@
 # Linear rotation to total_degrees over the full horizon.
 # alpha = total_degrees / T is derived by the loader, never configured.
+dataset: mnist          # resolved through data/registry.py
 drift:
   schedule: linear
   total_degrees: 45.0

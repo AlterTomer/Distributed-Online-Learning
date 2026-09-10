@@ -6,6 +6,7 @@
 # without any label becoming ambiguous. Setting both at once is legitimate --
 # they ride the same schedule -- but then a break cannot be attributed to
 # either one.
+dataset: mnist          # resolved through data/registry.py
 drift:
   schedule: linear
   total_degrees: 0.0     # isolate the prior channel

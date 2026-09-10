@@ -49,7 +49,7 @@ from typing import Any
 
 import torch
 
-from dekf_bench.data.mnist import MnistSplit
+from dekf_bench.data.mnist import ImageSplit
 from dekf_bench.data.transforms import ImageTransform
 from dekf_bench.likelihoods.categorical import Categorical
 from dekf_bench.models.mlp import MLP
@@ -177,8 +177,8 @@ class Reference:
 
 
 def _split_train(
-    train: MnistSplit, validation_size: int, generator: torch.Generator
-) -> tuple[MnistSplit, MnistSplit | None]:
+    train: ImageSplit, validation_size: int, generator: torch.Generator
+) -> tuple[ImageSplit, ImageSplit | None]:
     """Hold out a validation slice, or none under a fixed budget."""
     if validation_size <= 0:
         return train, None
@@ -203,8 +203,8 @@ def _error_rate(
 
 def train_one(
     rotation: float,
-    train: MnistSplit,
-    test: MnistSplit,
+    train: ImageSplit,
+    test: ImageSplit,
     model: MLP,
     transform: ImageTransform,
     config: Any,
@@ -291,8 +291,8 @@ def train_one(
 
 def repeat_seeds(
     rotation: float,
-    train: MnistSplit,
-    test: MnistSplit,
+    train: ImageSplit,
+    test: ImageSplit,
     model: MLP,
     transform: ImageTransform,
     config: Any,
@@ -353,8 +353,8 @@ def seed_spread(results: tuple[ReferenceResult, ...], n_test: int = 10_000) -> d
 
 def train_reference(
     config: Any,
-    train: MnistSplit,
-    test: MnistSplit,
+    train: ImageSplit,
+    test: ImageSplit,
     model: MLP,
     transform: ImageTransform,
     progress: bool = True,

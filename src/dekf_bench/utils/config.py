@@ -283,6 +283,12 @@ class PriorDriftConfig:
 
 @dataclass
 class EnvConfig:
+    #: Which dataset the run consumes. Before this field the dataset was implied
+    #: by the *filename* of the env config -- provenance living in a string
+    #: nobody parsed, and absent from `metadata.json` entirely. Resolved through
+    #: `data/registry.py`, so a new dataset is a table entry rather than an edit
+    #: to every script.
+    dataset: str = "mnist"
     samples_per_node_per_step: int = 2
     label_availability: float = 1.0
     partition: PartitionConfig = field(default_factory=PartitionConfig)
@@ -302,6 +308,11 @@ class EnvConfig:
                 f"env.label_availability must lie in [0, 1], got {self.label_availability}"
             )
         _one_of(self.drift_scope, DRIFT_SCOPES, "env.drift_scope")
+        # Imported here rather than at module scope: config.py is imported by
+        # everything, and data/registry.py pulls in torch through the loaders.
+        from dekf_bench.data.registry import dataset_names  # noqa: PLC0415
+
+        _one_of(self.dataset, dataset_names(), "env.dataset")
 
 
 @dataclass

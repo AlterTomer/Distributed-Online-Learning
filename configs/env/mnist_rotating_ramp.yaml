@@ -6,6 +6,7 @@
 # steps" only has an answer when the rate is changing. Read the located rate as
 # an upper bound -- the learner lags, so it crosses threshold late -- and
 # confirm with linear runs bracketing it (design note D47).
+dataset: mnist          # resolved through data/registry.py
 drift:
   schedule: ramp
   total_degrees: 45.0    # the same endpoint as mnist_rotating_linear

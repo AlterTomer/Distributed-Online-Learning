@@ -79,14 +79,16 @@ from __future__ import annotations
 import json
 import sys
 import time
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from dekf_bench.data.mnist import is_cached, load_mnist  # noqa: E402
+from run_ekf_sweep import BASELINE_LRS, cell_name, cells, settled_for  # noqa: E402
+
+from dekf_bench.data.registry import dataset_is_cached, load_dataset  # noqa: E402
 from dekf_bench.env.environment import build_environment  # noqa: E402
 from dekf_bench.evaluation.evalsets import build_evalsets  # noqa: E402
 from dekf_bench.learners.base import LearnerError  # noqa: E402
@@ -99,7 +101,6 @@ from dekf_bench.recording.schema import RunContext  # noqa: E402
 from dekf_bench.runner import simulate  # noqa: E402
 from dekf_bench.utils.config import load_config  # noqa: E402
 from dekf_bench.utils.determinism import git_revision  # noqa: E402
-from run_ekf_sweep import BASELINE_LRS, cell_name, cells, settled_for  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Edit these, then run the file.
@@ -254,6 +255,11 @@ BASELINES = ["centralized_sgd", "diffusion_sgd_atc", "frozen_atc"]
 DEVICE = "auto"
 DTYPE = "float64"
 FRESH = False
+
+#: The dataset every cell in this sweep consumes. A name, not an import,
+#: so a second dataset is a one-line change here rather than a new script
+#: (IMPLEMENTATION.md section 15).
+DATASET = "mnist"
 
 DATA_ROOT = ROOT / "data"
 STATUS = ROOT / "results" / "x14_status.json"
@@ -511,10 +517,10 @@ def tune_learning_rate(train, test, fresh: bool) -> int:
 
 
 def main(tune: bool = False, fresh: bool = FRESH, only: list[str] | None = None) -> int:
-    if not is_cached(DATA_ROOT):
+    if not dataset_is_cached(DATASET, DATA_ROOT):
         print("MNIST is not cached. Run scripts/check_data.py once, then retry.")
         return 1
-    train, test = load_mnist(DATA_ROOT, download=False)
+    train, test = load_dataset(DATASET, DATA_ROOT, download=False)
 
     if tune:
         return tune_learning_rate(train, test, fresh)

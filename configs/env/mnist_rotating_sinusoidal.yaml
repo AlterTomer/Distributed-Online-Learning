@@ -1,4 +1,5 @@
 # The distribution returns to previously seen states, exposing forgetting.
+dataset: mnist          # resolved through data/registry.py
 drift:
   schedule: sinusoidal
   amplitude_degrees: 30.0

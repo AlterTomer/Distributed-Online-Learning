@@ -61,7 +61,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import torch  # noqa: E402
 
-from dekf_bench.data.mnist import load_mnist  # noqa: E402
+from dekf_bench.data.registry import load_dataset  # noqa: E402
 from dekf_bench.env.environment import build_environment  # noqa: E402
 from dekf_bench.evaluation.evalsets import build_evalsets  # noqa: E402
 from dekf_bench.learners.registry import build_learners  # noqa: E402
@@ -69,6 +69,11 @@ from dekf_bench.likelihoods.categorical import Categorical  # noqa: E402
 from dekf_bench.models.registry import build_model_from_config  # noqa: E402
 from dekf_bench.runner import simulate  # noqa: E402
 from dekf_bench.utils.config import default_configs_dir, load_config  # noqa: E402
+
+#: The dataset this grid is swept on. A name, not an import, so a second dataset
+#: is an entry in data/registry.py rather than a second copy of this script
+#: (IMPLEMENTATION.md section 15).
+DATASET = "mnist"
 
 # ---------------------------------------------------------------------------
 # Edit these, then run the file.
@@ -222,7 +227,7 @@ def main() -> None:
         CELLS.unlink()
 
     torch.set_num_threads(max(1, (torch.get_num_threads() or 4)))
-    data = load_mnist(default_configs_dir().parent / "data", download=False)
+    data = load_dataset(DATASET, default_configs_dir().parent / "data", download=False)
 
     topologies: list[str | None] = list(TOPOLOGIES) if TOPOLOGIES else [None]
     availabilities: list[float | None] = list(LABEL_AVAILABILITY) if LABEL_AVAILABILITY else [None]

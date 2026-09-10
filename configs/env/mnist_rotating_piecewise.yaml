@@ -1,4 +1,5 @@
 # Abrupt jumps at known times; makes the adaptation transient measurable (X5).
+dataset: mnist          # resolved through data/registry.py
 drift:
   schedule: piecewise
   change_points: [500]

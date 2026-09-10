@@ -21,7 +21,7 @@ import sys
 import time
 from pathlib import Path
 
-from dekf_bench.data.mnist import is_cached, load_mnist
+from dekf_bench.data.registry import dataset_is_cached, load_dataset
 from dekf_bench.env.environment import build_environment
 from dekf_bench.evaluation.evalsets import build_evalsets
 from dekf_bench.learners.registry import build_learners
@@ -129,11 +129,16 @@ def write_ledger_for(config, out_dir: Path) -> None:
 
 
 def main(experiment: str = EXPERIMENT, fresh: bool = FRESH) -> int:
-    if not is_cached(DATA_ROOT):
-        print("MNIST is not cached. Run scripts/check_data.py once, then retry.")
+    # The config is built first so the dataset can come *from* it. This script
+    # runs whichever experiment it is named, and each experiment's env config
+    # declares its own dataset -- a module constant here would override that
+    # silently (IMPLEMENTATION.md section 15).
+    config = load_config(experiment, overrides=overrides() or None)
+    dataset = config.env.dataset
+    if not dataset_is_cached(dataset, DATA_ROOT):
+        print(f"{dataset} is not cached. Run scripts/check_data.py once, then retry.")
         return 1
 
-    config = load_config(experiment, overrides=overrides() or None)
     out_dir = REPO / config.run.out_dir / config.run.name
 
     if fresh and out_dir.exists():
@@ -142,7 +147,7 @@ def main(experiment: str = EXPERIMENT, fresh: bool = FRESH) -> int:
         shutil.rmtree(out_dir)
         print(f"discarded {out_dir}")
 
-    train, test = load_mnist(DATA_ROOT, download=False)
+    train, test = load_dataset(dataset, DATA_ROOT, download=False)
     rec.write_metadata(out_dir, config, {"experiment": config.run.name})
 
     print(

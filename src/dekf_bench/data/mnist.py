@@ -57,12 +57,22 @@ class DataError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class MnistSplit:
-    """One split, fully materialised.
+class ImageSplit:
+    """One split of an image classification dataset, fully materialised.
+
+    Named for what it is rather than for MNIST: `environment.py`,
+    `evaluation/evalsets.py` and `evaluation/reference.py` all annotate with it,
+    and a type called ``ImageSplit`` carrying CIFAR would be a lie in three
+    modules at once.
+
+    The shape check below is therefore **generic** -- four dimensions, matching
+    label count, float images, integer labels. The specific
+    ``(n, 1, 28, 28)`` assertion lives in :func:`load_mnist`, which is the only
+    place that knows it.
 
     Attributes:
-        images: ``(n, 1, 28, 28)`` float32 in ``[0, 1]``.
-        labels: ``(n,)`` int64 in ``[0, 9]``.
+        images: ``(n, channels, height, width)`` float32 or float64 in ``[0, 1]``.
+        labels: ``(n,)`` int64 class indices.
         split: which split this is, for error messages and provenance.
     """
 
@@ -74,9 +84,9 @@ class MnistSplit:
         return int(self.images.shape[0])
 
     def __post_init__(self) -> None:
-        if self.images.ndim != 4 or self.images.shape[1:] != (1, IMAGE_SIZE, IMAGE_SIZE):
+        if self.images.ndim != 4:
             raise DataError(
-                f"{self.split}: expected images of shape (n, 1, {IMAGE_SIZE}, {IMAGE_SIZE}), "
+                f"{self.split}: expected images of shape (n, channels, height, width), "
                 f"got {tuple(self.images.shape)}"
             )
         if self.labels.ndim != 1 or self.labels.shape[0] != self.images.shape[0]:
@@ -94,20 +104,20 @@ class MnistSplit:
         if self.labels.dtype != torch.int64:
             raise DataError(f"{self.split}: labels must be int64, got {self.labels.dtype}")
 
-    def subset(self, indices: torch.Tensor) -> MnistSplit:
+    def subset(self, indices: torch.Tensor) -> ImageSplit:
         """The samples at ``indices``, as a new split.
 
         Used by the per-agent shards. Indexing copies, which is what we want:
         a shard that aliased the full tensor would keep it alive and make an
         in-place bug in one agent visible to all of them.
         """
-        return MnistSplit(
+        return ImageSplit(
             images=self.images[indices].clone(),
             labels=self.labels[indices].clone(),
             split=f"{self.split}[{len(indices)}]",
         )
 
-    def to(self, *, dtype: torch.dtype | None = None, device: str | None = None) -> MnistSplit:
+    def to(self, *, dtype: torch.dtype | None = None, device: str | None = None) -> ImageSplit:
         """A copy on another dtype or device. Labels stay int64."""
         images = self.images
         if dtype is not None:
@@ -115,7 +125,7 @@ class MnistSplit:
         if device is not None:
             images = images.to(device)
         labels = self.labels.to(device) if device is not None else self.labels
-        return MnistSplit(images=images, labels=labels, split=self.split)
+        return ImageSplit(images=images, labels=labels, split=self.split)
 
 
 def default_data_dir() -> Path:
@@ -132,7 +142,7 @@ def load_split(
     root: str | Path | None = None,
     *,
     download: bool = True,
-) -> MnistSplit:
+) -> ImageSplit:
     """Load one MNIST split, using the tensor cache when it exists.
 
     Args:
@@ -164,10 +174,10 @@ def load_split(
     return data
 
 
-def _load_cache(cache: Path, split: str) -> MnistSplit | None:
+def _load_cache(cache: Path, split: str) -> ImageSplit | None:
     try:
         payload = torch.load(cache, map_location="cpu", weights_only=True)
-        return MnistSplit(images=payload["images"], labels=payload["labels"], split=split)
+        return ImageSplit(images=payload["images"], labels=payload["labels"], split=split)
     except (OSError, EOFError, KeyError, RuntimeError, DataError, pickle.UnpicklingError):
         # A truncated or corrupt cache is recoverable: delete and rebuild.
         # `weights_only=True` reports damage as UnpicklingError rather than
@@ -176,7 +186,7 @@ def _load_cache(cache: Path, split: str) -> MnistSplit | None:
         return None
 
 
-def _write_cache(cache: Path, data: MnistSplit) -> None:
+def _write_cache(cache: Path, data: ImageSplit) -> None:
     cache.parent.mkdir(parents=True, exist_ok=True)
     # Write to a temporary file and rename, so an interrupted write cannot leave
     # a truncated cache that looks valid.
@@ -189,7 +199,7 @@ def _write_cache(cache: Path, data: MnistSplit) -> None:
     logger.info("cached %s split (%d samples) to %s", data.split, len(data), cache)
 
 
-def _from_torchvision(root: Path, split: str, *, download: bool) -> MnistSplit:
+def _from_torchvision(root: Path, split: str, *, download: bool) -> ImageSplit:
     """Read the raw torchvision files and convert them to dense tensors."""
     from torchvision.datasets import MNIST
 
@@ -222,18 +232,33 @@ def _from_torchvision(root: Path, split: str, *, download: bool) -> MnistSplit:
             f"{split} split has {images.shape[0]} samples, expected {expected}. "
             f"The download is probably incomplete; delete {raw_root} and retry."
         )
-    return MnistSplit(images=images, labels=labels, split=split)
+    return ImageSplit(images=images, labels=labels, split=split)
 
 
 def load_mnist(
     root: str | Path | None = None, *, download: bool = True
-) -> tuple[MnistSplit, MnistSplit]:
+) -> tuple[ImageSplit, ImageSplit]:
     """Both splits, as ``(train, test)``.
 
     They come from separate source files, so train/test leakage is impossible by
     construction rather than by an index check.
+
+    The ``(n, 1, 28, 28)`` assertion lives here rather than in `ImageSplit`,
+    which is generic: this function is the only one that knows MNIST's shape, and
+    a shape check in the shared type would have to be relaxed to nothing the
+    moment a second dataset arrives -- which is how a check becomes decorative.
     """
-    return load_split("train", root, download=download), load_split("test", root, download=download)
+    splits = (
+        load_split("train", root, download=download),
+        load_split("test", root, download=download),
+    )
+    for data in splits:
+        if data.images.shape[1:] != (1, IMAGE_SIZE, IMAGE_SIZE):
+            raise DataError(
+                f"{data.split}: expected MNIST images of shape "
+                f"(n, 1, {IMAGE_SIZE}, {IMAGE_SIZE}), got {tuple(data.images.shape)}"
+            )
+    return splits
 
 
 def channel_statistics(images: torch.Tensor) -> tuple[float, float]:
@@ -250,7 +275,7 @@ def channel_statistics(images: torch.Tensor) -> tuple[float, float]:
     return float(values.mean()), float(values.std())
 
 
-def class_counts(data: MnistSplit) -> torch.Tensor:
+def class_counts(data: ImageSplit) -> torch.Tensor:
     """Samples per class, as a length-10 int64 tensor."""
     return torch.bincount(data.labels, minlength=NUM_CLASSES)
 

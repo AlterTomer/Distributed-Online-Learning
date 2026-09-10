@@ -26,7 +26,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from dekf_bench.data.mnist import MnistSplit
+from dekf_bench.data.mnist import ImageSplit
 from dekf_bench.env.environment import build_environment, pool
 from dekf_bench.learners.registry import build_learners
 from dekf_bench.likelihoods.categorical import Categorical
@@ -38,9 +38,9 @@ TOLERANCE = 1e-12
 STEPS = 30
 
 
-def split(n: int = 4000, seed: int = 0) -> MnistSplit:
+def split(n: int = 4000, seed: int = 0) -> ImageSplit:
     generator = torch.Generator().manual_seed(seed)
-    return MnistSplit(
+    return ImageSplit(
         images=torch.rand(n, 1, 28, 28, generator=generator),
         labels=torch.arange(n, dtype=torch.int64) % 10,
         split="synthetic",

@@ -29,7 +29,7 @@ from typing import Any
 
 import torch
 
-from dekf_bench.data.mnist import MnistSplit
+from dekf_bench.data.mnist import ImageSplit
 from dekf_bench.data.transforms import ImageTransform, build_transform_from_config
 from dekf_bench.env.drift import Drift, DriftState, build_drift
 from dekf_bench.env.graph import Graph, Graphs, build_graphs
@@ -137,7 +137,7 @@ class Environment:
 
     config: Any
     seeds: Seeds
-    train: MnistSplit
+    train: ImageSplit
     graphs: Graphs
     partition: Partition
     stream: Stream
@@ -266,7 +266,7 @@ class Environment:
             raise EnvironmentError(f"step {step} outside 0..{self.horizon - 1}")
 
 
-def build_environment(config: Any, master_seed: int, train: MnistSplit) -> Environment:
+def build_environment(config: Any, master_seed: int, train: ImageSplit) -> Environment:
     """Assemble an environment for one seed.
 
     Each component draws from its own seed stream, so the graph realization, the

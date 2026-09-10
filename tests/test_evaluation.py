@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from dekf_bench.data.mnist import MnistSplit
+from dekf_bench.data.mnist import ImageSplit
 from dekf_bench.data.transforms import build_transform
 from dekf_bench.env.drift import build_drift
 from dekf_bench.env.environment import build_environment
@@ -24,16 +24,16 @@ HORIZON = 120
 SEPARATION = 15.0
 
 
-def split(n: int = 300, seed: int = 0) -> MnistSplit:
+def split(n: int = 300, seed: int = 0) -> ImageSplit:
     generator = torch.Generator().manual_seed(seed)
-    return MnistSplit(
+    return ImageSplit(
         images=torch.rand(n, 1, 28, 28, generator=generator),
         labels=torch.arange(n, dtype=torch.int64) % 10,
         split="synthetic",
     )
 
 
-def train_split_for(config) -> MnistSplit:
+def train_split_for(config) -> ImageSplit:
     """A synthetic train split big enough for the run to consume.
 
     Sized from the config as N*n*T rather than a literal: the shard budget is

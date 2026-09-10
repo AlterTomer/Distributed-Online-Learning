@@ -58,7 +58,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from dekf_bench.data.mnist import is_cached, load_mnist  # noqa: E402
+from dekf_bench.data.registry import dataset_is_cached, load_dataset  # noqa: E402
 from dekf_bench.env.environment import build_environment  # noqa: E402
 from dekf_bench.evaluation.evalsets import build_evalsets  # noqa: E402
 from dekf_bench.learners.registry import build_learners  # noqa: E402
@@ -124,6 +124,11 @@ FRESH = False
 #: wide, and at t'=25 the default cadence would sample roughly once per shift --
 #: which measures the standing error and misses the recovery entirely.
 EVAL_EVERY = 5
+
+#: The dataset every cell in this sweep consumes. A name, not an import,
+#: so a second dataset is a one-line change here rather than a new script
+#: (IMPLEMENTATION.md section 15).
+DATASET = "mnist"
 
 DATA_ROOT = ROOT / "data"
 
@@ -195,10 +200,10 @@ def run_one(config, train, test, fresh: bool) -> None:
 
 
 def main(fresh: bool = FRESH) -> int:
-    if not is_cached(DATA_ROOT):
+    if not dataset_is_cached(DATASET, DATA_ROOT):
         print("MNIST is not cached. Run scripts/check_data.py once, then retry.")
         return 1
-    train, test = load_mnist(DATA_ROOT, download=False)
+    train, test = load_dataset(DATASET, DATA_ROOT, download=False)
 
     cells = list(CELL_ORDER)
     expected = set(itertools.product(JUMP_EVERY, JUMP_DEGREES))

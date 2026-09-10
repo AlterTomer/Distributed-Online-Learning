@@ -44,7 +44,7 @@ from typing import Any
 
 import torch
 
-from dekf_bench.data.mnist import MnistSplit
+from dekf_bench.data.mnist import ImageSplit
 from dekf_bench.data.transforms import ImageTransform
 from dekf_bench.env.drift import Drift, DriftState
 from dekf_bench.env.partition import largest_remainder
@@ -100,7 +100,7 @@ class EvalSetBuilder:
 
     def __init__(
         self,
-        test: MnistSplit,
+        test: ImageSplit,
         transform: ImageTransform,
         drift: Drift,
         horizon: int,
@@ -362,7 +362,7 @@ class EvalSetBuilder:
         return self._cache[key]
 
 
-def build_evalsets(config: Any, environment: Any, test: MnistSplit) -> EvalSetBuilder:
+def build_evalsets(config: Any, environment: Any, test: ImageSplit) -> EvalSetBuilder:
     """The builder a run's config asks for, wired to the environment's own
     transform and drift so the two paths cannot diverge.
 

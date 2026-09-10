@@ -563,9 +563,9 @@ Keep `docs/diffekf_integration.md` open and tick these off as phases 1–4 proce
 Deliberate debts. Each is cheap to live with now and gets more expensive per
 script added, so they are written down rather than discovered.
 
-### 15.1 The dataset is implicit everywhere
+### 15.1 The dataset is implicit everywhere - RESOLVED 2026-09-10
 
-**Measured 2026-09-10: 18 scripts import `load_mnist` / `is_cached` directly,
+**Was: 18 scripts import `load_mnist` / `is_cached` directly,
 `EnvConfig` has no dataset field, and `data/` holds only `mnist.py` — while
 `learners/` and `models/` both already have a registry.** So the dataset is not a
 configuration choice; it is a hardcoded import repeated eighteen times.
@@ -610,9 +610,31 @@ them is in `data/`:
   dimension moves $p$, and $p$ is what makes the filter feasible at all.
 
 So "add a dataset" is a task-definition change, not a loader change, and the
-registry above is necessary rather than sufficient. Doing step 1–3 early is still
-worth it: it stops the eighteen imports becoming thirty, and it puts the dataset
-in the run metadata where a reader can see which one produced a number.
+registry is necessary rather than sufficient.
+
+**Steps 1-3 are done** (`data/registry.py`, `EnvConfig.dataset`, and every script
+taking a `DATASET` name or reading it from the config). Two things came out of
+doing it that were not in the plan above:
+
+* `MnistSplit` was renamed **`ImageSplit`**. It is annotated in
+  `env/environment.py`, `evaluation/evalsets.py` and `evaluation/reference.py`,
+  so a type named for one dataset would have been a lie in three modules the
+  moment a second arrived. Its shape check is now generic - four dimensions,
+  matching label count, float images, integer labels - and the specific
+  `(n, 1, 28, 28)` assertion moved into `load_mnist`, which is the only function
+  that knows it. A shared check that has to be relaxed for every new dataset
+  becomes decorative, which is worse than no check.
+* `DatasetSpec` carries `num_classes`, `image_size`, `channels` and
+  `rotation_cap_degrees`, because those are the facts other modules are entitled
+  to ask about - and `rotation_cap_degrees=None` is how a dataset says its labels
+  survive any rotation, rather than silently inheriting MNIST's 45.
+
+What remains coupled is the task, not the plumbing: the drift channel is
+rotation, `env/drift.py` describes angles, and `MAX_WELL_POSED_DEGREES` is still
+a module constant rather than read from the spec. Wiring the cap through is the
+next small step and is deliberately not done yet - every drift result from X9 to
+X18 is stated relative to 45 degrees, and moving that constant while runs are in
+flight is how a sweep silently changes meaning.
 
 ---
 

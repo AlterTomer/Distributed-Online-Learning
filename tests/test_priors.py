@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from dekf_bench.data.mnist import MnistSplit
+from dekf_bench.data.mnist import ImageSplit
 from dekf_bench.env.drift import Linear, Ramp
 from dekf_bench.env.environment import build_environment
 from dekf_bench.env.partition import build_partition
@@ -39,9 +39,9 @@ def labels_of(n: int = 30000) -> torch.Tensor:
     return torch.arange(n, dtype=torch.int64) % N_CLASSES
 
 
-def split(n: int = 30000) -> MnistSplit:
+def split(n: int = 30000) -> ImageSplit:
     generator = torch.Generator().manual_seed(0)
-    return MnistSplit(
+    return ImageSplit(
         images=torch.rand(n, 1, 28, 28, generator=generator),
         labels=labels_of(n),
         split="synthetic",

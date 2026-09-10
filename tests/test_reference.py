@@ -14,7 +14,7 @@ import json
 import pytest
 import torch
 
-from dekf_bench.data.mnist import MnistSplit
+from dekf_bench.data.mnist import ImageSplit
 from dekf_bench.data.transforms import build_transform
 from dekf_bench.evaluation.reference import (
     EpochRecord,
@@ -33,7 +33,7 @@ from dekf_bench.models.mlp import MLP
 from dekf_bench.utils.config import ConfigError, load_config
 
 
-def split(n: int = 400, seed: int = 0) -> MnistSplit:
+def split(n: int = 400, seed: int = 0) -> ImageSplit:
     """Learnable-but-tiny: the label is a function of the image, so training
     actually reduces the error rather than fitting noise."""
     generator = torch.Generator().manual_seed(seed)
@@ -41,7 +41,7 @@ def split(n: int = 400, seed: int = 0) -> MnistSplit:
     images = torch.rand(n, 1, 28, 28, generator=generator) * 0.2
     for index, label in enumerate(labels):
         images[index, 0, int(label) * 2 : int(label) * 2 + 2, :] = 1.0
-    return MnistSplit(images=images, labels=labels, split="synthetic")
+    return ImageSplit(images=images, labels=labels, split="synthetic")
 
 
 @pytest.fixture(scope="module")
