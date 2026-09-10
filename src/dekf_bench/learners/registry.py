@@ -33,6 +33,17 @@ DIFFUSION_EKF_VARIANTS = {
     # prop:complete_graph, and the filter must then reproduce the centralized one
     # exactly. Without it the diffusion filter has no analogue of X0.
     "diffusion_ekf_onehop": ("one_hop", "full"),
+    # The deployable form of the fix D79 identifies, and after X19 the only
+    # one-hop variant worth measuring: covariance sharing was shown to buy
+    # +0.0002 to +0.0007 for 2909x the bandwidth, so the sensible pairing with a
+    # one-hop adapt is mean-only.
+    #
+    # The exactness gate is unaffected by dropping full sharing: on a complete
+    # graph one-hop makes every agent's (psi, P^psi) identical, so averaging the
+    # covariances and keeping one's own give the same answer. The fixture above
+    # keeps full sharing only because that is the variant the proposition is
+    # written for.
+    "diffusion_ekf_onehop_mean": ("one_hop", "local"),
 }
 
 #: Every learner a config may name. `diffusion_sgd_atc_plain` shares the ATC
@@ -47,6 +58,7 @@ BUILDERS = {
     "diffusion_ekf": DiffusionEKF,
     "diffusion_ekf_full": DiffusionEKF,
     "diffusion_ekf_onehop": DiffusionEKF,
+    "diffusion_ekf_onehop_mean": DiffusionEKF,
     # Two names, one class. The gamma and lambda families are the same recursion
     # under different transition models, and the config picks which by setting
     # `transition` -- so a run that names both gets a genuine comparison rather

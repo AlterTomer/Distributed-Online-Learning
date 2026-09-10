@@ -83,17 +83,23 @@ they are, no later row can be interpreted: every one of them would inherit an
 unmatched baseline and a filter tuned for ten times the data it has.
 
 - [ ] **P5.1a** *(X20)* **Re-tune $q$ and $\sigma_0^2$ for the diffusion
-  information rate.** The mechanism in D79 names $q$ as the mis-scaled parameter
+  information rate.** Script: `run_diffusion_tuning.py --tune`, a 5x5 grid, two
+  decades either side of the predicted $6	imes10^{-6}$ and including the
+  centralised $6	imes10^{-5}$ so "no change" is expressible. It refuses to
+  select an argmin that lands on a grid edge. The mechanism in D79 names $q$ as the mis-scaled parameter
   and gives the direction: it was chosen to balance an influx of $N\bm\Delta$ per
   step and now faces $\bm\Delta$, so it should fall by roughly $N$. The grid spans
   wider than that argument, because a scaling argument that predicts the answer is
   the worst reason to only look where it points.
 - [ ] **P5.1b** Add `diffusion_sgd_atc_plain` and re-read at **matched
-  bandwidth**. X19 compared a filter sending $p$ against an ATC sending $2p$,
+  bandwidth**. Folded into `run_diffusion_tuning.py`'s main pass. X19 compared a filter sending $p$ against an ATC sending $2p$,
   which is precisely the pairing D29 exists to prevent. In X18's stationary twin
   `atc_plain` was 0.0863 against `atc`'s 0.0790, so the correction may turn a tie
   into a win.
 - [ ] **P5.1c** **Promote one-hop from fixture to method** and measure it on ER.
+  Done as a learner: `diffusion_ekf_onehop_mean` (one-hop adapt, mean-only
+  combine) — the deployable pairing, since X19 showed the combine axis is empty.
+  It rides in `run_diffusion_tuning.py`'s main pass.
   D79 shows the deficit is in the adapt step and no combine rule can reach it;
   one-hop is the only implemented thing that can. ⚠ Implement its exchange as
   **raw measurements, not information factors** — 788 scalars against 122 136,

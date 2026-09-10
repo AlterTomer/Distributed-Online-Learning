@@ -1,0 +1,39 @@
+# One-hop adapt with mean-only sharing: the DEPLOYABLE form of the fix.
+#
+#   adapt    (P^psi_v)^-1 = P_v^-1 + sum_{u in N_v u {v}} Delta_u
+#   combine  m_v <- sum_u a_vu psi_u ;  P_v <- P^psi_v
+#
+# X19 measured the two axes and found the combine axis empty: sharing covariances
+# bought +0.0002 to +0.0007 for 2909x the bandwidth. The deficit is in the ADAPT
+# step, where a local measurement set gives each agent one agent's information
+# while the centralised filter sums all N -- and no combine rule can reach that,
+# covariance intersection included, because averaging information is not summing
+# it (design note D79).
+#
+# So this is the variant that matters: it fixes the axis that is broken and pays
+# nothing on the axis that is not.
+#
+# BANDWIDTH. The note prices a one-hop exchange at O(p q'), which at p=2908,
+# q=10, n=4 is 122,136 scalars per link. But the raw measurements that quantity is
+# derived FROM are only n(d+1) = 788, and the receiver already gets psi_u =
+# m_{u,t|t-1} in the same message -- so it can recompute H_u, G_u and s_u itself
+# and reconstruct Delta_u exactly. Exchanging measurements is 155x cheaper and
+# algebraically identical, and wins whenever p > (d+1)/q ~ 20, which holds for any
+# over-parameterised model. The implementation here exchanges the information
+# factors; the cheaper encoding is an optimisation, not a different method, and
+# the honest cost to quote is the smaller one.
+#
+# The real costs of a one-hop adapt are COMPUTE -- each agent linearises its
+# neighbours' data as well as its own, so adapt scales with |N_v|+1 -- and
+# PRIVACY, if the cheap encoding is used and raw samples leave the node.
+name: diffusion_ekf_onehop_mean
+
+adapt_scope: one_hop        # M_v = N^c_v union {v}
+covariance_sharing: local   # P_v <- P^psi_v
+
+transition: scalar
+gamma: 1.0
+forgetting: process_noise
+process_noise_q: 1.0e-5
+lambda_forget: 1.0
+prior_scale: 0.01
