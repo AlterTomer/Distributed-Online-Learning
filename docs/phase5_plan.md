@@ -337,12 +337,49 @@ gets neighbourhood information *into the mean*. What it does not get is that
 information into the **covariance**, which is precisely D79's mechanism, and
 precisely why P5.15's free correction is aimed at the right place.
 
-⚠ **Still unverified.** The note's `\cite{cattivelli2010}` is the *Kalman*
-paper — "Diffusion strategies for distributed Kalman filtering and smoothing",
-IEEE TAC 55(9), 2010 — which is a different document from the LMS one checked
-here. Whether *its* incremental step sums over the neighbourhood, and therefore
-whether the note's imported stability analysis describes one-hop or local adapt,
-is still open. That paper has not been read.
+### Checked against the Kalman paper too — and one-hop is the canonical algorithm
+
+Cattivelli & Sayed, IEEE TAC 55(9) 2010, the paper `\cite{cattivelli2010}`
+actually points at. Four things it settles, and they change what the note may
+claim.
+
+**1. The incremental step loops over neighbours.** Algorithm 1's Step 1 reads
+"for every neighboring node $l\in\N_k$, repeat ... end". Algorithm 2, the
+information form, does the same. **So one-hop *is* the diffusion Kalman filter**,
+and `diffusion_ekf` with a local adapt is not the canonical algorithm — unlike
+the LMS case, where $\bm C=\bm I$ is a named variant. `diffusion_ekf_onehop_mean`
+should be read as the method and the local-adapt one as our reduction of it.
+
+**2. ⚠ The note's imported stability analysis is analysis of one-hop.** The
+detectability condition is stated as "if every node were to use a conventional
+Kalman filter on the measurements *from its neighborhood*, its estimate would
+converge". Section IV's Lyapunov recursion and steady-state \ac{msd} are derived
+for Algorithm 1. So `sec:assumptions`' appeal to this analysis does not currently
+describe the variant X19 measured — a correction the note needs.
+
+**3. The authors flag D79's mechanism themselves.** Of the propagated
+covariances: *"these matrices do not represent the covariances of the state
+estimation errors any longer, since the diffusion update is not taken into
+account in the recursions for these matrices."* That is exactly D79, stated for
+the linear case in 2010. Our contribution is not the phenomenon — it is measuring
+what it costs for a nonlinear filter on a real network, where the deficit turned
+out to be 0.023–0.041 and to grow with drift.
+
+**4. ⭐ And the exact correction P5.15 is groping for already exists.** Section IV
+derives the *true* network estimation covariance as a Lyapunov-like recursion
+(their eq. 32), with a closed-form steady state (41) under a time-invariant model.
+So instead of interpolating $\sum_u a_{vu}^{\beta}\bm P^{\psi}_u$ between the
+conservative and independent extremes, we can implement the covariance the
+analysis says is correct. Caveat: their derivation assumes a linear model with
+known matrices, so for an \ac{ekf} it is an approximation — but a principled one
+rather than a fitted exponent.
+
+**5. Algorithm 1 exchanges raw measurements**, $\{\bm H_l,\bm R_l,\bm y_l\}$, plus
+$\bm\psi_l$ — not information factors. Algorithm 2 exchanges
+$\bm H^{\trans}\bm R^{-1}\bm H$ and $\bm H^{\trans}\bm R^{-1}\bm y$, which is what
+our one-hop implements. The paper treats them as alternatives and notes Algorithm
+1 can send a Cholesky factor to economise, which independently vindicates the
+finding that at $p\gg d$ the measurements are the cheaper encoding.
 
 ## Questions only this method can be asked
 
