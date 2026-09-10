@@ -2882,3 +2882,108 @@ neither helps nor hurts. See [[D74]] for the coupled-axis bind this shares, and
 [[D77]] for why the gap here *is* rankable: the two \ac{atc} floors differ by
 1.09× (0.0790 against 0.0863), nothing like the compression that made
 `local_only`'s damage unreadable.
+
+### ✅ D79. Covariance sharing buys nothing; the adapt step is where the information is lost
+
+X19, the diffusion filter's first measurement: three conditions (stationary,
+linear 0.03°/step, `every25_jump15`) crossed with two graphs (complete, \ac{er}
+$p=0.3$), five seeds, ten cells. Every diffusion cell lands between the
+centralised filter and `local_only`, which is the only ordering the design
+permits — each agent sees $1/N$ of the data and the drift is global, so a
+diffusion filter that beat the centralised one would be a bug.
+
+**Result 1: the expensive variant buys nothing.** The gap `full` → `mean-only`,
+paired by seed:
+
+| condition | complete | \ac{er} |
+|---|---|---|
+| stationary | +0.0003 | +0.0002 |
+| linear 0.03 | +0.0006 | +0.0005 |
+| `every25_jump15` | +0.0007 | +0.0006 |
+
+All six positive ($p$ between 0.016 and 0.067), so the effect is probably real,
+and all six are **below the 0.0013 threshold** this project uses everywhere else.
+For that, full sharing pays 8 459 372 scalars per link per step against 2 908 —
+a factor of **2909**. The note's justification for measuring the ceiling first was
+that the gap "is worth knowing before deciding whether to pay it". It is: the
+price of not shipping covariances is nothing, and `eq:cov_local` is not a
+compromise but simply the right choice.
+
+**Result 2: sparsity is nearly free too.** \ac{er} minus complete is +0.0002 to
++0.0003 for both diffusion variants, against +0.0010 to +0.0023 for \ac{atc},
+across a drop from 45 edges to 11. The filter is *less* sensitive to connectivity
+than the gradient baseline. (The centralised filter and `local_only` are
+identical across topologies to the last digit, neither being able to see the
+graph — a harness check passing.)
+
+**Result 3, and the problem: the centralised filter's advantage does not survive
+decentralisation.**
+
+| condition | centralised | diff-\ac{ekf} full | \ac{atc} (mom. 0.9) |
+|---|---|---|---|
+| stationary | **0.0561** | 0.0789 | 0.0785 |
+| linear 0.03 | **0.0656** | 0.0948 | 0.0951 |
+| `every25_jump15` | **0.0931** | 0.1341 | **0.1289** |
+
+Diffusing the belief costs +0.0228 → +0.0293 → +0.0411 as the condition hardens,
+every one at $p<0.001$. The filter ties \ac{atc} when still and under linear
+drift and **loses to it under abrupt drift**, on level and on damage (0.0553
+against 0.0504) — while the centralised filter beats \ac{atc} by 0.036 in that
+same cell.
+
+**The mechanism, which the derivation already implied.** With $\bm\Omega=\bm
+P^{-1}$, the centralised filter does $\bm\Omega\mathrel{+}=\sum_{v}\bm\Delta_v$
+while a local adapt does $\bm\Omega_v\mathrel{+}=\bm\Delta_v$. The combine then
+averages *covariances*, and an average of $N$ covariances each carrying one
+agent's information still carries about one agent's information. So the diffusion
+filter accumulates information at $1/N$ the centralised rate — permanently, not
+as a transient — and its belief is roughly $N$ times too diffuse. Two
+consequences, and the second matches the observed pattern:
+
+* the gain $\bm K=\bm P\bm H^{\trans}(\cdot)^{-1}$ is too large, so each update
+  over-corrects on four samples of noise;
+* **$q$ is mis-scaled.** It was tuned so the process noise added per step
+  balances the centralised influx $N\bm\Delta$; against $\bm\Delta$ alone the
+  filter forgets about $N$ times too fast *relative to what it learns*. That
+  predicts a penalty growing with drift severity, which is what +0.0228 →
+  +0.0293 → +0.0411 is.
+
+**⚠ No combine rule can repair this, and that is the structural point.** Not
+`eq:cov_combine`, not \ac{ci}, not anything: \ac{ci} computes $\bm\Omega=\sum_u
+\omega_u\bm\Omega_u$, a weighted *average* of information rather than a sum, so
+it recovers none of the missing factor $N$ and costs an inverse per fusion
+besides. **You cannot fuse your way to information nobody gathered.** The fix has
+to be in the adapt step, which is exactly why `prop:complete_graph` is stated for
+$\mathcal M_{v,t}=\V$ and holds for no local-adapt variant.
+
+So X19 measured the wrong axis as its ceiling. The combine axis is the cheap one
+— it buys nothing, and the deployable variant is therefore free. The axis that
+matters is `adapt_scope`, and `diffusion_ekf_onehop` already implements it.
+
+**⚠ Two things make these numbers provisional, and both were errors of mine.**
+
+*The baseline was not payload-matched.* X19's \ac{atc} carries momentum 0.9 with
+`mix_optimizer_state: momentum`, so it transmits $2p$ per link while
+`diffusion_ekf` transmits $p$. D29 exists to prevent exactly this, and X1 carries
+`diffusion_sgd_atc_plain` so that phase 5 can state the claim against the matched
+arm. In X18's stationary twin `atc_plain` settled at 0.0863 against `atc`'s
+0.0790, so at **equal communication** the diffusion filter plausibly *wins* where
+X19 reports a tie. Result 3's headline may not survive the correction.
+
+*The filter carried the centralised tuning.* That was deliberate — the X14
+discipline, so a shortfall is attributable — but the mechanism above says $q$ is
+the parameter the local adapt mis-scales, and it names the direction. Until $q$
+and $\sigma_0^2$ are re-swept for the diffusion information rate, "diffusion
+loses under abrupt drift" cannot be distinguished from "the filter was tuned for
+ten times the data". [[D77]]'s lesson, arrived at from the other side.
+
+**A costing correction, found while checking the above.** The note prices the
+one-hop adapt step at $O(pq')$ per link. At $p=2908$, $q=10$, $n=4$ that is
+122 136 scalars — but the raw measurements it is derived from are $n(d+1)=788$,
+and the receiver already gets $\bm\psi_u=\bm m_{u,t|t-1}$ in the same message, so
+it can recompute $\bm H_u,\bm G_u,\bm s_u$ itself. **Exchanging the measurements
+is 155× cheaper than exchanging their information factors, and exactly
+equivalent.** This is not an accident of the config: raw data wins whenever
+$n(d+1)<pnq$, i.e. $p>(d+1)/q\approx20$, which holds for any over-parameterised
+model. The costs of a one-hop adapt are compute (each agent linearises its
+neighbours' data too) and privacy (raw data leaves the node) — not bandwidth.

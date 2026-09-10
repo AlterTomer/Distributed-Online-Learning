@@ -1203,3 +1203,50 @@ reproduced bit-for-bit, so the second pass cost under six hours (D78).
 By the D77 rule the gap **is** rankable here: the two ATC floors differ by 1.09×
 (0.0790 against 0.0863), unlike the compression that made `local_only`'s damage
 unreadable in X17.
+
+## The diffusion filter's first measurement (X19)
+
+Three conditions × two graphs × five seeds. **⚠ Provisional in two ways**, both
+recorded in D79: the baseline was not payload-matched, and the filter carried the
+centralised tuning. Read the ordering, not the margins, until X20 settles both.
+
+| settled error | centralized EKF | diff-EKF full | diff-EKF mean-only | ATC (mom 0.9) | local only |
+|---|---|---|---|---|---|
+| stationary, complete | **0.0561** | 0.0789 | 0.0792 | 0.0785 | 0.1332 |
+| stationary, ER | **0.0561** | 0.0791 | 0.0793 | 0.0795 | 0.1332 |
+| linear 0.03, complete | **0.0656** | 0.0948 | 0.0954 | 0.0951 | 0.1654 |
+| linear 0.03, ER | **0.0656** | 0.0951 | 0.0957 | 0.0969 | 0.1654 |
+| every25_jump15, complete | **0.0931** | 0.1341 | 0.1348 | 0.1289 | 0.2097 |
+| every25_jump15, ER | **0.0931** | 0.1345 | 0.1351 | 0.1312 | 0.2097 |
+
+Every diffusion cell lies between the centralised filter and `local_only`, which
+is the only ordering the design permits.
+
+**Covariance sharing buys nothing.** The `full` → `mean-only` gap is +0.0002 to
++0.0007 across all six cells — consistently signed (6/6, p 0.016–0.067) and
+consistently **below the 0.0013 threshold**. Full sharing pays 2909× the
+bandwidth for it: 8 459 372 scalars per link per step against 2 908. The
+deployable variant is free.
+
+**Sparsity is nearly free as well.** ER minus complete costs the diffusion
+variants +0.0002 to +0.0003 across a drop from 45 edges to 11, against +0.0010 to
++0.0023 for ATC. The centralised filter and `local_only` are bit-identical across
+topologies, neither being able to see the graph.
+
+**But the centralised filter's advantage does not survive decentralisation.**
+Diffusing the belief costs +0.0228 → +0.0293 → +0.0411 as the condition hardens,
+all p < 0.001, and the filter loses to ATC under abrupt drift (0.1341 against
+0.1289; damage 0.0553 against 0.0504) in the same cell where the centralised
+filter beats ATC by 0.036.
+
+The mechanism is in D79 and was implied by the derivation: a local adapt gives
+each agent one agent's information, the combine averages covariances rather than
+summing information, so the belief is about N times too diffuse and q — tuned
+against the centralised influx — is mis-scaled by the same factor. **No combine
+rule repairs this**, covariance intersection included: averaging information is
+not summing it. The fix belongs in the adapt step, which is why the exactness
+proposition is stated for a one-hop measurement set and holds for no local-adapt
+variant.
+
+⚠ **Damage is rankable here**: the stationary floors span 0.0561 to 0.1332, a
+factor of 2.38, inside the bound D77 sets.

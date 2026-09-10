@@ -54,8 +54,13 @@ diffusion filters in one process will not fit; two do.
 
 ## First measurement
 
-- [ ] **P5.1** *(X19)* **Stationary plus two drift rates, on ER $p=0.3$ and the
-  complete graph.** Script written and pre-flighted:
+- [x] **P5.1** *(X19)* **Stationary plus two drift rates, on ER $p=0.3$ and the
+  complete graph.** ✅ Run and written up (D79). Covariance sharing buys +0.0002
+  to +0.0007 for 2909× the bandwidth — below threshold, so mean-only is free.
+  Sparsity is nearly free too. But diffusing the belief costs +0.0228 → +0.0411
+  as drift hardens, and the filter loses to ATC under abrupt drift. **Provisional
+  in two ways** (unmatched baseline, centralised tuning) — see P5.1a and P5.1b.
+  Original scope:
   `scripts/run_diffusion_ekf.py --lr`, then without the flag. Does the diffusion
   filter recover the centralised one, and what does mean-only sharing cost
   against full sharing? The complete graph earns its place here for a reason it
@@ -70,6 +75,30 @@ diffusion filters in one process will not fit; two do.
   the mild end of where methods fail, so the harsh end is delivered as jumps
   (`every25_jump15`, 0.60°/step), which X11 and X17 have already characterised.
   The same bind X18 documents.
+
+## Repairing the first measurement — before anything else
+
+X19's two defects are mine, not the method's, and both are cheap to close. Until
+they are, no later row can be interpreted: every one of them would inherit an
+unmatched baseline and a filter tuned for ten times the data it has.
+
+- [ ] **P5.1a** *(X20)* **Re-tune $q$ and $\sigma_0^2$ for the diffusion
+  information rate.** The mechanism in D79 names $q$ as the mis-scaled parameter
+  and gives the direction: it was chosen to balance an influx of $N\bm\Delta$ per
+  step and now faces $\bm\Delta$, so it should fall by roughly $N$. The grid spans
+  wider than that argument, because a scaling argument that predicts the answer is
+  the worst reason to only look where it points.
+- [ ] **P5.1b** Add `diffusion_sgd_atc_plain` and re-read at **matched
+  bandwidth**. X19 compared a filter sending $p$ against an ATC sending $2p$,
+  which is precisely the pairing D29 exists to prevent. In X18's stationary twin
+  `atc_plain` was 0.0863 against `atc`'s 0.0790, so the correction may turn a tie
+  into a win.
+- [ ] **P5.1c** **Promote one-hop from fixture to method** and measure it on ER.
+  D79 shows the deficit is in the adapt step and no combine rule can reach it;
+  one-hop is the only implemented thing that can. ⚠ Implement its exchange as
+  **raw measurements, not information factors** — 788 scalars against 122 136,
+  exactly equivalent since the receiver already gets the sender's linearisation
+  point. Its real costs are compute and privacy, not bandwidth.
 
 ## Every earlier experiment that has an analogue
 
