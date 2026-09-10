@@ -429,6 +429,42 @@ Not forgotten — these are here so the decision is visible rather than implicit
   at $+0.0002$ to $+0.0007$ for $2909\times$ the bandwidth. Carrying it further
   costs 1.3 GiB to re-confirm a null.
 
+## Every drift schedule, and where the filter meets it
+
+The benchmark supports seven schedules. This table exists so that "have we tested
+all the drifts?" is a question with a checkable answer rather than a recollection
+— and writing it out immediately found one that no plan item named.
+
+| schedule | what it is | covered by | status |
+|---|---|---|---|
+| `stationary` | no drift; the twin every damage number is measured against | X20 main pass | ⏳ running |
+| `linear` | constant rate, monotone | X20 at 0.03°/step — **the fastest legal monotone rate**, since the 45° cap over T=1500 forbids more | ⏳ running |
+| `recurring` | a jump of fixed size in a fresh random direction every $t'$ steps | X20 at `every25_jump15`; **P5.6** for the full $J\times t'$ grid | ⏳ / open |
+| `ramp` | accelerating rate, so one run sweeps the rate axis and names a break point | **P5.5** | open |
+| `sinusoidal` | smooth reversal; the only schedule that *revisits* states | **P5.10** | open |
+| `sawtooth` | monotone ramp punctuated by a reset — the shape none of the others reach | **P5.10** | open |
+| `piecewise` | a step function at named change points | **⚠ nothing** — see below | **gap** |
+
+- [ ] **P5.23 — `piecewise` has no plan item.** Found by writing the table above,
+  which is the point of writing it. It is the only schedule where the change
+  points are *specified* rather than periodic or random, so it is the one that can
+  place a shift exactly where a filter is most vulnerable — mid-transient, or
+  immediately after the covariance has contracted. `recurring` cannot express
+  that, because its jumps are evenly spaced by construction.
+
+  Low priority as a *drift shape* — X18 established that shape has not once
+  changed the ordering between methods — but potentially high as an *adversarial*
+  probe once the tuning question is settled, because a filter operating one decade
+  below a divergence cliff (X20's selected point) is exactly the kind of thing a
+  well-placed shift could push over. Worth one cell, not a grid.
+
+⚠ **Two schedules are covered only at a single setting** by X20: `linear` at one
+rate and `recurring` at one $(J,t')$. That is deliberate — X20 is about tuning and
+the adapt step, not about drift shape — but it means X20 cannot say anything about
+how the diffusion filter's advantage varies *within* a schedule. P5.5, P5.6 and
+P5.10 are what close that, and they should be read as completing this table rather
+than as separate curiosities.
+
 ## Questions only this method can be asked
 
 Nothing in X0–X18 could pose these, because no earlier method held a belief per
