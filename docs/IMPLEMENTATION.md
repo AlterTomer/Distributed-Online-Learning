@@ -558,6 +558,64 @@ Keep `docs/diffekf_integration.md` open and tick these off as phases 1–4 proce
 
 ---
 
+## 15. Known couplings, and what they cost to break
+
+Deliberate debts. Each is cheap to live with now and gets more expensive per
+script added, so they are written down rather than discovered.
+
+### 15.1 The dataset is implicit everywhere
+
+**Measured 2026-09-10: 18 scripts import `load_mnist` / `is_cached` directly,
+`EnvConfig` has no dataset field, and `data/` holds only `mnist.py` — while
+`learners/` and `models/` both already have a registry.** So the dataset is not a
+configuration choice; it is a hardcoded import repeated eighteen times.
+
+This is fine for one dataset and becomes a per-script edit for the second. The
+answer is emphatically *not* a script per dataset — the sweep scripts differ in
+what they vary, not in what they load, and duplicating them along a second axis
+would multiply the repository for nothing.
+
+The fix, in the order it should be done:
+
+1. **`src/dekf_bench/data/registry.py`**, mirroring the two registries that
+   already exist: `DATASETS = {"mnist": ...}`, `load_dataset(name, root,
+   download)`, `is_cached(name, root)`. One place that knows the names.
+2. **`EnvConfig.dataset: str = "mnist"`**, validated against `DATASETS`. Today
+   `configs/env/*.yaml` are all named `mnist_*` but carry only drift settings, so
+   the *filename* is the only record of which dataset a run used — which is
+   provenance living in a string nobody parses. Adding the field makes it appear
+   in `metadata.json` alongside everything else.
+3. **The scripts** then take one line: `load_dataset(DATASET, DATA_ROOT)` with a
+   module-level constant, keeping the IDE-runnable convention that every knob is
+   a constant at the top of the file.
+
+⚠️ **But swapping the loader is the small part, and that is the real content of
+this entry.** Three things are coupled to MNIST-as-a-rotation-task, and none of
+them is in `data/`:
+
+* **The 45° cap is a property of the task, not the method.** Past roughly that
+  angle a rotated 6 is a 9, so the Bayes error of the *problem* rises and a
+  climbing error would measure label ambiguity rather than tracking failure. The
+  research note says so explicitly and adds that "a dataset without such a
+  collision (or a drift channel that does not act on orientation) would carry a
+  different cap, or none". So `MAX_WELL_POSED_DEGREES` is dataset-scoped and
+  currently a module constant. Every drift-rate result — X9's break rates, X12,
+  X14's grid, X18's sawtooth periods — is stated relative to it.
+* **The drift channel itself is rotation.** A dataset without a meaningful
+  orientation needs a different covariate-shift channel, and the schedules in
+  `env/drift.py` describe *angles*.
+* **`train_reference.py` and $p=2908$.** The offline reference is trained on
+  MNIST, and `mlp_small` is $196$–$14$–$10$ because $14\times14$ downsampling is
+  what brings a dense covariance into memory (§13.10). A different input
+  dimension moves $p$, and $p$ is what makes the filter feasible at all.
+
+So "add a dataset" is a task-definition change, not a loader change, and the
+registry above is necessary rather than sufficient. Doing step 1–3 early is still
+worth it: it stops the eighteen imports becoming thirty, and it puts the dataset
+in the run metadata where a reader can see which one produced a number.
+
+---
+
 ## 14. References
 
 [1] R. Olshevskyi, Z. Zhao, K. Chan, G. Verma, A. Swami, S. Segarra, "Fully Distributed Online Training of Graph Neural Networks in Networked Systems," arXiv:2412.06105, Dec 2024. Code: `github.com/RostyslavUA/fdTrainGNN`.
