@@ -245,6 +245,88 @@ rule. Ordered by value per unit of work.
   Recorded so that "why not just do decentralised data fusion properly" has an
   answer.
 
+## The ladder: preserve the information first, then cut the price
+
+The rows above are fixes to a cheap method. This section is the opposite
+strategy, and the one the note already used once when it measured
+`eq:cov_combine` before `eq:cov_local`: **build the most information-preserving
+decentralised scheme that exists, establish what is achievable, then remove
+capability until it breaks.** A ceiling that has been measured makes every later
+reduction informed; a ceiling that was assumed makes all of them guesses.
+
+**The obstacle is not bandwidth, it is double counting.** Information is additive
+in the precision domain, so preserving it means *summing*, and summing evidence
+that already travelled counts it twice — data incest. Every scheme below is
+distinguished by how it earns the right to sum.
+
+- [ ] **P5.19 — the ceiling: source-tagged flooding at $\operatorname{diam}(\G)$
+  rounds.** Exactly the centralised filter (P5.17), and included here **only as the
+  measured upper bound**, not as a proposal. Establishes what "no information lost"
+  is worth in error terms, so every row below is a measured fraction of a real
+  number rather than of a hope.
+
+- [ ] **P5.20 — channel filters on a spanning tree.** ⭐ The textbook answer, and
+  the strongest *genuinely decentralised* scheme that is exact. Each link carries a
+  filter tracking the information already common to its two endpoints, and each
+  agent fuses $\bm\Lambda_v\leftarrow\bm\Lambda_v+\sum_u(\bm\Lambda_u-\bm\Lambda_{
+  \text{chan}(v,u)})$ — subtracting exactly what would otherwise be counted twice.
+  **Exact on an acyclic network**, which is why the tree matters: on a graph with
+  cycles the same evidence returns by two paths and the subtraction no longer
+  accounts for it.
+
+  Cost is why it was never considered here: one covariance per link, 64.5 MiB
+  each, 22 directed links on our \ac{er} graph — about 1.4 GB. **With P5.16's
+  rank-$L$ factors that becomes $O(pL)$ per link, roughly 29 000 scalars**, and
+  the scheme moves from infeasible to routine. This is the strongest reason to do
+  LO-FI, and a better one than memory.
+
+  ⚠ Requires a spanning tree, so it gives up some of the graph's connectivity to
+  buy exactness — a real trade to measure, not a technicality.
+
+- [ ] **P5.21 — consensus on the information *increments*, rescaled by $N$.**
+  Average consensus converges to $\frac1N\sum_u\bm\Delta_u$; multiplying by $N$
+  recovers the sum. **Incest-free by construction**, because what is averaged is
+  this step's increment — fresh, and entering the average exactly once — rather
+  than an accumulated precision. Works on any connected graph, no tree and no
+  per-link state.
+
+  $L$ rounds trades accuracy for bandwidth continuously, which is what makes it
+  the natural rung to cut: $L\to\infty$ is exact, $L=1$ is one-hop with a
+  rescaling. Needs $N$ known globally, which is a mild assumption but should be
+  stated. The factor grows by one block per round, so it wants P5.16's compression
+  to stay bounded.
+
+- [ ] **P5.22 — one-hop with an $N/|\mathcal M_v|$ rescaling.** The cheapest rung
+  and a one-line change: $\sum_{u\in\mathcal M_v}\bm\Delta_u$ is a sum over
+  $k$ agents, so $\frac{N}{k}\sum_{u\in\mathcal M_v}\bm\Delta_u$ is an unbiased
+  estimator of the network total under exchangeability.
+
+  ⚠ It **claims confidence it has not gathered** — an extrapolation, not evidence
+  — so it shares P5.15's risk of over-confidence and needs the same P5.14
+  measurement first. Note that P5.15 and this are the same correction in the two
+  domains: both tell the covariance that the estimate is better than one agent's
+  data implies.
+
+### One thing to check before any of this
+
+⚠ **Our "local adapt" default may be a deviation from the canonical diffusion
+Kalman filter, not the standard.** As recalled, the \ac{atc} diffusion KF of
+Cattivelli & Sayed (2010) — which `\cite{cattivelli2010}` already anchors the
+note's stability discussion to — computes its incremental step over the
+*neighbourhood*, summing $\bm H_u^{\trans}\bm R_u^{-1}$ terms for $u\in\N_v$.
+That is one-hop. If so, three things follow and all matter:
+
+1. `diffusion_ekf` (local adapt) is a **weaker** variant than the literature's,
+   and D79's deficit is a property of our choice rather than of diffusion filters.
+2. The imported mean-stability and steady-state \ac{msd} analysis applies to
+   **one-hop**, not to the variant X19 measured — so the theory the note leans on
+   is not currently theory about the method it defaults to.
+3. The framing of one-hop as an expensive extra should be inverted: it is the
+   baseline, and local adapt is the reduction.
+
+**Verify against the paper before repeating any of this.** It is recalled, not
+checked, and it changes what the note should claim.
+
 ## Questions only this method can be asked
 
 Nothing in X0–X18 could pose these, because no earlier method held a belief per
