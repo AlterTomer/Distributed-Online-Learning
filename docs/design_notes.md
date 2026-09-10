@@ -2977,6 +2977,25 @@ and $\sigma_0^2$ are re-swept for the diffusion information rate, "diffusion
 loses under abrupt drift" cannot be distinguished from "the filter was tuned for
 ten times the data". [[D77]]'s lesson, arrived at from the other side.
 
+> ⚠ **The direction was wrong, and the re-tune says so.** The steady-state
+> argument above predicted $q\approx q_{\text{cent}}/N=6\times10^{-6}$. X20's
+> first grid, at `every25_jump15` on \ac{er} over three seeds, finds the error
+> falling **monotonically as $q$ rises**, at every $\sigma_0^2$ --- 0.4557 at
+> $6\times10^{-8}$ down to 0.1173 at $6\times10^{-4}$, the top of the grid --- so
+> the optimum is at least an order of magnitude *above* the centralised value
+> rather than an order below it. The mechanism's *existence* is not in question
+> (the information deficit is arithmetic), but its consequence for $q$ is, and
+> this note's prediction is withdrawn pending the widened grid.
+>
+> Two observations while it re-runs. The re-tuned error of **0.1173** is below
+> X19's `diffusion_ekf` at 0.1351 *and* below \ac{atc}'s 0.1312 in that same
+> cell, so the headline above --- that the filter loses to \ac{atc} under abrupt
+> drift --- is looking like the tuning artefact this note warned it might be. And
+> the selected point has $q$ at 60% of $\sigma_0^2$ per step: a filter that
+> almost entirely discards its own history. Tuning is compensating for a
+> miscalibrated covariance by refusing to trust it, which is evidence *for*
+> `combine_exponent` being the structural fix rather than a large $q$.
+
 **A costing correction, found while checking the above.** The note prices the
 one-hop adapt step at $O(pq')$ per link. At $p=2908$, $q=10$, $n=4$ that is
 122 136 scalars — but the raw measurements it is derived from are $n(d+1)=788$,

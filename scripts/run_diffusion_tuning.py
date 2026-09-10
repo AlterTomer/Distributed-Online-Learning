@@ -86,13 +86,30 @@ from run_ekf_generalization import run_one  # noqa: E402
 from dekf_bench.data.registry import dataset_is_cached, load_dataset  # noqa: E402
 from dekf_bench.utils.config import load_config  # noqa: E402
 
-#: Two decades either side of the scaling argument's 6e-6, with the centralised
-#: 6e-5 included so "no change" is an expressible outcome.
-PROCESS_NOISE = [6.0e-4, 6.0e-5, 6.0e-6, 6.0e-7, 6.0e-8]
+#: ⚠ **Widened upward after the first pass, because the prediction was wrong in
+#: direction.** The scaling argument in D79 said $q$ should fall by roughly $N$ to
+#: 6e-6; the measured surface falls monotonically as $q$ *rises*, at every
+#: sigma_0^2, and the argmin landed on the upper edge at 6e-4 (0.1173). So the
+#: grid is extended two further decades up. 6e-8 and 6e-7 are kept: they are
+#: already run, they cost nothing to carry, and they are the evidence that the
+#: trend is monotone rather than a single lucky cell.
+#:
+#: Divergence is expected at the top and is a measurement -- a diverged cell is
+#: recorded and the sweep continues (D61) -- so an upper edge that turns out to be
+#: "everything above 6e-3 diverges" is a real boundary rather than a truncation.
+PROCESS_NOISE = [6.0e-2, 6.0e-3, 6.0e-4, 6.0e-5, 6.0e-6, 6.0e-7, 6.0e-8]
 
-#: X13 found values above 1e-1 diverge rather than merely slow, so 0.1 is the
-#: ceiling; 0.001 is two decades below the centralised selection.
+#: Unchanged, and deliberately not widened. At the good $q$ the whole row spans
+#: 0.1173 to 0.1181 -- a range of 0.0008, below the 0.0013 threshold -- so
+#: sigma_0^2 is flat where it matters and its apparent argmin at the lower edge is
+#: ranking noise, not a boundary. Widening it would buy a more precise answer to a
+#: question the data says is not being asked.
 PRIOR_SCALES = [0.1, 0.03, 0.01, 0.003, 0.001]
+
+#: The noise floor this project uses everywhere. An axis whose whole range
+#: sits inside it is flat, and an argmin on its boundary is ranking noise
+#: rather than a truncated grid.
+THRESHOLD = 0.0013
 
 GAMMA = 0.9995
 TUNE_CONDITION = "every25_jump15"
@@ -180,11 +197,26 @@ def save_status(status: dict) -> None:
     STATUS.write_text(json.dumps(status, indent=2), encoding="utf-8")
 
 
+def attempted(q: float, prior: float) -> bool:
+    """Whether this cell has been *run*, which is not the same as scoring.
+
+    A diverged cell is a measurement, not a gap: `run_one` records it and the
+    sweep continues (D61). Counting only cells that produced a finite error would
+    make the main pass refuse forever the moment the grid reaches a $q$ large
+    enough to blow the covariance up -- which the widened grid is expected to do,
+    and which is the whole point of widening it.
+    """
+    directory = ROOT / "results" / tune_run_name(q, prior)
+    return (directory / "_complete").exists() or (directory / "_diverged").exists()
+
+
 def selected_setting() -> dict | None:
     """The (q, sigma_0^2) the grid chose, or None if it has not run."""
-    scored = []
+    scored, ran = [], 0
     for q in PROCESS_NOISE:
         for prior in PRIOR_SCALES:
+            if attempted(q, prior):
+                ran += 1
             value = settled(tune_run_name(q, prior), "diffusion_ekf")
             if value != float("inf"):
                 scored.append((value, q, prior))
@@ -192,7 +224,8 @@ def selected_setting() -> dict | None:
         return None
     value, q, prior = min(scored)
     return {"process_noise_q": q, "prior_scale": prior, "settled": value,
-            "cells": len(scored), "of": len(PROCESS_NOISE) * len(PRIOR_SCALES)}
+            "cells": ran, "scored": len(scored),
+            "of": len(PROCESS_NOISE) * len(PRIOR_SCALES)}
 
 
 def tune(train, test, fresh: bool) -> int:
@@ -226,16 +259,56 @@ def tune(train, test, fresh: bool) -> int:
     chosen = selected_setting()
     if chosen:
         SELECTED.write_text(json.dumps(chosen, indent=2), encoding="utf-8")
-        edge = (chosen["process_noise_q"] in (PROCESS_NOISE[0], PROCESS_NOISE[-1])
-                or chosen["prior_scale"] in (PRIOR_SCALES[0], PRIOR_SCALES[-1]))
         print(f"\n  selected q={chosen['process_noise_q']:g}, "
               f"sigma_0^2={chosen['prior_scale']:g}  ({chosen['settled']:.4f})")
         print("  X13's centralised choice was q=6e-05, sigma_0^2=0.01")
-        if edge:
-            print("\n  !! the optimum is on a GRID EDGE. Widen PROCESS_NOISE or "
-                  "PRIOR_SCALES and re-run;\n     an argmin at the boundary is a "
-                  "truncated grid, not a selection.")
+        for axis in _truncated_axes(chosen):
+            print(f"\n  !! the optimum is on the {axis} GRID EDGE and that axis "
+                  f"matters.\n     Widen it and re-run; an argmin at a boundary is "
+                  "a truncated grid, not a selection.")
     return 0
+
+
+def _truncated_axes(chosen: dict) -> list[str]:
+    r"""Which axes are genuinely truncated, as opposed to merely flat.
+
+    An argmin at a boundary means a truncated grid **only if the axis moves the
+    result**. The first pass put $\sigma_0^2$ at its lower edge while the whole
+    row spanned 0.1173 to 0.1181 --- a range of 0.0008, under the 0.0013 threshold
+    this project uses everywhere --- so the ranking there was noise, and telling
+    the reader to widen it would have sent them after a question the data says is
+    not being asked. Only $q$ was really on an edge.
+    """
+    q, prior = chosen["process_noise_q"], chosen["prior_scale"]
+    truncated = []
+    for axis, values, chosen_value, other in (
+        ("PROCESS_NOISE", PROCESS_NOISE, q, ("prior", prior)),
+        ("PRIOR_SCALES", PRIOR_SCALES, prior, ("q", q)),
+    ):
+        scores = [
+            settled(
+                tune_run_name(value, other[1]) if axis == "PROCESS_NOISE"
+                else tune_run_name(other[1], value),
+                "diffusion_ekf",
+            )
+            for value in values
+        ]
+        finite = [v for v in scores if v != float("inf")]
+        if chosen_value not in (values[0], values[-1]) or len(finite) < 3:
+            continue
+        if max(finite) - min(finite) <= THRESHOLD:
+            continue
+        # Monotone toward the boundary is what truncation looks like: the surface
+        # is still improving when the grid stops. A non-monotone axis has an
+        # interior structure the grid already captured, and its argmin landing on
+        # an edge is ranking noise. The first pass had q monotone over 0.34 --
+        # genuinely truncated -- while sigma_0^2 rose then fell across 0.0019,
+        # which is a flat surface with a tilt, not a grid that stops too soon.
+        rising = all(a <= b for a, b in zip(finite, finite[1:], strict=False))
+        falling = all(a >= b for a, b in zip(finite, finite[1:], strict=False))
+        if rising or falling:
+            truncated.append(axis)
+    return truncated
 
 
 def main(fresh: bool = FRESH, tune_only: bool = False) -> int:
