@@ -351,6 +351,29 @@ the state that caused it.
 
 ---
 
+### "unknown key(s)" — or any error whose traceback points at the wrong lines
+
+**Symptom.** A `ConfigError` or `AttributeError` naming something that plainly
+exists, and a traceback whose arrows sit on statements unrelated to the error —
+a `print` at the top of the stack, a `for` header in the middle.
+
+**Cause.** Source was edited while the run was in flight. Python imports a module
+**once**, at start, so a process keeps the code it loaded; but a traceback renders
+its source by reading the file *at display time*. Change the file underneath and
+the line numbers land on whatever now occupies them. A half-applied refactor —
+the script updated, the module it calls not yet — produces exactly this: an error
+that is real, about a mismatch that no longer exists on disk.
+
+**Fix.** Re-run. Completed cells are cached on their `_complete` markers, so a
+sweep resumes rather than restarting.
+
+**Avoiding it.** Do not edit `src/` or `scripts/` while a sweep is running. This
+is not a theoretical hazard: it happened on 2026-09-10, when the dataset registry
+landed under a running X20 tuning pass and cost a restart. If a refactor cannot
+wait, know that the running process is unaffected until it next imports something
+— which for these scripts is never, since every import is at module scope. The
+damage is confined to processes started *during* the edit.
+
 ## Rules that will bite you
 
 Collected because each cost us a result before it became a rule.
