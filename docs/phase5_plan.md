@@ -307,25 +307,42 @@ distinguished by how it earns the right to sum.
   domains: both tell the covariance that the estimate is better than one agent's
   data implies.
 
-### One thing to check before any of this
+### Checked against Cattivelli & Sayed (TSP 2010), and one claim withdrawn
 
-⚠ **Our "local adapt" default may be a deviation from the canonical diffusion
-Kalman filter, not the standard.** As recalled, the \ac{atc} diffusion KF of
-Cattivelli & Sayed (2010) — which `\cite{cattivelli2010}` already anchors the
-note's stability discussion to — computes its incremental step over the
-*neighbourhood*, summing $\bm H_u^{\trans}\bm R_u^{-1}$ terms for $u\in\N_v$.
-That is one-hop. If so, three things follow and all matter:
+The diffusion LMS paper defines **two** combination matrices, and they are
+exactly our two axes: $c_{lk}$ "determine which nodes $l$ should share their
+**measurements** with node $k$" in the incremental step, and $a_{lk}$ determine
+which share their **intermediate estimates** in the diffusion step. So
+`adapt_scope` is $\bm C$ and the Metropolis weights are $\bm A$.
 
-1. `diffusion_ekf` (local adapt) is a **weaker** variant than the literature's,
-   and D79's deficit is a property of our choice rather than of diffusion filters.
-2. The imported mean-stability and steady-state \ac{msd} analysis applies to
-   **one-hop**, not to the variant X19 measured — so the theory the note leans on
-   is not currently theory about the method it defaults to.
-3. The framing of one-hop as an expensive extra should be inverted: it is the
-   baseline, and local adapt is the reduction.
+**Withdrawn:** the claim that our local adapt is a *deviation* from the canonical
+method. It is not. $\bm C=\bm I$ is an explicitly named and studied special case
+— "the \ac{atc} algorithm without measurement exchange" — noted as the mode
+originally proposed for least-squares adaptive networks. `diffusion_ekf` is a
+recognised variant, not an idiosyncrasy.
 
-**Verify against the paper before repeating any of this.** It is recalled, not
-checked, and it changes what the note should claim.
+**What does hold, and is stronger than the framing claim was:** the paper
+*proves* that measurement exchange is never worse. Under equal regressor
+covariance and noise variance across nodes and a stated weight choice, "the
+algorithm that uses measurement exchange will have equal or lower network
+\ac{msd} than the algorithm without measurement exchange". That is a theorem
+about the population quantity, not a simulation result, and it is direct
+theoretical support for pursuing one-hop.
+
+**And one observation that sharpens D79.** The paper notes that with $\bm C=\bm
+I$, \ac{atc} still "uses measurements available at the *neighbors* of node $k$" —
+because adapting locally and then averaging estimates carries the neighbours'
+measurement influence into the estimate. So even our local-adapt filter already
+gets neighbourhood information *into the mean*. What it does not get is that
+information into the **covariance**, which is precisely D79's mechanism, and
+precisely why P5.15's free correction is aimed at the right place.
+
+⚠ **Still unverified.** The note's `\cite{cattivelli2010}` is the *Kalman*
+paper — "Diffusion strategies for distributed Kalman filtering and smoothing",
+IEEE TAC 55(9), 2010 — which is a different document from the LMS one checked
+here. Whether *its* incremental step sums over the neighbourhood, and therefore
+whether the note's imported stability analysis describes one-hop or local adapt,
+is still open. That paper has not been read.
 
 ## Questions only this method can be asked
 
