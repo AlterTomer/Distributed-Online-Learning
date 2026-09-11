@@ -297,10 +297,10 @@ distinguished by how it earns the right to sum.
   to stay bounded.
 
 - [x] **P5.22 — one-hop with an $N/|\mathcal M_v|$ rescaling. BUILT** as
-  `information_exponent`, $c=(N/|\mathcal M_v|)^{lpha}$ with $lpha\in[0,1]$.
-  Scales **both** the information and the score: shrinking $m P^{\psi}$ alone
+  `information_exponent`, $c=(N/|\mathcal M_v|)^{\alpha}$ with $\alpha\in[0,1]$.
+  Scales **both** the information and the score: shrinking $\bm P^{\psi}$ alone
   would make every update $c$ times too small, so the filter would report a
-  confident belief it never moved toward. Default $lpha=0$ changes nothing. The cheapest rung
+  confident belief it never moved toward. Default $\alpha=0$ changes nothing. The cheapest rung
   and a one-line change: $\sum_{u\in\mathcal M_v}\bm\Delta_u$ is a sum over
   $k$ agents, so $\frac{N}{k}\sum_{u\in\mathcal M_v}\bm\Delta_u$ is an unbiased
   estimator of the network total under exchangeability.
