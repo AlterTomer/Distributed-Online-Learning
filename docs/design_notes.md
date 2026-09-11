@@ -3068,3 +3068,100 @@ any method has, and says nothing yet about whether its *belief* is calibrated.
 `sampled_probabilities` built and tested, and nothing calls them. Scoring the
 belief is P5.11 proper and remains undone — which means the filter's central
 claim, that it knows what it does not know, is still unmeasured.
+
+### ✅ D81. The diffusion filter beats tuned \ac{atc} at half its bandwidth — X19's deficit was tuning
+
+X20: the same three conditions and two graphs as X19, five seeds, with the filter
+at the $(q,\sigma_0^2)$ its own grid selected rather than the centralised filter's.
+
+**The deficit was tuning, and it was mis-scaled in the direction the data had to
+tell us.** Re-tuning alone moves every cell, and the gain grows with drift
+severity exactly as [[D79]]'s mechanism predicts:
+
+| | stationary | linear 0.03 | 15° every 25 |
+|---|---|---|---|
+| X19 → X20 | −0.0066 | −0.0122 | **−0.0178** |
+| $p$ | 0.001 | 0.000 | 0.001 |
+
+⚠ Note the stationary column: the setting was chosen on the *harshest* condition
+and still improved the easiest one. No trade was made, which is the first thing
+that had to be checked and was not guaranteed.
+
+**At matched bandwidth the filter wins everywhere, and it beats the stronger
+baseline at half the bandwidth.**
+
+| | vs `atc_plain` ($p$) | vs `atc` ($2p$) |
+|---|---|---|
+| stationary | −0.048 | −0.0059 |
+| linear 0.03 | −0.075 | −0.0120 |
+| 15° every 25 | −0.082 | **−0.0123** |
+
+every cell at $p\le0.011$. X19 reported the filter *losing* to \ac{atc} under
+abrupt drift, 0.1351 against 0.1312; it now wins, 0.1189 against 0.1312. The
+headline of D79 is withdrawn, and the mechanism that predicted it was a tuning
+artefact is what corrected it.
+
+⚠ **State the $2p$ comparison, not the matched one, as the result.**
+`atc_plain` is genuinely weak here — 0.2049, barely better than `local_only`'s
+0.2125 — so the matched-bandwidth margin is large partly because the matched
+baseline is poor. The defensible claim is the harder one: *the filter beats the
+strongest tuned baseline while sending half as much*.
+
+**One-hop helps, and precisely where the theory says it should:**
+
+| | complete | \ac{er} |
+|---|---|---|
+| stationary | +0.0031 (ns) | −0.0022 |
+| linear | −0.0003 (ns) | −0.0059 |
+| abrupt | −0.0089 | **−0.0123** |
+
+More on the sparse graph than the complete one, and more as the drift hardens. On
+a complete graph the mean combine already reaches every agent through the
+estimates, so exchanging measurements adds little; on \ac{er} it adds a lot.
+
+⚠ `diffusion_ekf_onehop_mean` is **not** exact on a complete graph, and the
+reason matters: exactness needs a one-hop adapt *and a common predictive prior*,
+and only full covariance sharing maintains the latter. With mean-only sharing the
+covariances diverge from the first step, so the agents linearise at different
+points. `prop:complete_graph` applies to `diffusion_ekf_onehop`, not to this.
+
+**The result most worth arguing about: one-hop is *less damaged by drift than the
+centralised filter*.** 0.0071 against 0.0095 at linear, 0.0352 against 0.0370 at
+abrupt — while its absolute error is worse by 0.013–0.017 in every cell.
+
+Both are true and they are not in tension, because damage is
+$e^{\text{drift}}-e^{\text{still}}$: a paired difference that deliberately removes
+fitting ability in order to isolate tracking. A method can track better from a
+worse starting point, and this one does. The floors differ by 1.27–1.35×, inside
+[[D77]]'s bound, so the comparison is legitimate rather than a compression
+artefact.
+
+The mechanism is the same arithmetic as everywhere else in this story, read
+forwards instead of backwards: **less accumulated information means a larger
+$\bm P$, a larger gain, and faster adaptation.** The centralised filter's data
+advantage makes it more confident and therefore more sluggish. That is a real
+trade rather than a defect, and it is the first thing measured here that a
+distributed method does *better* than its centralised reference.
+
+⚠ **It does not mean the distributed filter beats the centralised one.** On
+error — the objective — the centralised filter wins all six cells. Damage is a
+derived statistic, not a performance measure, and nothing here overturns the
+expectation that pooling more data estimates better. The one qualification worth
+keeping is that the guarantee is not a theorem here: an \ac{ekf} is a linearised
+approximation, not an optimal estimator, so data-richness does not formally force
+dominance on every statistic one might compute. On the one that matters, it does.
+
+**The tuning is fair, and the optima genuinely differ by an order of magnitude.**
+Each filter sits at its own selection: the centralised one at X13's
+$q=6\times10^{-5}$, the diffusion one at X20's $6\times10^{-4}$. X13's grid shows
+$6\times10^{-4}$ would *hurt* the centralised filter badly (0.0630 at its own
+choice, against 0.0939 by $10^{-3}$), so this is not a case of one arm carrying a
+stale setting.
+
+**And $\gamma$ matters less than [[D80]] expected.** $\lVert\bm\theta\rVert^2$
+went 34.8 → 58.1 for a local adapt and 139.3 for one-hop, against \ac{atc}'s 79.6;
+\ac{ece} fell 0.085 → 0.038 → **0.020**, so the one-hop filter is now better
+calibrated than the centralised one (0.031) and approaching \ac{atc}'s 0.0148. A
+larger $q$ was already doing much of $\gamma$'s job, and gathering more
+information did the rest — which is D80's mechanism confirmed, and a reason to
+expect X21 to find less than D80 claimed it would.

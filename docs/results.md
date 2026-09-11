@@ -1250,3 +1250,49 @@ variant.
 
 ⚠ **Damage is rankable here**: the stationary floors span 0.0561 to 0.1332, a
 factor of 2.38, inside the bound D77 sets.
+
+## The diffusion filter, re-tuned (X20)
+
+X19's deficit was tuning. Re-swept on its own $(q,\sigma_0^2)$ grid the diffusion
+filter improves in every cell, by more as the drift hardens — the signature D79's
+mechanism predicts:
+
+| X19 → X20, `diffusion_ekf` | stationary | linear 0.03 | 15° every 25 |
+|---|---|---|---|
+| change | −0.0066 | −0.0122 | **−0.0178** |
+| p | 0.001 | 0.000 | 0.001 |
+
+The selected setting is $q=6\times10^{-4}$, $\sigma_0^2=10^{-3}$ — an order of
+magnitude *more* process noise than the centralised filter wants, not less. The
+grid located a hard divergence cliff one decade above: at $6\times10^{-3}$ the
+filter is destroyed or diverges outright, at $6\times10^{-2}$ everything diverges.
+
+| settled error, ER | centralized | diff-EKF local | diff-EKF one-hop | ATC (2p) | ATC plain (p) | local only |
+|---|---|---|---|---|---|---|
+| stationary | **0.0561** | 0.0736 | 0.0714 | 0.0795 | 0.1213 | 0.1332 |
+| linear 0.03 | **0.0656** | 0.0844 | 0.0785 | 0.0969 | 0.1587 | 0.1654 |
+| 15° every 25 | **0.0931** | 0.1189 | 0.1066 | 0.1312 | 0.2007 | 0.2097 |
+
+**The filter beats tuned ATC-with-momentum while sending half as much** — −0.0059
+to −0.0125 across all six cells, every one at p ≤ 0.011. X19 reported the
+opposite under abrupt drift (0.1351 against 0.1312); it is now 0.1189 against
+0.1312. ⚠ The matched-bandwidth margin against `atc_plain` is much larger
+(−0.048 to −0.082) but `atc_plain` is weak here, 0.2049 against `local_only`'s
+0.2125, so the $2p$ comparison is the defensible claim.
+
+**One-hop helps more on the sparse graph and more under harsh drift** — +0.0031
+(ns) at stationary/complete, −0.0123 at abrupt/ER. On a complete graph the mean
+combine already carries neighbours' influence through the estimates.
+
+⚠ `diffusion_ekf_onehop_mean` is **not** exact on a complete graph: exactness
+needs a one-hop adapt *and a common predictive prior*, and only full covariance
+sharing maintains the second.
+
+**One-hop is less damaged by drift than the centralised filter** — 0.0071 against
+0.0095 at linear, 0.0352 against 0.0370 at abrupt — while its absolute error is
+worse by 0.013–0.017 everywhere. Not a contradiction: damage removes fitting
+ability to isolate tracking, so a method can track better from a worse floor. Less
+accumulated information means a larger $\bm P$, a larger gain and faster
+adaptation; the centralised filter's data advantage makes it more confident and
+therefore more sluggish. **On error — the objective — the centralised filter wins
+all six cells**, as it should (D81).

@@ -58,6 +58,9 @@ D58). Every script prints a per-cell ETA as it goes.
 | **X17** | The filter under Dirichlet label skew, still and drifting — and does abrupt or smooth motion hurt more alongside skew? | `run_ekf_skew.py --lr` then `run_ekf_skew.py` | 2 + 14 h |
 | **X18** | Sawtooth drift: is momentum's *directional* memory a liability when direction resets? `atc_plain` against `atc` across five reset periods | `run_sawtooth.py --lr` then `run_sawtooth.py` | 1.5 + 6 h |
 | **X19** | The diffusion filter's first measurement: how much of the centralised filter does diffusion recover, and what does not shipping covariances cost? | `run_diffusion_ekf.py --lr` then `run_diffusion_ekf.py` | 3 + 10 h |
+| **X20** | Was the diffusion deficit tuning, was the comparison unfair, and does a one-hop adapt repair it? | `run_diffusion_tuning.py --tune` then `run_diffusion_tuning.py` | 2 + 10 h |
+| **X21** | The knob X20 held fixed: $\gamma$ swept jointly with $q$, since $\gamma^2$ is the covariance's only contraction besides information | `run_diffusion_gamma.py` | |
+| **X22** | How far may an agent extrapolate its own batch to the network? $c=(N/|\mathcal M_v|)^{\alpha}$ | `run_diffusion_extrapolation.py` | |
 
 **Order matters in five places.** X13 needs `--baselines` before `--full`, or it
 compares a drift-tuned filter against a stationary-tuned baseline. X14 needs
