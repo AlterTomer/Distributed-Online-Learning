@@ -193,6 +193,7 @@ def _build_diffusion_ekf(
         # from the config rather than pinned by the name.
         adapt_rounds=getattr(learner_config, "adapt_rounds", 1),
         combine_exponent=getattr(learner_config, "combine_exponent", 1.0),
+        information_exponent=getattr(learner_config, "information_exponent", 0.0),
     )
 
 def _build_centralized_ekf(

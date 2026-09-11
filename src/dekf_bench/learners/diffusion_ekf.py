@@ -68,6 +68,7 @@ batch costs, and the combine adds $O(N d_v p^2)$.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import torch
@@ -112,6 +113,7 @@ class DiffusionEKF:
         covariance_sharing: str = "local",
         adapt_rounds: int = 1,
         combine_exponent: float = 1.0,
+        information_exponent: float = 0.0,
         **_ignored: Any,
     ) -> None:
         if adapt_scope not in ADAPT_SCOPES:
@@ -132,12 +134,20 @@ class DiffusionEKF:
                 "conservative bound of lem:conservative, 2 is what independent errors "
                 "give; outside that range the covariance is neither."
             )
+        if not 0.0 <= information_exponent <= 1.0:
+            raise FilterError(
+                f"information_exponent must lie in [0, 1], got {information_exponent}. "
+                "0 uses the information actually gathered; 1 extrapolates one agent's "
+                "batch to the whole network. Outside that range the filter is asserting "
+                "evidence no estimator of the network total would give it."
+            )
         self._name = name
         self.model = model
         self.likelihood = likelihood
         self._n_nodes = n_nodes
         self.adapt_rounds = adapt_rounds
         self.combine_exponent = combine_exponent
+        self.information_exponent = information_exponent
         self._reach: torch.Tensor | None = None
         self.transition = transition
         self.gamma = gamma
@@ -279,6 +289,7 @@ class DiffusionEKF:
             return Intermediate(node=node, psi=mean, extras=extras)
 
         if stacked is not None:
+            stacked, score = self._rescale(stacked, score, seen=1)
             mean, covariance = self._apply(node, mean, covariance, stacked, score)
             state.theta, state.extras["P"] = mean, covariance
         # An unlabelled agent passes its prediction through unchanged and still
@@ -385,6 +396,11 @@ class DiffusionEKF:
                 # filter uses on the pooled batch.
                 stacked = torch.cat(columns, dim=1)
                 score = torch.stack(scores).sum(dim=0)
+                # `seen` is the number of agents that actually contributed, not
+                # the neighbourhood size: an unlabelled neighbour supplies no
+                # information, so counting it would scale by a factor the
+                # evidence does not support.
+                stacked, score = self._rescale(stacked, score, seen=len(columns))
                 mean, covariance = self._apply(node, mean, covariance, stacked, score)
             psi[node], cov_psi[node] = mean, covariance
         return psi, cov_psi
@@ -418,6 +434,42 @@ class DiffusionEKF:
             reach = (reach.to(torch.float32) @ adjacency.to(torch.float32)) != 0.0
         self._reach = reach
         return reach
+
+    def _rescale(
+        self, stacked: torch.Tensor, score: torch.Tensor, seen: int
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        r"""Extrapolate ``seen`` agents' evidence to the whole network.
+
+        The centralised filter accumulates $\sum_{u=1}^{N}\bm\Delta_u\approx
+        N\bar{\bm\Delta}$ per step; an agent that has gathered $\lvert\mathcal
+        M_v\rvert$ of them holds an unbiased estimator of that total after
+        multiplying by $c=N/\lvert\mathcal M_v\rvert$. Right mean, $c$ times the
+        variance --- it is an extrapolation, not evidence.
+
+        **Both the information and the score are scaled, and scaling one alone is
+        a bug rather than a half-measure.** The step is $\bm\psi=\bm m+\bm
+        P^{\psi}\sum\bm H^{\trans}\bm s$: shrinking $\bm P^{\psi}$ by $c$ while
+        the score stays as gathered makes every update $c$ times too small, so the
+        filter would report a confident belief it never moved toward. Since
+        $\bm\Delta=\bm B\bm B^{\trans}$, scaling $\bm B$ by $\sqrt c$ scales the
+        information by $c$.
+
+        ``information_exponent`` is the interpolation: $c=(N/\lvert\mathcal
+        M_v\rvert)^{\alpha}$, $\alpha=0$ using what was gathered and $\alpha=1$
+        extrapolating fully. An interior value is expected to win, because the
+        two ends fail in opposite directions --- D80 measures the filter as
+        *under*-confident at $\alpha=0$, and full extrapolation asserts $N$
+        agents' certainty from one agent's batch.
+
+        ⚠ Unbiased **only under exchangeable agents**. Under Dirichlet skew it is
+        not: an agent holding three classes would claim the network's confidence
+        about all ten. P5.2 is where that breaks, and it should be measured there
+        rather than assumed away.
+        """
+        if self.information_exponent == 0.0 or seen <= 0:
+            return stacked, score
+        scale = (self._n_nodes / seen) ** self.information_exponent
+        return stacked * math.sqrt(scale), score * scale
 
     def _apply(
         self,
@@ -509,6 +561,7 @@ class DiffusionEKF:
             "covariance_sharing": self.covariance_sharing,
             "adapt_rounds": self.adapt_rounds,
             "combine_exponent": self.combine_exponent,
+            "information_exponent": self.information_exponent,
             "transition": self.transition,
             "gamma": self.gamma,
             "lambda_forget": self.lambda_forget,

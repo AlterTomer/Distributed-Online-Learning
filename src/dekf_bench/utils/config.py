@@ -379,6 +379,11 @@ class LearnerConfig:
     #: and is smaller by about |M_v|. The truth is between: the errors are
     #: correlated through shared history but not perfectly.
     combine_exponent: float = 1.0
+    #: c = (N / |M_v|)^alpha scales BOTH the information and the score, so an
+    #: agent extrapolates its own batch to the network total. 0 uses what was
+    #: gathered; 1 extrapolates fully. Unbiased only under exchangeable agents --
+    #: under label skew it is not (design note D80).
+    information_exponent: float = 0.0
     #: How the covariance is loosened. Multiplicative inflation is exactly
     #: structure-preserving in the information domain; additive process noise is
     #: not, but is anisotropic and cheap while the covariance stays dense.
@@ -457,6 +462,12 @@ class LearnerConfig:
             raise ConfigError(
                 f"learner[{self.name}].adapt_rounds must be >= 1, got "
                 f"{self.adapt_rounds}. A local adapt is adapt_scope='local'."
+            )
+        if not 0.0 <= self.information_exponent <= 1.0:
+            raise ConfigError(
+                f"learner[{self.name}].information_exponent must lie in [0, 1], got "
+                f"{self.information_exponent}. 0 uses the information gathered, 1 "
+                "extrapolates one agent's batch to the whole network."
             )
         if not 1.0 <= self.combine_exponent <= 2.0:
             raise ConfigError(

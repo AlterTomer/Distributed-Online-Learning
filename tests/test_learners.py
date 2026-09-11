@@ -981,6 +981,88 @@ def test_zero_rounds_is_refused_because_local_is_a_different_scope(
         )
 
 
+def test_full_extrapolation_recovers_the_network_information_scale(
+    model: MLP, likelihood: Categorical
+) -> None:
+    r"""alpha = 1 scales Delta by N and the score by N, not one or the other.
+
+    The centralised filter accumulates sum_u Delta_u ~ N * Delta_bar per step, so
+    N * Delta_v is an unbiased estimator of it. Since Delta = B B^T, that needs B
+    scaled by sqrt(N) -- and the score scaled by N as well, because the step is
+    P^psi * sum H^T s and shrinking P^psi alone would make every update N times
+    too small.
+    """
+    from dekf_bench.learners.diffusion_ekf import DiffusionEKF
+
+    learner = DiffusionEKF(
+        name="diffusion_ekf", model=model, likelihood=likelihood, n_nodes=N_NODES,
+        transition="scalar", gamma=1.0, prior_scale=0.01, information_exponent=1.0,
+    )
+    factor = torch.ones(model.num_params, 4, dtype=DTYPE)
+    score = torch.ones(model.num_params, dtype=DTYPE)
+
+    scaled_factor, scaled_score = learner._rescale(factor, score, seen=1)
+    assert float(scaled_factor[0, 0]) ** 2 == pytest.approx(N_NODES)
+    assert float(scaled_score[0]) == pytest.approx(N_NODES)
+
+    # Seen more agents, extrapolate less: c = N / |M_v|.
+    _f, partial = learner._rescale(factor, score, seen=3)
+    assert float(partial[0]) == pytest.approx(N_NODES / 3)
+
+
+def test_no_extrapolation_is_the_default_and_a_no_op(
+    model: MLP, likelihood: Categorical
+) -> None:
+    """Nothing changes until it is asked for."""
+    from dekf_bench.learners.diffusion_ekf import DiffusionEKF
+
+    learner = DiffusionEKF(
+        name="diffusion_ekf", model=model, likelihood=likelihood, n_nodes=N_NODES,
+        transition="scalar", gamma=1.0, prior_scale=0.01,
+    )
+    assert learner.information_exponent == 0.0
+    factor = torch.rand(model.num_params, 4, dtype=DTYPE)
+    score = torch.rand(model.num_params, dtype=DTYPE)
+    same_factor, same_score = learner._rescale(factor, score, seen=1)
+    assert torch.equal(same_factor, factor) and torch.equal(same_score, score)
+
+
+def test_extrapolation_makes_the_belief_more_confident(
+    model: MLP, likelihood: Categorical
+) -> None:
+    r"""The point of it: the covariance stops being N times too diffuse.
+
+    D79 measured a local adapt as accumulating 1/N the centralised information, so
+    the belief is correspondingly inflated. Extrapolating contracts it.
+    """
+    from dekf_bench.learners.diffusion_ekf import DiffusionEKF
+
+    traces = {}
+    for alpha in (0.0, 0.5, 1.0):
+        learner = DiffusionEKF(
+            name="diffusion_ekf", model=model, likelihood=likelihood, n_nodes=N_NODES,
+            transition="scalar", gamma=1.0, prior_scale=0.01, information_exponent=alpha,
+        )
+        learner.init(_theta0(model))
+        _run_step(learner, model, _uniform_weights(N_NODES))
+        traces[alpha] = float(learner.covariance(0).diagonal().mean())
+    assert traces[1.0] < traces[0.5] < traces[0.0]
+
+
+def test_an_exponent_outside_the_unit_interval_is_refused(
+    model: MLP, likelihood: Categorical
+) -> None:
+    from dekf_bench.learners.diffusion_ekf import DiffusionEKF
+    from dekf_bench.learners.ekf import FilterError
+
+    for alpha in (-0.5, 1.5):
+        with pytest.raises(FilterError, match="information_exponent"):
+            DiffusionEKF(
+                name="diffusion_ekf", model=model, likelihood=likelihood,
+                n_nodes=N_NODES, information_exponent=alpha,
+            )
+
+
 def test_a_name_and_a_contradicting_variant_are_refused(
     model: MLP, likelihood: Categorical
 ) -> None:
