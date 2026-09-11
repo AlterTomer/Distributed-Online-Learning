@@ -3006,3 +3006,65 @@ equivalent.** This is not an accident of the config: raw data wins whenever
 $n(d+1)<pnq$, i.e. $p>(d+1)/q\approx20$, which holds for any over-parameterised
 model. The costs of a one-hop adapt are compute (each agent linearises its
 neighbours' data too) and privacy (raw data leaves the node) — not bandwidth.
+
+### ✅ D80. The filter is the worst-calibrated method on the page, and $\gamma$ is why
+
+Every run since phase 1 has logged `nll`, `brier`, `ece`, `overconfidence` and
+`mean_confidence`, alongside `e_agree` and `theta_mean_norm_sq`. **Nobody had
+read them.** X19's numbers were sitting on disk the whole time, and the first
+look at them is uncomfortable. Settled values at `every25_jump15` on \ac{er}:
+
+| | error | \ac{ece} | overconfidence | mean conf. | $\lVert\bm\theta\rVert^2$ | $E_{\text{agree}}$ |
+|---|---|---|---|---|---|---|
+| centralised \ac{ekf} | 0.0931 | 0.0310 | −0.0299 | 0.877 | 84.8 | 0 |
+| diff-\ac{ekf}, full | 0.1345 | 0.0842 | −0.0839 | 0.782 | 34.9 | 0.0114 |
+| diff-\ac{ekf}, mean-only | 0.1351 | 0.0854 | −0.0851 | 0.780 | 34.8 | 0.0118 |
+| \ac{atc} | 0.1312 | **0.0148** | −0.0028 | 0.866 | 79.6 | 0.0124 |
+| local only | 0.2097 | 0.0340 | +0.0269 | 0.817 | 63.7 | 18.1 |
+
+**\Ac{atc} is the best-calibrated method here and the diffusion filter is the
+worst** — six times \ac{atc}'s \ac{ece} — which is an uncomfortable result for a
+Bayesian method to have been sitting on. And the sign is the opposite of the one
+the note predicts: the filter is **under**-confident, claiming 0.78 where it
+delivers 0.87, not over-confident.
+
+**It is not disagreement.** The filter's agents agree as closely as \ac{atc}'s
+($E_{\text{agree}}$ 0.0118 against 0.0124; max pairwise distance 0.245 against
+0.237), so "the agents have diverged and averaging blurs them" is ruled out.
+
+**It is the parameter norm, and $\gamma$ explains it.** Confidence tracks
+$\lVert\bm\theta\rVert^2$ monotonically across all five methods, and the
+diffusion filter's is 34.8 against \ac{atc}'s 79.6. Smaller weights give smaller
+logits, and a softmax on smaller logits is closer to uniform. At $\gamma=0.9995$
+the mean is multiplied by $\gamma^{1500}=0.47$ over a run *absent information* —
+D26's point that $\gamma$ is L2 weight decay written in state-space form, not
+forgetting. The centralised filter shrugs this off and reaches
+$\lVert\bm\theta\rVert^2=84.5$ because it gathers ten agents' information per step
+to push back; the diffusion filter, with $1/N$ of it, loses the tug-of-war.
+
+**Same $\gamma$, same shrinkage, different capacity to counteract it.** That is a
+third observable of [[D79]]'s information deficit, in a place nobody was looking,
+and it arrived from a metric that was being computed and discarded.
+
+**⚠ X20 does not sweep $\gamma$.** It re-tunes $q$ and $\sigma_0^2$ on exactly the
+argument above — that the information deficit mis-scales them — and holds
+$\gamma$ at 0.9995, a value X13 chose for a filter seeing ten times the data. So
+the "re-tuned" setting is tuned in two of three dimensions.
+
+**⚠ But $\gamma=1$ is not obviously the answer, and the two knobs interact.**
+$\gamma$ acts on both moments: $\bm m\leftarrow\gamma\bm m$ and $\bm P\leftarrow
+\gamma^2\bm P+\bm Q$. So $\gamma^2<1$ is a *contraction on the covariance*, and
+besides the information update it is the only one. Setting $\gamma=1$ removes it.
+X20's grid already located the divergence cliff at $q=6\times10^{-3}$ *with* that
+contraction present; without it the cliff moves down, and the selected
+$q=6\times10^{-4}$ may land the wrong side of it. $\gamma$ and $q$ therefore have
+to be swept **jointly**, which is X21.
+
+**⚠ And the whole table is plugin calibration.** `calibration.score` works from
+$\bm\mu(\text{logits})$ at the predictive mean; the covariance never enters. So
+"the filter is badly calibrated" is a claim about its **point estimate**, which
+any method has, and says nothing yet about whether its *belief* is calibrated.
+`metrics/predictive.py` has `logit_variance`, `probit_probabilities` and
+`sampled_probabilities` built and tested, and nothing calls them. Scoring the
+belief is P5.11 proper and remains undone — which means the filter's central
+claim, that it knows what it does not know, is still unmeasured.
