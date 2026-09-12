@@ -505,3 +505,24 @@ agent. They are the reason phase 5 is not just "the same experiments again".
   framing is doing less work than it appears to; if it is tight, the neighbours'
   errors really are nearly perfectly correlated, which is itself a finding about
   how much independent information diffusion is actually moving.
+- [ ] **P5.24** **A mis-tuned filter, carried as a reported arm.** Every filter
+  number we publish sits at an argmin someone spent GPU-hours finding, and a
+  reader has no way to tell whether the method is good or the tuning is. So ship
+  a `diffusion_ekf_mistuned` alongside it: the *same* filter carrying the
+  centralised selection ($q=6\times10^{-5}$, $\sigma_0^2=0.01$), which is what a
+  reasonable person would have used before X20 measured otherwise.
+
+  The number is already in hand and it is not small — X20's grid puts the
+  centralised setting at 0.1356 against the re-tuned 0.1173, a gap of 0.0183,
+  fourteen times the 0.0013 threshold and **larger than the entire centralised-
+  versus-diffusion gap** (0.013 to 0.017) that D79 is written about. Stated
+  plainly: on this benchmark, mis-tuning the filter costs more than distributing
+  it does. That reframes every architectural comparison in the phase, and it is a
+  claim that needs a visible arm rather than a sentence in a design note.
+
+  ⚠ Two traps. The arm must be *mis-tuned*, not *broken* — a $q$ chosen to
+  diverge proves nothing anyone disputes; the point is that a defensible setting,
+  arrived at honestly on a related problem, is this costly. And it must not be
+  ranked against the baselines as if it were a method: it is a reference line,
+  and D77's floor rule applies to it like anything else. Cheap: one extra learner
+  entry in an existing sweep, no new script.
