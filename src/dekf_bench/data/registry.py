@@ -1,35 +1,20 @@
 r"""Name to dataset, so a script never imports one directly.
 
-**Why this exists.** Before it, eighteen scripts imported ``load_mnist`` by name,
-``EnvConfig`` had no dataset field at all, and the only record of which dataset a
-run used was the *filename* of its env config. Adding a second dataset then meant
-editing eighteen scripts, and the obvious wrong fix -- a script per dataset --
-would multiply the repository along an axis the scripts do not actually differ
-on: a sweep script differs in what it **varies**, never in what it **loads**.
+A sweep script differs in what it **varies**, never in what it **loads**, so a
+script per dataset would multiply the repository along an axis it does not differ
+on. The dataset is a name, resolved here, as learners and models already are.
 
-So the dataset becomes a name, resolved here, exactly as learners and models
-already are (`learners/registry.py`, `models/registry.py`).
+A spec carries more than a loader because three of its facts are load-bearing
+outside `data/`: ``num_classes`` is the softmax Fisher's rank and so the width of
+every $\bm B$ block shipped; ``image_size`` fixes $p$, which is what makes a
+dense covariance feasible; and ``rotation_cap_degrees`` is a property of the
+*task* -- past roughly $45^{\circ}$ a rotated 6 is a 9, so error past the cap
+measures label ambiguity rather than tracking failure, and every drift-rate
+result from X9 on is stated relative to it. ``None`` says a dataset has no such
+collision.
 
-**A dataset is more than a loader, which is the part worth reading.** A
-`DatasetSpec` carries the shape facts the rest of the benchmark is entitled to
-ask about, because several of them are load-bearing well outside `data/`:
-
-* ``num_classes`` sets the softmax Fisher's rank $q-1$, which is the width of
-  every $\bm B$ block the filter builds and ships.
-* ``image_size`` decides $p$ once a model is attached, and $p$ is what makes a
-  dense covariance feasible at all -- $14\times14$ downsampling is the only
-  reason $p=2908$ rather than $10^5$ (IMPLEMENTATION.md section 13.10).
-* ``rotation_cap_degrees`` is a property of the **task**, not the method: past
-  roughly $45^{\circ}$ a rotated 6 is a 9, so the Bayes error of the problem
-  itself rises and a climbing error would measure label ambiguity rather than
-  tracking failure. Every drift-rate result from X9 through X18 is stated
-  relative to it. A dataset with no such collision -- or one whose drift channel
-  does not act on orientation -- carries a different cap, or none, and
-  ``None`` here says exactly that.
-
-What this registry does **not** solve is that the drift channel itself is
-rotation, and the schedules in `env/drift.py` describe angles. Adding a dataset
-whose meaningful shift is not orientation is a task-definition change, and this
+This does not make a non-rotation dataset usable: the drift channel is rotation
+and `env/drift.py` speaks in angles, so that is a task-definition change and this
 is necessary rather than sufficient for it (IMPLEMENTATION.md section 15).
 """
 

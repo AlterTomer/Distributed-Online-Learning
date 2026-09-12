@@ -73,6 +73,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from _args import sweep_parser  # noqa: E402
 from run_ekf_generalization import run_one  # noqa: E402
 
 from dekf_bench.data.registry import dataset_is_cached, load_dataset  # noqa: E402
@@ -97,16 +98,10 @@ CONDITION = {"schedule": "recurring", "jump_every": 25, "jump_degrees": 15.0, "j
 TOPOLOGY = ("erdos_renyi", {"p": 0.3})
 LEARNER = "diffusion_ekf"
 
+#: Defaults for the CLI (`--horizon`, `--seeds`); see scripts/_args.py.
 HORIZON = 1500
 EVAL_EVERY = 5
 SEEDS = [0, 1, 2]
-
-DEVICE = "auto"
-DTYPE = "float64"
-FRESH = False
-
-#: The dataset every cell consumes. A name, not an import (IMPLEMENTATION.md 15).
-DATASET = "mnist"
 
 DATA_ROOT = ROOT / "data"
 STATUS = ROOT / "results" / "x21_status.json"
@@ -129,21 +124,21 @@ def settled(run: str, metric: str = "error_rate") -> float:
         [pd.read_parquet(f, columns=["learner", "metric", "evalset", "t", "value"])
          for f in files], ignore_index=True)
     rows = frame[(frame["learner"] == LEARNER) & (frame["metric"] == metric)
-                 & (frame["t"] >= int(0.8 * HORIZON))]
+                 & (frame["t"] >= int(0.8 * frame["t"].max()))]
     if metric == "error_rate":
         rows = rows[rows["evalset"] == "current"]
     return float(rows["value"].mean()) if len(rows) else float("inf")
 
 
-def config_for(name: str, gamma: float, q: float):
+def config_for(args, name: str, gamma: float, q: float):
     topology, params = TOPOLOGY
     return load_config(
         "x1_stationary",
         overrides={
-            "run": {"name": name, "horizon": HORIZON, "eval_every": EVAL_EVERY,
-                    "seeds": SEEDS, "device": DEVICE, "dtype": DTYPE},
+            "run": {"name": name, "horizon": args.horizon, "eval_every": EVAL_EVERY,
+                    "seeds": args.seeds, "device": args.device, "dtype": args.dtype},
             "graph": {"topology": topology, "params": dict(params)},
-            "env": {"dataset": DATASET, "drift": dict(CONDITION)},
+            "env": {"dataset": args.dataset, "drift": dict(CONDITION)},
             "learners": [{
                 "name": LEARNER, "transition": "scalar", "gamma": gamma,
                 "lambda_forget": 1.0, "process_noise_q": q, "prior_scale": PRIOR_SCALE,
@@ -153,23 +148,26 @@ def config_for(name: str, gamma: float, q: float):
     )
 
 
-def main(fresh: bool = FRESH) -> int:
-    if not dataset_is_cached(DATASET, DATA_ROOT):
-        print(f"{DATASET} is not cached. Run scripts/check_data.py once, then retry.")
+def main(argv: list[str] | None = None) -> int:
+    parser = sweep_parser(__doc__.split("\n")[0], horizon=HORIZON, seeds=SEEDS)
+    args = parser.parse_args(argv)
+
+    if not dataset_is_cached(args.dataset, DATA_ROOT):
+        print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
         return 1
-    train, test = load_dataset(DATASET, DATA_ROOT, download=False)
+    train, test = load_dataset(args.dataset, DATA_ROOT, download=False)
 
     status = json.loads(STATUS.read_text(encoding="utf-8")) if STATUS.exists() else {}
     cells = [(g, q) for g in GAMMAS for q in PROCESS_NOISE]
     print(f"X21: {len(GAMMAS)} gamma x {len(PROCESS_NOISE)} q = {len(cells)} cells "
-          f"at {len(SEEDS)} seeds, sigma_0^2 fixed at {PRIOR_SCALE:g}")
+          f"at {len(args.seeds)} seeds, sigma_0^2 fixed at {PRIOR_SCALE:g}")
     print(f"     condition {CONDITION['jump_degrees']:g} deg every "
           f"{CONDITION['jump_every']} steps on {TOPOLOGY[0]}\n", flush=True)
 
     started = time.time()
     for index, (gamma, q) in enumerate(cells, start=1):
         name = run_name(gamma, q)
-        note = run_one(config_for(name, gamma, q), train, test, fresh)
+        note = run_one(config_for(args, name, gamma, q), train, test, args.fresh)
         status[name] = note
         STATUS.parent.mkdir(parents=True, exist_ok=True)
         STATUS.write_text(json.dumps(status, indent=2), encoding="utf-8")
@@ -212,4 +210,4 @@ def report() -> None:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(fresh="--fresh" in sys.argv))
+    raise SystemExit(main())

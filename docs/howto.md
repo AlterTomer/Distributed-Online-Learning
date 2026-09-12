@@ -47,8 +47,20 @@ a cached cell costs nothing and would otherwise make the estimate climb.
 
 **Q. How do I change a setting for one run without editing anything permanent?**
 
-Every script has module-level constants at the top. Edit those, or build the
-config in Python:
+For the run knobs -- horizon, seeds, device, dtype, dataset -- pass a flag:
+
+```
+python scripts/run_diffusion_joint.py --horizon 500 --seeds 0 1 --device cpu
+python scripts/run_diffusion_joint.py --help          # every flag, with defaults
+```
+
+The defaults are the values the experiment was published at, so a bare command
+reproduces the recorded cell. What a sweep *varies* is not a flag: X23's grid and
+X22's exponents are the experiment, and a run whose name no longer describes it
+is worse than no run.
+
+For anything else, edit the module constants at the top of the script, or build
+the config in Python:
 
 ```python
 from dekf_bench.utils.config import load_config

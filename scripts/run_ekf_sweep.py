@@ -100,7 +100,7 @@ from dekf_bench.env.environment import build_environment  # noqa: E402
 from dekf_bench.evaluation.evalsets import build_evalsets  # noqa: E402
 from dekf_bench.learners.base import LearnerError  # noqa: E402
 from dekf_bench.learners.registry import build_learners  # noqa: E402
-from dekf_bench.likelihoods.categorical import Categorical  # noqa: E402
+from dekf_bench.likelihoods.registry import build_likelihood  # noqa: E402
 from dekf_bench.metrics.classification import MetricError  # noqa: E402
 from dekf_bench.models.registry import build_model_from_config  # noqa: E402
 from dekf_bench.recording import recorder as rec  # noqa: E402
@@ -353,7 +353,7 @@ def run_one(config, train, test, fresh: bool) -> str:
     for seed in config.run.seeds:
         environment = build_environment(config, seed, train)
         model = build_model_from_config(config)
-        likelihood = Categorical(config.model.output_dim)
+        likelihood = build_likelihood(config)
         learners = build_learners(config, model, likelihood)
         theta0 = model.flatten(model.init_params(environment.seeds.torch_generator("init")))
         theta0 = theta0.to(environment.train.images.device)

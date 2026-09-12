@@ -3165,3 +3165,64 @@ calibrated than the centralised one (0.031) and approaching \ac{atc}'s 0.0148. A
 larger $q$ was already doing much of $\gamma$'s job, and gathering more
 information did the rest — which is D80's mechanism confirmed, and a reason to
 expect X21 to find less than D80 claimed it would.
+
+---
+
+## 2026-09-12 — Phase 5, the diffusion filter's tuning
+
+### ❓ D82. Three axes tuned in turn is not three axes tuned
+
+**The gap.** X20 swept $(q,\sigma_0^2)$ with $\gamma$ pinned at the value X13
+chose for the *centralised* filter. X21 then swept $(\gamma,q)$ with $\sigma_0^2$
+pinned at X20's selection. Every pass was joint in two axes and blind in the
+third, and the axis it pinned was pinned at a value chosen by a pass that had
+itself pinned something. That is coordinate descent, and coordinate descent finds
+a joint optimum only when the axes separate.
+
+**They do not separate, and X20's own grid says so.** The $\sigma_0^2$ argmin
+moves with $q$:
+
+| $q$ | argmin $\sigma_0^2$ | spread across the row |
+|---|---|---|
+| $6\times10^{-4}$ | $0.001$ | 0.0018 |
+| $6\times10^{-5}$ | $0.1$ | 0.0125 |
+| $6\times10^{-6}$ | $0.1$ | 0.0645 |
+
+The justification for pinning $\sigma_0^2$ in X21 was that its row is flat. It is
+flat *at $q=6\times10^{-4}$* — a property of where we happened to be standing, not
+of the axis. Two decades down, the same row spans 0.0645, fifty times the 0.0013
+threshold this project treats as noise.
+
+**What is actually untested is the $(\gamma,\sigma_0^2)$ corner.** Neither sweep
+ever varied both. And the argument that it does not matter is the argument X21
+already used about $\sigma_0^2$, which the table above disposes of.
+
+**Why this is not paranoia about a knob.** $\gamma$ and $\sigma_0^2$ act on the
+same object from opposite ends: $\sigma_0^2$ sets $\bm P_0$, and $\gamma^2$
+contracts $\bm P$ at every step thereafter. A large prior under a strong
+contraction and a small prior under none can reach the same steady-state
+covariance by different routes, so the two axes are coupled through the quantity
+that decides the gain. Whether that coupling is strong enough to move the argmin
+is exactly what X23 measures.
+
+**Prediction, recorded before the run.** The selection will not move far: $q$'s
+argmin was stable at $6\times10^{-4}$ across all four $\gamma$ in X21, which is
+the axis with the steepest surface, and stability there is the best single
+predictor that the rest holds. The case worth watching is $\gamma=1$, where the
+covariance has no contraction at all and a large $\sigma_0^2$ has nothing pulling
+it back — if the surface has a second basin, it is there.
+
+**If the prediction holds**, coordinate descent found the joint optimum, X20 and
+X21's settings stand unchanged, and every diffusion result since X20 keeps its
+tuning. **If it fails**, the filter has been running mis-tuned since X20 and the
+X22 extrapolation sweep would have measured $\alpha$ at the wrong operating
+point — which is why X23 runs before X22 rather than after it.
+
+Grid: $\gamma\in\{1,0.9999,0.9995,0.999\}$ × $q\in\{6\times10^{-4},6\times10^{-5}\}$
+× $\sigma_0^2\in\{0.1,0.03,0.01,0.003,0.001\}$, 40 cells. The larger $q$ columns
+are excluded on measurement, not on taste: X21 found $q=6\times10^{-3}$ destroyed
+at *every* $\gamma$ — error 0.43 to 0.89 against a chance level of 0.9, with
+$\lVert\bm\theta\rVert^2$ reaching $1.3\times10^{7}$ — and only one of those four
+cells tripped the trust-region guard, so "diverged" understates it. $6\times10^{-6}$
+is uniformly poor at every $\gamma$. See [[D79]] for why the filter needs a $q$ ten
+times the centralised one at all.

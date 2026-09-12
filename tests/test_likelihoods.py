@@ -455,3 +455,71 @@ def test_the_innovation_term_is_the_loss_gradient(categorical: Categorical) -> N
     loss_gradient = model.flatten({k: v.grad for k, v in grad_params.items()})  # type: ignore[misc]
 
     assert torch.allclose(innovation_term, -loss_gradient, atol=1e-12)
+
+
+# ----------------------------------------------------------------- the registry
+
+
+def _config(**model_fields):
+    from dekf_bench.utils.config import load_config
+
+    return load_config("x1_stationary", overrides={"model": model_fields})
+
+
+def test_the_default_config_still_asks_for_the_categorical_likelihood() -> None:
+    """Nine scripts hardcoded ``Categorical`` before the registry existed, so the
+    default has to reproduce what they built or every completed run changes
+    meaning."""
+    from dekf_bench.likelihoods.registry import build_likelihood
+
+    config = _config()
+    built = build_likelihood(config)
+    assert isinstance(built, Categorical)
+    assert built.output_dim == config.model.output_dim
+
+
+def test_a_config_can_reach_the_gaussian_likelihood() -> None:
+    r"""The point of the registry. `gaussian.py` was built, tested and
+    unreachable from a config, which left the one path where ``score`` and
+    ``innovation`` differ by $\sigma^{-2}$ (design note D60) out of every run."""
+    from dekf_bench.likelihoods.registry import build_likelihood
+
+    built = build_likelihood(_config(likelihood="gaussian", observation_variance=0.25))
+    assert isinstance(built, Gaussian)
+    assert built.variance == pytest.approx(0.25)
+
+
+def test_the_output_dim_is_never_named_twice() -> None:
+    """A config that can disagree with itself about a dimension eventually does."""
+    from dekf_bench.likelihoods.registry import build_likelihood
+
+    for name in ("categorical", "gaussian"):
+        built = build_likelihood(_config(likelihood=name, output_dim=7))
+        assert built.output_dim == 7
+
+
+def test_an_unknown_likelihood_is_refused_by_the_config() -> None:
+    """At load time, not at the first update: a sweep that fails on cell 1 of 40
+    costs nothing, and one that fails on cell 39 costs two hours."""
+    from dekf_bench.utils.config import ConfigError
+
+    with pytest.raises(ConfigError, match="likelihood"):
+        _config(likelihood="poisson")
+
+
+def test_a_non_positive_observation_variance_is_refused() -> None:
+    r"""$R = \sigma^2 I$ is inverted in the Gaussian update, so zero is a division
+    and negative is a covariance that is not one."""
+    from dekf_bench.utils.config import ConfigError
+
+    for bad in (0.0, -1.0):
+        with pytest.raises(ConfigError, match="observation_variance"):
+            _config(likelihood="gaussian", observation_variance=bad)
+
+
+def test_every_registered_name_builds() -> None:
+    from dekf_bench.likelihoods.registry import LIKELIHOODS, build_likelihood, likelihood_names
+
+    assert set(likelihood_names()) == set(LIKELIHOODS)
+    for name in likelihood_names():
+        assert isinstance(build_likelihood(_config(likelihood=name)), Likelihood)

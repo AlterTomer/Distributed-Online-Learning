@@ -77,6 +77,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from _args import sweep_parser  # noqa: E402
 from run_ekf_generalization import run_one, tuned_settings  # noqa: E402
 
 from dekf_bench.data.registry import dataset_is_cached, load_dataset  # noqa: E402
@@ -114,6 +115,7 @@ TOPOLOGIES: list[tuple[str, dict]] = [
     ("erdos_renyi", {"p": 0.3}),
 ]
 
+#: Defaults for the CLI (`--horizon`, `--seeds`); see scripts/_args.py.
 HORIZON = 1500
 SEEDS = [0, 1, 2, 3, 4]
 EVAL_EVERY = 5
@@ -128,17 +130,8 @@ LOCAL = {"name": "local_only", "optimizer": "sgd", "momentum": 0.0}
 LEARNING_RATES = [0.2, 0.05, 0.01, 0.005, 0.001]
 LR_SEEDS = [0, 1]
 
-DEVICE = "auto"
-DTYPE = "float64"
-FRESH = False
-
 TOPOLOGY_PARAMS = dict(TOPOLOGIES)
 TOPOLOGY_NAMES = [name for name, _p in TOPOLOGIES]
-
-#: The dataset every cell in this sweep consumes. A name, not an import,
-#: so a second dataset is a one-line change here rather than a new script
-#: (IMPLEMENTATION.md section 15).
-DATASET = "mnist"
 
 DATA_ROOT = ROOT / "data"
 STATUS = ROOT / "results" / "x19_status.json"
@@ -162,8 +155,11 @@ def settled(run: str, learner: str) -> float:
     frame = pd.concat(
         [pd.read_parquet(f, columns=["learner", "metric", "evalset", "t", "value"])
          for f in files], ignore_index=True)
+    # The last fifth of *this* run, not of whatever horizon the script that is
+    # asking happens to carry: X20 reads cells X19 produced.
     rows = frame[(frame["learner"] == learner) & (frame["metric"] == "error_rate")
-                 & (frame["evalset"] == "current") & (frame["t"] >= int(0.8 * HORIZON))]
+                 & (frame["evalset"] == "current")
+                 & (frame["t"] >= int(0.8 * frame["t"].max()))]
     return float(rows["value"].mean()) if len(rows) else float("inf")
 
 
@@ -180,19 +176,19 @@ def selected_rates(condition: str, topology: str) -> dict[str, float] | None:
     return rates
 
 
-def config_for(name: str, drift: dict | None, topology: str, entries: list[dict],
-               seeds: list[int] | None = None):
+def config_for(args, name: str, drift: dict | None, topology: str,
+               entries: list[dict], seeds: list[int] | None = None):
     block = {"schedule": "stationary", "total_degrees": 0.0} if drift is None else dict(drift)
     params = dict(TOPOLOGY_PARAMS[topology])
     return load_config(
         "x1_stationary",
         overrides={
             "run": {
-                "name": name, "horizon": HORIZON, "eval_every": EVAL_EVERY,
-                "seeds": seeds or SEEDS, "device": DEVICE, "dtype": DTYPE,
+                "name": name, "horizon": args.horizon, "eval_every": EVAL_EVERY,
+                "seeds": seeds or args.seeds, "device": args.device, "dtype": args.dtype,
             },
             "graph": {"topology": topology, "params": params},
-            "env": {"dataset": DATASET, "drift": block},
+            "env": {"dataset": args.dataset, "drift": block},
             "learners": entries,
             "eval": {"evalsets": ["prequential", "current"]},
         },
@@ -208,7 +204,7 @@ def save_status(status: dict) -> None:
     STATUS.write_text(json.dumps(status, indent=2), encoding="utf-8")
 
 
-def tune(train, test, fresh: bool) -> int:
+def tune(args, train, test) -> int:
     """The SGD baselines only. The filter carries X13's setting by design."""
     status = load_status()
     cells = [(c, t) for c, _d in CONDITIONS for t in TOPOLOGY_NAMES]
@@ -223,8 +219,9 @@ def tune(train, test, fresh: bool) -> int:
             name = lr_run_name(condition, topology, rate)
             entries = [{**BASELINE, "lr": rate}, {**LOCAL, "lr": rate}]
             note = run_one(
-                config_for(name, drifts[condition], topology, entries, seeds=LR_SEEDS),
-                train, test, fresh)
+                config_for(args, name, drifts[condition], topology, entries,
+                           seeds=LR_SEEDS),
+                train, test, args.fresh)
             status[name] = note
             save_status(status)
             print(f"[{index}/{total}] {name:<34} {note:<12} "
@@ -240,13 +237,18 @@ def tune(train, test, fresh: bool) -> int:
     return 0
 
 
-def main(fresh: bool = FRESH, tune_only: bool = False) -> int:
-    if not dataset_is_cached(DATASET, DATA_ROOT):
-        print("MNIST is not cached. Run scripts/check_data.py once, then retry.")
+def main(argv: list[str] | None = None) -> int:
+    parser = sweep_parser(__doc__.split("\n")[0], horizon=HORIZON, seeds=SEEDS)
+    parser.add_argument("--lr", action="store_true",
+                        help="re-tune the SGD baselines instead of running the sweep")
+    args = parser.parse_args(argv)
+
+    if not dataset_is_cached(args.dataset, DATA_ROOT):
+        print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
         return 1
-    train, test = load_dataset(DATASET, DATA_ROOT, download=False)
-    if tune_only:
-        return tune(train, test, fresh)
+    train, test = load_dataset(args.dataset, DATA_ROOT, download=False)
+    if args.lr:
+        return tune(args, train, test)
 
     print("X13's selected setting, carried here unchanged:")
     setting = next(s for s in tuned_settings() if s["name"] == "centralized_ekf_gamma")
@@ -279,7 +281,7 @@ def main(fresh: bool = FRESH, tune_only: bool = False) -> int:
             # every learning rate included, so each drifting cell gets its own.
             cells.append((f"x19_control_{stem}", None, topology, entries))
 
-    print(f"\nX19: {len(cells)} cells at {len(SEEDS)} seeds, T={HORIZON}")
+    print(f"\nX19: {len(cells)} cells at {len(args.seeds)} seeds, T={args.horizon}")
     print(f"  {'cell':>28}{'topology':>10}{'atc lr':>9}{'local lr':>10}")
     for name, _d, topology, entries in cells:
         by_name = {e["name"]: e for e in entries}
@@ -292,7 +294,8 @@ def main(fresh: bool = FRESH, tune_only: bool = False) -> int:
     status = load_status()
     started, ran = time.time(), 0
     for index, (name, drift, topology, entries) in enumerate(cells, start=1):
-        note = run_one(config_for(name, drift, topology, entries), train, test, fresh)
+        note = run_one(config_for(args, name, drift, topology, entries),
+                       train, test, args.fresh)
         status[name] = note
         save_status(status)
         if note != "cached":
@@ -308,4 +311,4 @@ def main(fresh: bool = FRESH, tune_only: bool = False) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(fresh="--fresh" in sys.argv, tune_only="--lr" in sys.argv))
+    raise SystemExit(main())

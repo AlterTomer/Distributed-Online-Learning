@@ -61,6 +61,7 @@ D58). Every script prints a per-cell ETA as it goes.
 | **X20** | Was the diffusion deficit tuning, was the comparison unfair, and does a one-hop adapt repair it? | `run_diffusion_tuning.py --tune` then `run_diffusion_tuning.py` | 2 + 10 h |
 | **X21** | The knob X20 held fixed: $\gamma$ swept jointly with $q$, since $\gamma^2$ is the covariance's only contraction besides information | `run_diffusion_gamma.py` | |
 | **X22** | How far may an agent extrapolate its own batch to the network? $c=(N/|\mathcal M_v|)^{\alpha}$ | `run_diffusion_extrapolation.py` | |
+| **X23** | The three filter axes tuned **jointly** rather than in turn: $\gamma \times q \times \sigma_0^2$ over the region X21 left alive | `run_diffusion_joint.py` | ~2 h |
 
 **Order matters in five places.** X13 needs `--baselines` before `--full`, or it
 compares a drift-tuned filter against a stationary-tuned baseline. X14 needs
@@ -106,6 +107,12 @@ skip every cell and report the old seed count as the new one.
 Runs are **resumable and exact**: the loop consumes no randomness, so a resumed
 run reproduces an uninterrupted one bit-for-bit, and re-running a sweep skips
 cells already on disk. `--fresh` discards and redoes.
+
+Every run knob is a flag: `--horizon`, `--seeds`, `--device`, `--dtype`,
+`--dataset`, `--fresh`, and `--help` lists them with the defaults filled in. The
+defaults are the values the experiment was run at, so a bare command reproduces
+the published cell. What a sweep *varies* stays in code -- X23's grid and X22's
+exponents are the experiment, not a setting.
 
 A cell that diverges is recorded as diverged and the sweep continues. That is a
 measurement, not a crash — see design notes D61 and D76.

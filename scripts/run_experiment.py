@@ -25,7 +25,7 @@ from dekf_bench.data.registry import dataset_is_cached, load_dataset
 from dekf_bench.env.environment import build_environment
 from dekf_bench.evaluation.evalsets import build_evalsets
 from dekf_bench.learners.registry import build_learners
-from dekf_bench.likelihoods.categorical import Categorical
+from dekf_bench.likelihoods.registry import build_likelihood
 from dekf_bench.metrics.communication import cost_for, ledger
 from dekf_bench.models.registry import build_model_from_config
 from dekf_bench.recording import recorder as rec
@@ -60,7 +60,7 @@ def run_seed(config, seed: int, train, test, out_dir: Path) -> tuple[int, float]
     """One seed, resuming if a checkpoint is there. Returns (rows, seconds)."""
     environment = build_environment(config, seed, train)
     model = build_model_from_config(config)
-    likelihood = Categorical(config.model.output_dim)
+    likelihood = build_likelihood(config)
     learners = build_learners(config, model, likelihood)
     evalsets = build_evalsets(config, environment, test)
 

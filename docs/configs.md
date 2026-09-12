@@ -247,8 +247,18 @@ not on the config object (design note D19).
 | `input_size` | int | `14` | ≥ 1 | Image side length **after** downsampling; $14 \Rightarrow 196$ inputs |
 | `hidden` | list[int] | `[14]` | each ≥ 1 | Empty list means a linear probe |
 | `output_dim` | int | `10` | ≥ 2 | $q$; number of classes |
+| `likelihood` | str | `categorical` | `categorical` \| `gaussian` | Selects the observation model in `likelihoods/registry.py` |
+| `observation_variance` | float | `1.0` | > 0 | $\sigma^2$ in $\bm R = \sigma^2\bm I$; read only by `gaussian` |
 
 `config.model.num_params` computes $p$ from these — 2908 at the defaults.
+
+`likelihood` is the observation model, not the loss: it decides what the
+filter's information pair $(\bm B, \bm s)$ *means*. Under `categorical` the
+score and the innovation coincide; under `gaussian` they differ by
+$\sigma^{-2}$ (design note D60), which is why a config that selects the wrong
+one is wrong by a constant factor rather than obviously broken. `gaussian` with
+an empty `hidden` makes the EKF an exact Kalman filter, which is the
+setting with no linearisation error to hide a bug in.
 
 *Consumed by:* `models/` (phase 2).
 
@@ -683,5 +693,6 @@ learner.adapt_scope       local | one_hop
 learner.adapt_rounds      >= 1 (one_hop only)
 learner.covariance_sharing  full | local
 learner.combine_exponent  1.0 .. 2.0
+model.likelihood          categorical | gaussian
 eval.evalsets             prequential | current | backward | canonical
 ```

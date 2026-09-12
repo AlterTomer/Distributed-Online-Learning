@@ -61,6 +61,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from _args import sweep_parser  # noqa: E402
 from run_ekf_generalization import run_one  # noqa: E402
 
 from dekf_bench.data.registry import dataset_is_cached, load_dataset  # noqa: E402
@@ -82,14 +83,10 @@ GAMMA, PROCESS_NOISE, PRIOR_SCALE = 0.9995, 6.0e-4, 1.0e-3
 CONDITION = {"schedule": "recurring", "jump_every": 25, "jump_degrees": 15.0, "jump_seed": 0}
 TOPOLOGY = ("erdos_renyi", {"p": 0.3})
 
+#: Defaults for the CLI (`--horizon`, `--seeds`); see scripts/_args.py.
 HORIZON = 1500
 EVAL_EVERY = 5
 SEEDS = [0, 1, 2]
-
-DEVICE = "auto"
-DTYPE = "float64"
-FRESH = False
-DATASET = "mnist"
 
 DATA_ROOT = ROOT / "data"
 STATUS = ROOT / "results" / "x22_status.json"
@@ -112,13 +109,13 @@ def settled(run: str, learner: str, metric: str = "error_rate") -> float:
         [pd.read_parquet(f, columns=["learner", "metric", "evalset", "t", "value"])
          for f in files], ignore_index=True)
     rows = frame[(frame["learner"] == learner) & (frame["metric"] == metric)
-                 & (frame["t"] >= int(0.8 * HORIZON))]
+                 & (frame["t"] >= int(0.8 * frame["t"].max()))]
     if metric == "error_rate":
         rows = rows[rows["evalset"] == "current"]
     return float(rows["value"].mean()) if len(rows) else float("inf")
 
 
-def config_for(alpha: float):
+def config_for(args, alpha: float):
     topology, params = TOPOLOGY
     entries = [
         {"name": name, "transition": "scalar", "gamma": GAMMA, "lambda_forget": 1.0,
@@ -129,31 +126,35 @@ def config_for(alpha: float):
     return load_config(
         "x1_stationary",
         overrides={
-            "run": {"name": run_name(alpha), "horizon": HORIZON, "eval_every": EVAL_EVERY,
-                    "seeds": SEEDS, "device": DEVICE, "dtype": DTYPE},
+            "run": {"name": run_name(alpha), "horizon": args.horizon,
+                    "eval_every": EVAL_EVERY, "seeds": args.seeds,
+                    "device": args.device, "dtype": args.dtype},
             "graph": {"topology": topology, "params": dict(params)},
-            "env": {"dataset": DATASET, "drift": dict(CONDITION)},
+            "env": {"dataset": args.dataset, "drift": dict(CONDITION)},
             "learners": entries,
             "eval": {"evalsets": ["prequential", "current"]},
         },
     )
 
 
-def main(fresh: bool = FRESH) -> int:
-    if not dataset_is_cached(DATASET, DATA_ROOT):
-        print(f"{DATASET} is not cached. Run scripts/check_data.py once, then retry.")
+def main(argv: list[str] | None = None) -> int:
+    parser = sweep_parser(__doc__.split("\n")[0], horizon=HORIZON, seeds=SEEDS)
+    args = parser.parse_args(argv)
+
+    if not dataset_is_cached(args.dataset, DATA_ROOT):
+        print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
         return 1
-    train, test = load_dataset(DATASET, DATA_ROOT, download=False)
+    train, test = load_dataset(args.dataset, DATA_ROOT, download=False)
 
     status = json.loads(STATUS.read_text(encoding="utf-8")) if STATUS.exists() else {}
-    print(f"X22: {len(EXPONENTS)} values of alpha at {len(SEEDS)} seeds, "
+    print(f"X22: {len(EXPONENTS)} values of alpha at {len(args.seeds)} seeds, "
           f"both adapt scopes in each cell")
     print(f"     q={PROCESS_NOISE:g}, sigma_0^2={PRIOR_SCALE:g}, gamma={GAMMA:g} "
           f"(X20's selection, held)\n", flush=True)
 
     started = time.time()
     for index, alpha in enumerate(EXPONENTS, start=1):
-        note = run_one(config_for(alpha), train, test, fresh)
+        note = run_one(config_for(args, alpha), train, test, args.fresh)
         status[run_name(alpha)] = note
         STATUS.parent.mkdir(parents=True, exist_ok=True)
         STATUS.write_text(json.dumps(status, indent=2), encoding="utf-8")
@@ -199,4 +200,4 @@ def report() -> None:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(fresh="--fresh" in sys.argv))
+    raise SystemExit(main())

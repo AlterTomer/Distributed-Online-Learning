@@ -317,6 +317,13 @@ class EnvConfig:
 
 @dataclass
 class ModelConfig:
+    #: Which observation model the filter assumes. Categorical is the
+    #: classification default; gaussian makes the EKF an exact KF under a
+    #: linear probe, which is the setting D60 says exposes bugs the softmax
+    #: path hides. Resolved through likelihoods/registry.py.
+    likelihood: str = "categorical"
+    #: Diagonal of R, for the gaussian likelihood only. Ignored otherwise.
+    observation_variance: float = 1.0
     name: str = "mlp_small"
     input_size: int = 14
     hidden: list[int] = field(default_factory=lambda: [14])
@@ -327,6 +334,16 @@ class ModelConfig:
     activation: str = "gelu"
 
     def __post_init__(self) -> None:
+        # Imported here, not at module scope: config.py is imported by
+        # everything and the likelihoods pull in torch.
+        from dekf_bench.likelihoods.registry import likelihood_names  # noqa: PLC0415
+
+        _one_of(self.likelihood, likelihood_names(), "model.likelihood")
+        if self.observation_variance <= 0.0:
+            raise ConfigError(
+                f"model.observation_variance must be > 0, got "
+                f"{self.observation_variance}"
+            )
         _one_of(self.activation, ACTIVATIONS, "model.activation")
         if self.input_size < 1:
             raise ConfigError(f"model.input_size must be >= 1, got {self.input_size}")
