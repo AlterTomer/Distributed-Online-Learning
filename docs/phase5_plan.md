@@ -526,3 +526,94 @@ agent. They are the reason phase 5 is not just "the same experiments again".
   ranked against the baselines as if it were a method: it is a reference line,
   and D77's floor rule applies to it like anything else. Cheap: one extra learner
   entry in an existing sweep, no new script.
+- [ ] **P5.25** **A second task: Mackey–Glass regression with a causal
+  Transformer.** ⏸ **Decide after X22.** Proposed by the user (`Mackey_Glass_
+  Transformer_Regression_Summary.pdf`, 2026-09-13). One-step-ahead prediction of
+  the Mackey–Glass delay system ($\beta=0.2$, $\gamma=0.1$, $n=10$, $\tau=17$)
+  from a window of $L$ past samples, one parameter update per revealed sample.
+
+  **Why it is the right second task rather than a second image set.** It changes
+  three things at once: the likelihood (Gaussian, not softmax), the architecture
+  (causal Transformer, not \ac{mlp}), and the information geometry. A second
+  classification dataset would mostly re-measure what X1–X23 already say.
+
+  It also unblocks two things that are built and unreachable. `gaussian.py` sat
+  instantiable-but-uninstantiated until the likelihood registry landed, and it is
+  the path where `score` and `innovation` differ by $\sigma^{-2}$ — the D60 bug
+  class the softmax path structurally hides. And with a linear head it *is*
+  `ex:linear`: Gaussian observations plus a linear probe make the EKF an exact
+  Kalman filter, so `prop:complete_graph` could be verified with no
+  linearisation error at all, against the 4.4e-16 we currently get through the
+  softmax path.
+
+  **Settled: the rank-1 problem, and the fix.** Scalar regression gives
+  $\bm J^{\trans}\bm R^{-1}\bm J$ rank **1** — one new information direction per
+  observation, against the softmax Fisher's $q-1=9$. At $p\approx600$ that is
+  ~600 steps before the filter has seen every direction once, and a diffusing
+  agent gets $1/N$ of that; the deficit would be measured in a starved regime
+  that is not comparable to anything else we have.
+
+  The fix is the user's: predict at **every causal position**, not just the last.
+  A decoder already computes $z_i=f(x_{\le i})$ for all $i$, so one pass yields
+  $L$ predictions and $L$ targets, and $\bm J\in\mathbb R^{L\times p}$ has rank up
+  to $\min(L,p)$. At $L=32$ that is rank 32 per step — *better* than the softmax
+  path, and it reuses the existing stacked-$\bm B$ machinery unchanged, only
+  wider (the Woodbury inner solve goes $9\times9 \to L\times L$, still trivial).
+
+  ⚠ **Only with non-overlapping windows.** Sliding by one *and* scoring every
+  position means $x_{t+1}$ is a target in $L$ consecutive windows, so its
+  measurement enters the belief $L$ times — temporal data incest, structurally the
+  same defect the reachability guard exists to prevent in the graph direction.
+  Stride the windows by $L$: one step then consumes $L$ fresh samples and each is
+  a target exactly once, which is also the natural analogue of
+  `samples_per_node_per_step`.
+
+  ⚠ **Two known mismatches, both measurable rather than fatal.** Within a window
+  the $L$ innovations are *correlated* — consecutive predictions of a smooth
+  series share structure — so $\bm R=\sigma^2\bm I$ credits the filter with more
+  independent evidence than it received. That is D79's error with the sign
+  flipped, and it is the same question as P5.14. Separately, position $1$ predicts
+  from one sample and position $L$ from $L$, so the innovation variance genuinely
+  differs by position; a position-dependent $\bm R$ is the principled answer and
+  accepting the mismatch is the cheap one.
+
+  **Settled: size.** $p$ is not the constraint the \ac{mlp} made it. The
+  suggested config is far *under* budget, so the architecture can grow:
+
+  | $L$ | $d_{\text{model}}$ | heads | $d_{\text{FF}}$ | blocks | $p$ | vs 2908 | steps to span $p$ |
+  |---|---|---|---|---|---|---|---|
+  | 32 | 8 | 2 | 16 | 1 | 625 | 0.21× | 20 |
+  | 32 | 16 | 2 | 32 | 1 | 2273 | 0.78× | 72 |
+  | 32 | 16 | 4 | 64 | 2 | 6609 | 2.27× | 207 |
+  | 64 | 32 | 4 | 128 | 2 | 25505 | 8.77× | 399 |
+
+  The last column is with many-to-many at that $L$. The dense-covariance ceiling
+  is unchanged at $p\approx3000$ for ten agents (D1), so $L=32$, $d=16$, one
+  block, $p=2273$ is the natural first config: comparable to the \ac{mlp}, spans
+  its parameter space in 72 steps, and leaves `diffusion_ekf_full` affordable at
+  $2\,584$k scalars per link per step against the \ac{mlp}'s $4\,230$k.
+
+  **Open, and blocking: what drifts.** Mackey–Glass at fixed parameters is
+  *stationary* — chaotic, but the map to be learned does not move — so damage is
+  identically zero and X9/X11/X12/X16/X18 have no analogue. The user agrees the
+  drift is needed. The natural channel is the system parameters themselves,
+  $\tau: 17\to23$ or $\beta$ over the run, which is a genuine concept drift in the
+  data-generating law. But `env/drift.py` speaks in rotation angles and
+  `DatasetSpec` carries `rotation_cap_degrees`, so this is the task-definition
+  change `data/registry.py` already warns is out of its scope.
+
+  **Open: how agents partition the stream.** The proposal says agents receive
+  "distinct chronological observations generated by the same law (for example,
+  independent noisy observations)". Those are two different experiments.
+  $N$ noisy observations of the *same* $x_t$ is the cleanest possible exactness
+  gate and the most favourable case for diffusion; *different segments* of the
+  trajectory puts agents at different phases of the attractor and is much closer
+  to X8, where cooperation actively costs. Pick deliberately.
+
+  **Cost, honestly.** New data shape (`DatasetSpec` assumes images — channels,
+  image_size, num_classes), new model with `jacobian`/`vjp`, a second drift
+  channel, RMSE and predictive-interval metrics in place of error and
+  \ac{ece}. Roughly one to two weeks before the first number. Calibration gets
+  *easier*, though: under a Gaussian the predictive variance is
+  $\bm H\bm P\bm H^{\trans}+\bm R$ and is directly scoreable against realised
+  squared error, which is P5.11 and P5.14 without the softmax obstruction.
