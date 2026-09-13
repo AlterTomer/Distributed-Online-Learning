@@ -1414,3 +1414,56 @@ parameter norm is where that shows: 58.7 here against the centralised filter's
 84.8, with one-hop overshooting to 139.3 when it really does gather more
 information. Raising $q$ recovered part of the norm (34.8 → 58.7 between X19 and
 X20) and then stopped.
+
+## How far may an agent extrapolate its own evidence? (X22)
+
+$\alpha$ is `information_exponent`: the adapt step scales $\bar{\bm B}$ by
+$\sqrt c$ and the score by $c$, with $c=(N/\lvert\mathcal M_v\rvert)^{\alpha}$.
+$\alpha=0$ claims only what the agent gathered; $\alpha=1$ claims the whole
+network's worth, which is the "just multiply by $N$" fix. Five values, both adapt
+scopes, 3 seeds, 15° every 25 steps over ER $p=0.3$, at the X20/X23 setting
+($\gamma=0.9995$, $q=6\times10^{-4}$, $\sigma_0^2=10^{-3}$).
+
+**Full ablation — kept complete rather than summarised, for the paper.**
+
+| $\alpha$ | error | ECE | overconf. | $\lVert\bm\theta\rVert^2$ |
+|---|---|---|---|---|
+| **`diffusion_ekf` (local adapt)** | | | | |
+| 0 | **0.1173** | 0.0379 | −0.0362 | 58.7 |
+| 0.25 | 0.1232 | 0.0319 | −0.0285 | 68.6 |
+| 0.5 | 0.1306 | 0.0277 | −0.0213 | 86.7 |
+| 0.75 | 0.1686 | 0.0306 | −0.0141 | 1 094.9 |
+| 1 | 0.8941 | 0.0134 | +0.0130 | 3 807 914 |
+| **`diffusion_ekf_onehop_mean`** | | | | |
+| 0 | **0.1077** | 0.0207 | −0.0166 | 134.6 |
+| 0.25 | 0.1119 | 0.0209 | −0.0162 | 153.5 |
+| 0.5 | 0.1185 | 0.0193 | −0.0126 | 177.8 |
+| 0.75 | 0.1276 | 0.0198 | −0.0077 | 215.4 |
+| 1 | 0.1344 | 0.0209 | −0.0067 | 262.1 |
+
+Per-seed error at the two ends, since the ablation may need the spread:
+
+| learner | $\alpha$ | s0 | s1 | s2 |
+|---|---|---|---|---|
+| local | 0 | 0.1170 | 0.1167 | 0.1182 |
+| local | 1 | 0.8939 | 0.8937 | 0.8946 |
+| one-hop | 0 | 0.1069 | 0.1096 | 0.1066 |
+| one-hop | 1 | 0.1596 | 0.1237 | 0.1201 |
+
+**$\alpha=0$ wins on every criterion.** Error is monotone increasing in $\alpha$
+for both scopes, significant from the first step ($+0.0059$, $t=2.93$ local;
+$+0.0043$, $t=3.99$ one-hop). At $\alpha=1$ the local-adapt filter reaches chance.
+ECE improves with $\alpha$ on the local adapt but only by pricing error ten times
+above threshold, and on one-hop it is flat across the range.
+
+**Why**: scaling one agent's information by $N$ does not create $N$ agents' worth
+of independent evidence, it makes the filter confident about evidence it never
+received — smaller $\bm P$, larger gain, a Gauss–Newton step beyond where the
+linearisation holds. The $1/N$ deficit is real information, not a missing
+constant (D87). What does close it is gathering more: one-hop beats local at every
+$\alpha$.
+
+⚠ Every cell recorded `ok`, including the destroyed one, because
+`trust_region_ratio` was 1e6 and the mean only reached 323× its initial norm. The
+guard is now **50**. These cells are not re-run: the $\alpha=1$ numbers describe
+what $\alpha=1$ does better than a `_diverged` marker would.

@@ -431,11 +431,11 @@ class LearnerConfig:
     #: filter reaches ||m||/||theta_0|| of about 1.3, and reaches it whether the
     #: data are stationary, drifting at 0.025 deg/step, or shifting every 2 steps.
     #: The default therefore clears observed behaviour by roughly six orders of
-    #: magnitude, which makes it safe rather than tight: anything from ~10 to
-    #: ~1e120 would separate the same two populations on the runs done so far.
-    #: Tighten it for a model whose weights are expected to grow, and widen it
-    #: only with a reason.
-    trust_region_ratio: float = 1.0e6
+    #: magnitude. Tightened from 1e6 to 50 on 2026-09-13: at 1e6 a belief could
+    #: reach chance accuracy with a norm 323x its initial one and still be
+    #: recorded as a clean run (X22). Healthy runs sit between 1.3x and 5.5x.
+    #: Widen it only for a model whose weights are genuinely expected to grow.
+    trust_region_ratio: float = 50.0
 
     def __post_init__(self) -> None:
         if self.freeze_after is not None:

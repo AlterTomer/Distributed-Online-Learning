@@ -119,7 +119,7 @@ overrides={"learners": [{
     "gamma": 0.9995,
     "process_noise_q": 6e-5,
     "prior_scale": 0.01,        # sigma_0^2
-    "trust_region_ratio": 1e6,  # the divergence guard
+    "trust_region_ratio": 50,   # the divergence guard
 }]}
 ```
 
@@ -356,7 +356,7 @@ the state that caused it.
 | `ReferenceError: ... train_reference.py` | The offline reference is not cached. Run that script once. |
 | `ConfigError: learner[x].prior_scale must be > 0` | Zero prior variance is a point mass the filter can never move away from. |
 | `FilterError: ... diverged at step N` | The mean went non-finite. Usually `prior_scale` too large. |
-| `FilterError: ... left the trust region` | The mean is finite but a millionfold from $\bm\theta_0$ — diverged without overflowing. Tune `trust_region_ratio` only if your model's weights genuinely grow. |
+| `FilterError: ... left the trust region` | The mean is finite but more than 50× $\lVert\bm\theta_0\rVert$ — diverged without overflowing. Healthy runs sit at 1.3–5.5×, so this is a real failure, not a tight threshold. Raise `trust_region_ratio` only if your model's weights genuinely grow. |
 | `FilterError: ... lost positive definiteness` | The covariance collapsed. With $\gamma=1$ and $\bm Q=\zero$ it only ever shrinks; give the filter a way to stay uncertain. |
 | `MetricError: probabilities must sum to one` | Almost always a diverged belief reaching the metrics. The guards above should catch it first; if this fires, one did not. |
 | `BreakError: no rows to pool a noise estimate from` | The learner name is not in the run, or the filter arguments excluded everything. |

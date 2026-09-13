@@ -212,7 +212,10 @@ rule. Ordered by value per unit of work.
   shipped was maximally pessimistic?** If covariance sharing pays anywhere, it
   pays at $\beta=2$.
 
-  **Run it as X24: $\alpha\times\beta$ jointly on the full-sharing variants.**
+  **Run it as X24** — `scripts/run_diffusion_combine.py`, written and
+  pre-flighted 2026-09-13: $\alpha\times\beta$ jointly on the full-sharing
+  variants, one learner per cell (18 cells), peak 3.43 GiB of 8.00 measured at
+  the corners.
   Jointly for D82's reason — $\alpha$ inflates the information entering the adapt
   step and $\beta$ deflates the covariance leaving the combine, so they are
   substitutes to first order and a coordinate pass would measure each at the

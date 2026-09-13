@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from dekf_bench.learners.ekf import CentralizedEKF, FilterError
+from dekf_bench.learners.ekf import TRUST_REGION_RATIO, CentralizedEKF, FilterError
 from dekf_bench.likelihoods.categorical import Categorical
 from dekf_bench.likelihoods.gaussian import Gaussian
 from dekf_bench.models.mlp import MLP
@@ -230,13 +230,22 @@ def test_a_finite_but_runaway_mean_is_caught_before_the_metrics_see_it() -> None
     filt = _filter(model, Categorical(output_dim=4))
     healthy = filt.flat_params(0).clone()
 
-    # Well inside the region: nothing fires, and the belief is untouched.
-    filt._mean = healthy * 1.0e3
+    # Well inside the region: nothing fires, and the belief is untouched. The
+    # factor is tied to the constant rather than written out, so tightening the
+    # threshold cannot leave this test asserting the opposite of what it means --
+    # which is what happened when it moved from 1e6 to 50.
+    filt._mean = healthy * (0.1 * TRUST_REGION_RATIO)
     filt._check_belief()
 
     # The X15 state, in miniature. Still finite, so the isfinite test passes.
     filt._mean = healthy * 1.0e9
     assert bool(torch.isfinite(filt._mean).all())
+    with pytest.raises(FilterError, match="left the trust region"):
+        filt._check_belief()
+
+    # And just the other side of the line, so the guard is pinned from both
+    # directions rather than only by a value nine decades away.
+    filt._mean = healthy * (2.0 * TRUST_REGION_RATIO)
     with pytest.raises(FilterError, match="left the trust region"):
         filt._check_belief()
 
@@ -323,7 +332,10 @@ def test_state_is_one_object_that_can_be_restored_into() -> None:
     assert filt.state(2) is filt.state(0), "one belief means one object"
 
     # Exactly what the recorder does on resume.
-    restored_theta = torch.arange(model.num_params, dtype=torch.float64)
+    # linspace, not arange: arange's norm is 493x theta_0's, which the trust
+    # region now refuses (it is 50x). The test is about object identity on
+    # restore, so the magnitude should look like a belief, not like divergence.
+    restored_theta = torch.linspace(-1.0, 1.0, model.num_params, dtype=torch.float64)
     restored_cov = 0.5 * torch.eye(model.num_params, dtype=torch.float64)
     state = filt.state(0)
     state.theta = restored_theta.clone()

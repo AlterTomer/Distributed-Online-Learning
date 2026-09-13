@@ -45,11 +45,17 @@ class FilterError(LearnerError):
 #: Measured on 2026-09-05 at the tuned setting: a healthy filter reaches a ratio
 #: of about 1.3, and reaches it whether the data are stationary, drifting at
 #: 0.025 deg/step, or shifting every 2 steps. The diverged X15 cell reached
-#: 5.6e130. Any threshold between those two separates them, so this one is safe
-#: rather than tight, and nothing in the analysis depends on its exact value --
-#: it exists only because finiteness is not a usable test in float64 (see
-#: `_check_belief`).
-TRUST_REGION_RATIO = 1.0e6
+#: 5.6e130.
+#:
+#: ⚠ **Tightened from 1e6 to 50 on 2026-09-13, because 1e6 did not do its job.**
+#: X22's alpha=1 cell finished at chance error (0.8941 against a 0.9 floor) with
+#: the mean 323x its initial norm, and was recorded as a clean run -- exactly the
+#: failure D61 introduced this guard for, waved through because the threshold only
+#: ever caught overflow-scale blowup, which finiteness already catches. The
+#: separation is not close: every healthy run measured sits between 1.3x and 5.5x,
+#: the centralised filter at 1.5x, so 50 is an order of magnitude above the worst
+#: legitimate belief and six times below the worst destroyed one.
+TRUST_REGION_RATIO = 50.0
 
 
 def information_pair(

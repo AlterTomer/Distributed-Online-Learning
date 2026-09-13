@@ -3406,3 +3406,81 @@ has not earned, and [[D80]] says \ac{ece} is exactly where that shows.
 it was designed to do. It does not say whether doing that is good. A move from
 58.7 toward 84.8 confirms $\alpha$ bites; only error and \ac{ece} say whether the
 bite helps.
+
+### ✅ D87. Multiplying by $N$ does not work: the deficit is information, not bookkeeping
+
+**The question, asked by the user several sessions before it could be answered.**
+"Can we multiply the diff-EKF by $N$ to fix this? An agent might not know all the
+agents, but it is fair to assume we can provide how many there are." It is the
+right question — [[D79]] says each agent accumulates $\bm\Delta_v$ where the
+centralised filter accumulates $\sum_v\bm\Delta_v$, and $N$ is exactly the missing
+factor.
+
+`information_exponent` $\alpha$ implements it as a family:
+$c=(N/\lvert\mathcal M_v\rvert)^{\alpha}$ scaling $\bar{\bm B}$ by $\sqrt c$ and
+the score by $c$, with $\alpha=0$ claiming nothing and $\alpha=1$ claiming the
+whole network's worth. X22 swept it at five values on both adapt scopes.
+
+**Measured: $\alpha=0$ wins, and $\alpha$ hurts monotonically.**
+
+| $\alpha$ | `diffusion_ekf` | `onehop_mean` |
+|---|---|---|
+| **0** | **0.1173** | **0.1077** |
+| 0.25 | 0.1232 | 0.1119 |
+| 0.5 | 0.1306 | 0.1185 |
+| 0.75 | 0.1686 | 0.1276 |
+| 1 | **0.8941** | 0.1344 |
+
+Significant from the first step — paired over three seeds, $\alpha=0.25$ costs
+$+0.0059$ ($t=2.93$) on the local adapt and $+0.0043$ ($t=3.99$) on one-hop. And
+$\alpha$ is bounded by its own meaning, so an argmin at $0$ is a real answer
+rather than a truncated grid.
+
+At $\alpha=1$ — which *is* multiplying by $N$ — the local-adapt filter does not
+degrade, it is destroyed: 0.8941 against a chance level of 0.9.
+
+**The mechanism is in the parameter norm.**
+
+| $\alpha$ | $\lVert\bm\theta\rVert^2$, local | $\lVert\bm\theta\rVert^2$, one-hop |
+|---|---|---|
+| 0 | 58.7 | 134.6 |
+| 0.5 | 86.7 | 177.8 |
+| 0.75 | 1 094.9 | 215.4 |
+| 1 | $3.81\times10^{6}$ | 262.1 |
+
+$\alpha$ does mechanically what it was designed to do — inflate the claimed
+information, shrink $\bm P$, raise the gain — and that is the whole problem.
+Scaling one agent's information by $N$ does not manufacture $N$ agents' worth of
+*independent* evidence; it makes the filter confident about evidence it never
+received, and a Gauss–Newton step taken under an over-small covariance walks
+further than the linearisation supports.
+
+**This is [[D79]]'s lesson from the other side, and it is worth stating as a pair.**
+Information that was never gathered cannot be *fused* into existence — that was
+`rem:no_combine_fix`, about the combine. It cannot be *asserted* into existence
+either. The $1/N$ deficit is a shortfall of real evidence, not a missing constant,
+and no rescaling at either end of the step reaches it. What closes it is gathering
+more: one-hop beats local at every $\alpha$, by 0.0096 to 0.76.
+
+**Calibration is the one place $\alpha$ helps, and not enough.** On the local
+adapt \ac{ece} falls 0.0379 → 0.0134 and overconfidence moves $-0.0362$ → $+0.0130$,
+so $\alpha$ genuinely cures the under-confidence [[D80]] identified — but the best
+\ac{ece} sits on a model at chance, and the $\alpha=0.5$ trade is $+0.0133$ error
+(ten times the threshold) for $-0.0102$ \ac{ece}. On one-hop \ac{ece} is flat
+across the whole range (0.0193–0.0209): $\alpha$ buys nothing and costs error. On
+all three criteria the user set in advance — accuracy, calibration, norm-matching
+as a diagnostic ([[D86]]) — the answer is $\alpha=0$.
+
+**⚠ And the run that exposed the guard.** Every X22 cell was recorded `ok`,
+including the destroyed one: the mean reached 323× its initial norm while
+`trust_region_ratio` was 1e6, so nothing fired. That is precisely the failure
+[[D61]] introduced the guard to catch, waved through because the threshold only ever
+caught overflow-scale blowup — which finiteness already catches. Tightened to
+**50** on 2026-09-13: healthy runs measured between 1.3× and 5.5×, the centralised
+filter at 1.5×, so 50 sits an order of magnitude above the worst legitimate belief
+and six times below this one.
+
+X22's cells are **not** re-run under the new guard. The $\alpha=1$ cell would now
+stop at a `_diverged` marker partway, and "error 0.8941 with
+$\lVert\bm\theta\rVert^2=3.8\times10^6$" is the more informative record of what
+$\alpha=1$ does. The numbers stand; only their marker would change.
