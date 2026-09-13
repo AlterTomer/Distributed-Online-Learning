@@ -69,19 +69,47 @@ pip install -e ".[dev]"
 ```
 
 On a CPU-only machine, drop the `+cu126` local version and use the
-`https://download.pytorch.org/whl/cpu` index instead. Everything in phases 1–4 is
-sized for a laptop CPU.
+`https://download.pytorch.org/whl/cpu` index instead.
+
+### What you need to reproduce which results
+
+| | hardware | notes |
+|---|---|---|
+| The SGD baselines (X0–X12) | laptop CPU | sized for it deliberately |
+| Every EKF result (X13 onwards) | **CUDA GPU** | a dense $p\times p$ covariance per agent |
+| The test suite | laptop CPU | 1328 tests, about 90 s |
+
+⚠ **The filter results were produced on CUDA and cannot be reproduced on CPU in
+reasonable time.** Each agent carries a dense $2908\times2908$ covariance in
+float64 — 64.5 MiB, ten of them, with a Cholesky solve per agent per step. The
+reference machine is an RTX 4070 Laptop (8 GiB), where a 1500-step run at five
+seeds takes about 20 minutes; a sweep is hours. `--device cpu` works and is what
+the tests use, but it is for debugging, not for reproducing a published cell.
+
+⚠ **CI is CPU-only and is not a reproduction.** GitHub Actions has no GPU, so CI
+installs the CPU build from a different index than the development machine uses.
+It checks that the code *runs* and that its identities hold; it does not exercise
+the path every published number came from. A green CI is not evidence that the
+CUDA path still reproduces a result — re-run the cell for that.
+
+⚠ **The stated floor of Python 3.11 is not enforced anywhere.** mypy is pinned to
+3.13 locally because `scipy-stubs` fails to parse under 3.11, so nothing checks
+the claim. If you are below 3.13 and something breaks, that is why.
 
 ## Running things
 
 **Start with [`docs/experiments.md`](docs/experiments.md).** It is the index of
-every experiment the benchmark has run — X0 through X18 — giving for each one the
+every experiment the benchmark has run — X0 through X23 — giving for each one the
 question it answers, the exact command, the measured runtime where we have it,
 and which experiments must run before which. `WORKPLAN.md` §6 states the *design*
 of X0–X7 and why each exists; `docs/experiments.md` is what to type.
 
-Every algorithmic entry point is a plain script with editable constants at the
-top, runnable from an IDE with a debugger attached:
+Every algorithmic entry point is a plain script. The run knobs are flags —
+`--horizon`, `--seeds`, `--device`, `--dtype`, `--dataset`, `--fresh`, and
+`--help` lists them with their defaults — and the defaults are the values each
+experiment was run at, so a bare command reproduces the published cell. What a
+sweep *varies* stays in the source, since a run whose name no longer describes it
+is worse than no run:
 
 ```bash
 python scripts/check_environment.py              # graph stats, sample streams, smoke test
@@ -100,6 +128,12 @@ python scripts/run_ekf_retune.py                 # X15, gamma against lambda
 python scripts/run_ekf_ramp.py                   # X16, the filter on X9's ramp
 python scripts/run_ekf_skew.py --lr              # X17, the filter under label skew
 python scripts/run_sawtooth.py --lr              # X18, sawtooth drift
+
+python scripts/run_diffusion_ekf.py --lr         # X19, the diffusion filter's first measurement
+python scripts/run_diffusion_tuning.py --tune    # X20, re-tuning it on its own grid
+python scripts/run_diffusion_gamma.py            # X21, gamma jointly with q
+python scripts/run_diffusion_extrapolation.py    # X22, how far an agent may extrapolate
+python scripts/run_diffusion_joint.py            # X23, all three axes at once
 ```
 
 Several take a `--lr` pass first and **refuse to start without it**, rather than

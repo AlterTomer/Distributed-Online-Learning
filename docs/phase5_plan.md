@@ -198,6 +198,28 @@ rule. Ordered by value per unit of work.
   measures where in $[1,2]$ the truth actually sits by comparing reported variance
   against realised squared error.
 
+  ⚠⚠ **$\beta$ reaches only the full-sharing variants** ([[D85]], found
+  2026-09-13 while deciding whether to fold it into X22). `combine_exponent` is
+  read inside `if self.covariance_sharing == "full"`; under local sharing there is
+  no covariance combine, so each agent keeps its own $\bm P$ and $\beta$ does
+  nothing. Both *deployable* learners are local-sharing, so this is not a free
+  correction to the filter we report — it is a correction to
+  `diffusion_ekf_full`, which costs 2909× the bandwidth.
+
+  That makes the question sharper rather than smaller. X19 measured full sharing
+  at $\beta=1$ and found it buys nothing — but $\beta=1$ is the worst case, which
+  assumes neighbours' errors coincide. **Was full sharing wasted because what it
+  shipped was maximally pessimistic?** If covariance sharing pays anywhere, it
+  pays at $\beta=2$.
+
+  **Run it as X24: $\alpha\times\beta$ jointly on the full-sharing variants.**
+  Jointly for D82's reason — $\alpha$ inflates the information entering the adapt
+  step and $\beta$ deflates the covariance leaving the combine, so they are
+  substitutes to first order and a coordinate pass would measure each at the
+  other's arbitrary value. It cannot ride inside X22: three diffusion filters do
+  not fit in one process, and full sharing needs a second set of covariances live
+  during the mix.
+
 - [ ] **P5.16 — LO-FI: diagonal-plus-low-rank precision.** Represent
   $\bm\Lambda_v\approx\bm D_v+\bm W_v\bm W_v^{\trans}$, $\bm W_v\in\mathbb
   R^{p\times L}$ (Chang et al., CoLLAs 2023). Memory $O(pL)$ instead of $O(p^2)$;
@@ -234,7 +256,11 @@ rule. Ordered by value per unit of work.
   against ground truth. That is the right moment to adopt an approximation, before
   it becomes the only option.
 
-- [ ] **P5.17 — multi-round information flooding, and the reductio it forces.**
+- [~] ⏹ **P5.17 — multi-round information flooding, and the reductio it forces.**
+  **OUT OF SCOPE by [[D84]]** (2026-09-13): $L=1$ is the communication model,
+  so multi-round gathering is not on the table.
+  Kept for the record rather than as work — the distinction matters if a
+  reviewer asks why the ladder stops here. Original scope:
   One round of one-hop gives $\mathcal M_v=\N_v\cup\{v\}$. $L$ rounds with
   **source-tagged** blocks (so each $\bm\Delta_u$ is counted once) give the
   $L$-hop neighbourhood, and at $L=\operatorname{diam}(\G)$ that is $\V$ — i.e.
@@ -271,13 +297,20 @@ in the precision domain, so preserving it means *summing*, and summing evidence
 that already travelled counts it twice — data incest. Every scheme below is
 distinguished by how it earns the right to sum.
 
-- [ ] **P5.19 — the ceiling: source-tagged flooding at $\operatorname{diam}(\G)$
-  rounds.** Exactly the centralised filter (P5.17), and included here **only as the
+- [~] ⏹ **P5.19 — the ceiling: source-tagged flooding at $\operatorname{diam}(\G)$ rounds.**
+  **OUT OF SCOPE by [[D84]]** (2026-09-13): $L=1$ is the communication model, so
+  multi-round gathering is not on the table. Kept for the record rather than as
+  work — the distinction matters if a reviewer asks why the ladder stops here.
+  Original scope: Exactly the centralised filter (P5.17), and included here **only as the
   measured upper bound**, not as a proposal. Establishes what "no information lost"
   is worth in error terms, so every row below is a measured fraction of a real
   number rather than of a hope.
 
-- [ ] **P5.20 — channel filters on a spanning tree.** ⭐ The textbook answer, and
+- [~] ⏹ **P5.20 — channel filters on a spanning tree.**
+  **OUT OF SCOPE by [[D84]]** (2026-09-13): $L=1$ is the communication model,
+  so multi-round gathering is not on the table.
+  Kept for the record rather than as work — the distinction matters if a
+  reviewer asks why the ladder stops here. Original scope:
   the strongest *genuinely decentralised* scheme that is exact. Each link carries a
   filter tracking the information already common to its two endpoints, and each
   agent fuses $\bm\Lambda_v\leftarrow\bm\Lambda_v+\sum_u(\bm\Lambda_u-\bm\Lambda_{

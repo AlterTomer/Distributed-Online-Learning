@@ -3309,3 +3309,100 @@ not, so the difference is overstated unless both come from re-runs.
 
 **Consequence for the plan.** P5.24's mis-tuned arm must be a re-run at the
 reporting seed count, never the tuning grid's cell, for exactly this reason.
+
+### ✅ D84. `adapt_rounds` stays at 1: the communication model is one hop
+
+**Decision.** $L=1$. Agent $v$'s adapt step sees $\mathcal M_v = \N_v^{\mathrm c}$
+and no further. `adapt_rounds` remains implemented and validated, but no
+experiment will sweep it.
+
+**Alternative rejected.** $L>1$, the $L$-hop neighbourhood by boolean
+reachability, up to $L \ge \operatorname{diam}(\G)$ where every agent holds every
+measurement.
+
+**Why.** The setting is that an agent talks to its neighbours. $L>1$ quietly
+replaces that with $L$ rounds of communication per *time step* — $L$ times the
+latency before any agent may update, and a payload that grows with the
+neighbourhood it reaches. Bandwidth is the filter's claim against \ac{atc}
+(D29, D81); spending it $L$-fold to recover information is the trade the method
+exists to avoid.
+
+And the endpoint is a reductio, which P5.19 already recorded: at
+$L \ge \operatorname{diam}(\G)$ the algorithm *is* the centralised filter, reached
+by flooding. "We match the centralised filter" is empty when the method has
+become it. On our own graphs that limit is not far away — ER $p=0.3$ at $N=10$
+has median diameter 4, and a star has diameter 2 — so the interesting range is
+short as well as expensive.
+
+**Consequence if undone.** P5.17 (multi-round flooding), P5.19 (source-tagged
+flooding at $\operatorname{diam}(\G)$) and P5.20 (channel filters on a spanning
+tree) become live again. They are now out of scope by decision rather than
+merely unrun, which is a different thing and should be stated as such if a
+reviewer asks why the ladder stops.
+
+**What stays open.** One-hop *measurement* exchange is not affected — that is
+$L=1$ and is `adapt_scope: one_hop`, which D85 keeps.
+
+### ✅ D85. Both `adapt_scope` values are carried; $\beta$ is not a knob on either
+
+**Decision.** `local` and `one_hop` are both reported, neither is "the" default.
+
+**Why.** They are closer to two methods than to one method with a setting. They
+differ in what crosses the link (a parameter vector against a parameter vector
+plus measurements), in compute, and in privacy — and the evidence does not
+separate them cleanly either, since one-hop wins on error (0.1066 against 0.1189)
+and on \ac{ece} (0.0200 against 0.0384) while carrying a parameter norm of 139.3
+against the centralised filter's 84.8, i.e. it overshoots. Picking a default would
+assert a preference the measurements do not support.
+
+**⚠ And $\beta$ reaches neither of them.** `combine_exponent` is read inside a
+single branch of `combine()`:
+
+```python
+if self.covariance_sharing == "full":
+    total.add_(cov_psi[other], alpha=weight ** self.combine_exponent)
+else:
+    state.extras["P"] = cov_psi[node]      # beta never touched
+```
+
+$\beta$ scales the *covariance combine*, and under local sharing there is no
+covariance combine — each agent keeps its own $\bm P$. Both deployable learners
+(`diffusion_ekf`, `diffusion_ekf_onehop_mean`) are local-sharing, so sweeping
+$\beta$ over them would multiply runtime and return identical rows. Caught before
+X22 rather than after, which is the only reason it is cheap.
+
+**Where $\beta$ does live, and why it is worth a run anyway.**
+`diffusion_ekf_full` and `diffusion_ekf_onehop`. X19 measured full sharing at
+$\beta=1$ and found it buys +0.0002 to +0.0007 for 2909× the bandwidth — nothing.
+But $\beta=1$ is `lem:conservative`, the worst case, which assumes the neighbours'
+errors coincide. So the open question is sharper than "does covariance sharing
+help": *was full sharing wasted because what it shipped was maximally
+pessimistic?* $\beta=2$ assumes independence and divides the combined covariance
+by about $\lvert\mathcal M_v\rvert$. If full sharing pays anywhere, it pays there.
+
+That is X24, and $\alpha$ and $\beta$ must be swept **jointly** for the reason
+[[D82]] establishes: $\alpha$ inflates the information entering the adapt step and
+$\beta$ deflates the covariance leaving the combine, so they are substitutes to
+first order and a coordinate pass would measure one at the other's arbitrary
+value. Memory forbids folding it into X22 — three diffusion filters do not fit in
+one process, and full sharing needs a second set of covariances live during the
+mix.
+
+### ✅ D86. The parameter norm is a diagnostic, not a target
+
+**Decision.** $\lVert\bm\theta\rVert^2$ is tracked and reported; accuracy and
+\ac{ece} decide. No experiment optimises the norm, and no tuning selects on it.
+
+**Why.** [[D80]] made the norm a load-bearing observable — confidence tracks it
+across every method measured — and X22 was framed partly as "does $\alpha$ close
+the gap from 58.7 to the centralised filter's 84.8". That framing is wrong, and
+the user's objection is the reason: **the centralised filter is not the correct
+teacher.** The diffusing agent genuinely holds less information, so a matching
+norm would mean it had become as confident as an estimator that has seen $N$ times
+the data — which is a defect, not a success. It would be claiming confidence it
+has not earned, and [[D80]] says \ac{ece} is exactly where that shows.
+
+**How to read it.** The norm says whether a correction is doing mechanically what
+it was designed to do. It does not say whether doing that is good. A move from
+58.7 toward 84.8 confirms $\alpha$ bites; only error and \ac{ece} say whether the
+bite helps.
