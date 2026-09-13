@@ -1350,7 +1350,49 @@ best, spanning two $\gamma$ and the full two decades of $\sigma_0^2$:
 
 The seed spread within a cell is the size of the gaps between cells, so the
 ordering inside the plateau is not resolved at three seeds. `--tie-break` re-runs
-these seven at five.
+these seven at five:
+
+| $\gamma$ | $\sigma_0^2$ | 3 seeds | 5 seeds | moved |
+|---|---|---|---|---|
+| 0.9995 | 0.1 | 0.1181 | **0.1181** | +0.0001 |
+| 0.999 | 0.1 | 0.1185 | 0.1183 | −0.0002 |
+| 0.9995 | 0.001 | 0.1173 | 0.1189 | +0.0016 |
+| 0.999 | 0.003 | 0.1185 | 0.1190 | +0.0005 |
+| 0.999 | 0.001 | 0.1184 | 0.1191 | +0.0007 |
+| 0.9995 | 0.003 | 0.1175 | 0.1193 | +0.0018 |
+| 0.999 | 0.01 | 0.1186 | 0.1198 | +0.0012 |
+
+**The argmin moves and the move is noise.** Paired across the common seeds,
+$\sigma_0^2=0.1$ against $10^{-3}$ is $-0.00079$ with $\mathrm{sd}=0.00253$
+($t=-0.69$, five pairs), and the sign flips three times. The seven cells span
+0.0017 at five seeds. Any of them is a defensible operating point; the selection
+is $\gamma=0.9995$, $q=6\times10^{-4}$, $\sigma_0^2=10^{-3}$ by continuity with
+X20 rather than because the grid prefers it.
+
+⚠ **The grid's own minimum, 0.1173, is biased low.** The same configuration on
+five seeds settles at **0.1189**, which is what X20's main pass reported and what
+should be quoted — the tie-break reproduces that run bit-for-bit on every seed.
+Selecting the minimum of a noisy surface and then reporting the value you selected
+on is the winner's curse, and 0.0016 of the difference is exactly that (D83).
+
+**What mis-tuning actually costs, measured like for like.** Both arms re-run at
+five seeds, paired by seed, on 15° every 25 over ER:
+
+| | settled error | cost | $t$ |
+|---|---|---|---|
+| `centralized_ekf_gamma` | 0.0931 | — | |
+| `diffusion_ekf_onehop_mean` | 0.1066 | +0.0135 *vs centralised* | 8.19 |
+| `diffusion_ekf`, re-tuned | 0.1189 | +0.0258 *vs centralised* | 14.20 |
+| `diffusion_ekf`, centralised tuning | 0.1351 | **+0.0161** *vs re-tuned* | 6.34 |
+
+Mis-tuning costs +0.0161, which sits **between** the two diffusion variants' own
+deficits rather than above both: more than one-hop's +0.0135, less than the local
+adapt's +0.0258. Choosing the wrong adapt scope costs 0.0123; mis-tuning costs
+0.0161. ⚠ An earlier draft put this at +0.0183 by comparing against the tuning
+grid's own three-seed minimum — 0.0022 of that was winner's curse (D83). The claim
+that survives is not "tuning dominates architecture" but the more useful one: they
+are the same order of magnitude, so an architectural comparison conducted at a
+single shared setting is confounded by an effect as large as the one it measures.
 
 **$\gamma$ remains a three-way trade, not a selection.** At the chosen
 $(q,\sigma_0^2)$:

@@ -3242,7 +3242,7 @@ best, spanning $\gamma\in\{0.9995,0.999\}$ and $\sigma_0^2$ across two decades,
 while the seed-to-seed spread within a cell is 0.0006–0.0023 — the same size as
 the gaps being ranked. Three seeds separate the *grid*; they do not separate a
 plateau. Hence `--tie-break`, which re-runs the tied cells at five seeds in their
-own directories.
+own directories. Its result is [[D83]].
 
 **What does not change.** [[D79]]'s deficit is untouched: this is the filter's own
 tuning, and $\alpha$ — the $c=(N/\lvert\mathcal M_v\rvert)^{\alpha}$ correction —
@@ -3266,3 +3266,46 @@ $\lVert\bm\theta\rVert^2$ reaching $1.3\times10^{7}$ — and only one of those f
 cells tripped the trust-region guard, so "diverged" understates it. $6\times10^{-6}$
 is uniformly poor at every $\gamma$. See [[D79]] for why the filter needs a $q$ ten
 times the centralised one at all.
+
+### ✅ D83. The tie-break: a flat plateau, and a selected value that was biased low
+
+X23's grid left seven cells within the 0.0013 threshold. Re-run at five seeds
+(`run_diffusion_joint.py --tie-break`), two things came out, and only one of them
+is about $\sigma_0^2$.
+
+**The argmin nominally moved, and the move is noise.** At three seeds the best
+cell was $\sigma_0^2=10^{-3}$; at five it is $\sigma_0^2=0.1$. Paired across the
+common seeds the difference is $-0.00079$ with $\mathrm{sd}=0.00253$, so
+$t=-0.69$ on five pairs — and the sign flips three times across the five:
+
+| seed | 0 | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|---|
+| $\sigma_0^2=0.1$ minus $10^{-3}$ | $+0.00037$ | $+0.00265$ | $-0.00074$ | $-0.00404$ | $-0.00217$ |
+
+All seven cells still lie within 0.0017 of each other. This is a flat plateau
+behaving like one: **any of the seven is a defensible operating point, and none is
+preferred.** The variance is dominated by a *seed* effect common to every cell —
+seed 4 is the worst in all seven rows (0.1224 to 0.1262), seed 3 the best in
+four — rather than by anything distinguishing the cells.
+
+**The selected value was biased low, which is the part that matters.** The grid
+picked the cell with the luckiest three seeds and reported its three-seed mean,
+0.1173. The same configuration on five seeds is **0.1189**. That is the winner's
+curse in its plainest form: selecting on a noisy statistic and then reporting the
+statistic you selected on. The gap, 0.0016, is above the noise threshold.
+
+X20's main pass had already reported 0.1189 for this configuration, and the
+tie-break reproduces it **bit-for-bit on every seed** — two runs under different
+names, `x20_every25_jump15_erdos_renyi` and `tb_x23_g0p9995_q0p0006_s0p001`,
+agreeing to six decimals on all five. A determinism check obtained for free, and
+confirmation that the headline number in `results.md` was always the honest one.
+
+**The rule this leaves.** A tuning grid's own minimum is a *selection*, not a
+*measurement*. Quote it to identify which cell won; quote a separate run of that
+cell — at the reporting seed count — for what the configuration achieves. Where
+the two appear side by side, as in the mis-tuning penalty of
+the paper draft, the unselected arm is unbiased and the selected one is
+not, so the difference is overstated unless both come from re-runs.
+
+**Consequence for the plan.** P5.24's mis-tuned arm must be a re-run at the
+reporting seed count, never the tuning grid's cell, for exactly this reason.

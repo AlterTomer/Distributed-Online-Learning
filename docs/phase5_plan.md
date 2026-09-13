@@ -23,11 +23,17 @@ cooperation gap is the question. Carrying the centralised filter is what makes
 each result readable as "how much of the centralised filter does diffusion
 recover", which is the phase-5 claim.
 
-**Hyperparameters**: X13's selected setting — `transition: scalar`, γ=0.9995,
-q=6e-5, σ₀²=0.01 — carried unchanged, the X14 discipline. Re-tune only if a
-result's signature is mis-tuning (belief too diffuse, damage dominated by the
-fitting term), and then report both, the X15 pattern. Each agent sees $1/N$ of
-the information at the same forgetting rate, so σ₀² is the first knob to suspect.
+**Hyperparameters**: `transition: scalar`, γ=0.9995, **q=6e-4, σ₀²=1e-3** — the
+diffusion filter's *own* selection from X20, confirmed jointly with γ by X23.
+⚠ This is **not** X13's centralised setting (q=6e-5, σ₀²=0.01); carrying that one
+costs +0.0161 ($t=6.3$), as much as decentralising does, which is the defect X19
+shipped and X20 caught. Re-tune only if a result's signature is mis-tuning
+(belief too diffuse, damage dominated by the fitting term), and then report both,
+the X15 pattern.
+
+The γ axis stays at 0.9995 by decision, not by measurement: 0.9995, 0.9999 and 1
+all sit on the Pareto frontier (best error, a middle point, best ECE respectively),
+and the choice is deferred until X22 shows whether α moves calibration.
 
 **Cost**: measured from a 60-step smoke run carrying both diffusion variants plus
 the centralised filter and ATC — roughly **1 h per cell at five seeds**, and
@@ -512,13 +518,23 @@ agent. They are the reason phase 5 is not just "the same experiments again".
   centralised selection ($q=6\times10^{-5}$, $\sigma_0^2=0.01$), which is what a
   reasonable person would have used before X20 measured otherwise.
 
-  The number is already in hand and it is not small — X20's grid puts the
-  centralised setting at 0.1356 against the re-tuned 0.1173, a gap of 0.0183,
-  fourteen times the 0.0013 threshold and **larger than the entire centralised-
-  versus-diffusion gap** (0.013 to 0.017) that D79 is written about. Stated
-  plainly: on this benchmark, mis-tuning the filter costs more than distributing
-  it does. That reframes every architectural comparison in the phase, and it is a
-  claim that needs a visible arm rather than a sentence in a design note.
+  The number is in hand and measured like for like (both arms five seeds,
+  2026-09-13): the centralised setting costs **+0.0161**, $t=6.3$. That sits
+  *between* the two diffusion variants' own deficits to the centralised filter —
+  more than one-hop's +0.0135 ($t=8.2$), less than the local adapt's +0.0258
+  ($t=14.2$) — so mis-tuning and decentralising are the same order of magnitude.
+  Choosing the wrong adapt scope costs 0.0123; mis-tuning costs 0.0161.
+
+  Stated plainly: an architectural comparison run at one shared setting is
+  confounded by an effect as large as the one it measures, which is exactly the
+  mistake X19 made and X20 caught. That deserves a visible arm rather than a
+  sentence in a design note.
+
+  ⚠ The arm must be a **re-run at the reporting seed count**, never the tuning
+  grid's own cell ([[D83]]). An earlier draft of this item claimed +0.0183 by
+  comparing against a grid minimum selected on three seeds; 0.0022 of that was
+  winner's curse. Demonstrating that tuning matters with a number inflated by a
+  tuning artefact would be a poor way to make the point.
 
   ⚠ Two traps. The arm must be *mis-tuned*, not *broken* — a $q$ chosen to
   diverge proves nothing anyone disputes; the point is that a defensible setting,
