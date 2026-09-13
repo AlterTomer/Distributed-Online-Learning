@@ -1,8 +1,8 @@
 r"""X23 -- tune the filter's three axes jointly, having so far tuned them in turn.
 
-    python scripts/run_diffusion_joint.py            # the 3-way grid
-    python scripts/run_diffusion_joint.py --help     # every knob
-    python scripts/run_diffusion_joint.py --fresh    # redo
+    python scripts/run_diffusion_joint.py              # the 3-way grid
+    python scripts/run_diffusion_joint.py --tie-break # the plateau, at 5 seeds
+    python scripts/run_diffusion_joint.py --help      # every knob
 
 ## Why
 
@@ -55,6 +55,12 @@ TOPOLOGY = ("erdos_renyi", {"p": 0.3})
 LEARNER = "diffusion_ekf"
 
 HORIZON, SEEDS, EVAL_EVERY = 1500, [0, 1, 2], 5
+
+#: What --tie-break uses unless --seeds says otherwise. Three seeds separate the
+#: grid; they do not separate a plateau whose gaps are the size of the seed
+#: spread.
+TIE_BREAK_SEEDS = [0, 1, 2, 3, 4]
+
 THRESHOLD = 0.0013
 STATUS = ROOT / "results" / "x23_status.json"
 
@@ -134,19 +140,117 @@ def report() -> None:
         print(f"  gap: {gap:+.4f}, {verdict}")
 
 
+def tied_cells() -> list[tuple[float, float, float]]:
+    """Every cell the 3-seed grid places within THRESHOLD of the best one."""
+    scored = [(settled(run_name(g, q, p)), (g, q, p))
+              for g in GAMMAS for q in PROCESS_NOISE for p in PRIOR_SCALES]
+    scored = sorted((v, c) for v, c in scored if v != float("inf"))
+    if not scored:
+        return []
+    return [c for v, c in scored if v - scored[0][0] <= THRESHOLD]
+
+
+def tie_break(args, train, test) -> int:
+    r"""The plateau at five seeds, in its own directories.
+
+    Not more seeds in the same run directory: a completed cell is cached on its
+    ``_complete`` marker, so asking for five seeds where three are recorded
+    returns "cached" and silently reports the three-seed answer. Re-running the
+    tied cells under their own names keeps both measurements, which is the point
+    --- if the ranking at five seeds differs from the ranking at three, that is
+    the finding, and it is unreadable once the three-seed numbers are gone.
+
+    Seeds 0-2 are recomputed rather than reused. They are deterministic, so this
+    costs about 40% of the run and buys the guarantee that all five numbers come
+    from one code state.
+    """
+    cells = tied_cells()
+    if not cells:
+        print("The grid has not run. Start with `python scripts/run_diffusion_joint.py`.")
+        return 1
+
+    status = json.loads(STATUS.read_text(encoding="utf-8")) if STATUS.exists() else {}
+    print(f"X23 tie-break: {len(cells)} cells within {THRESHOLD} of the best, "
+          f"at {len(args.seeds)} seeds\n", flush=True)
+    started = time.time()
+    for index, (gamma, q, prior) in enumerate(cells, start=1):
+        config = config_for(args, gamma, q, prior)
+        config.run.name = "tb_" + run_name(gamma, q, prior)
+        note = run_one(config, train, test, args.fresh)
+        status[config.run.name] = note
+        STATUS.parent.mkdir(parents=True, exist_ok=True)
+        STATUS.write_text(json.dumps(status, indent=2), encoding="utf-8")
+        print(f"[{index}/{len(cells)}] {config.run.name:<37} {note:<28} "
+              f"{(time.time() - started) / 60:.0f} min", flush=True)
+
+    print(f"\ntie-break complete in {(time.time() - started) / 60:.1f} min\n")
+    tie_break_report(args)
+    return 0
+
+
+def tie_break_report(args) -> None:
+    """Both rankings side by side, because the question is whether they agree."""
+    cells = tied_cells()
+    if not cells:
+        return
+    rows = []
+    for gamma, q, prior in cells:
+        three = settled(run_name(gamma, q, prior))
+        five = settled("tb_" + run_name(gamma, q, prior))
+        rows.append((five, three, (gamma, q, prior)))
+
+    wide = len(args.seeds) if args.tie_break else len(TIE_BREAK_SEEDS)
+    print(f"  {'gamma':>8}{'q':>9}{'sigma':>8}"
+          f"{f'{len(SEEDS)} seeds':>11}{f'{wide} seeds':>11}{'moved':>9}")
+    for five, three, (gamma, q, prior) in sorted(rows):
+        moved = f"{five - three:+.4f}" if five == five and five != float("inf") else "-"
+        five_str = f"{five:>11.4f}" if five != float("inf") else f"{'-':>11}"
+        print(f"  {gamma:>8g}{q:>9g}{prior:>8g}{three:>11.4f}{five_str}{moved:>9}")
+
+    if all(f == float("inf") for f, _t, _c in rows):
+        # Without the wider run there is nothing to compare, and sorting on a
+        # column of infinities silently falls back to the 3-seed order -- which
+        # would print "the argmin holds" on evidence that does not exist.
+        print("\n  no tie-break run yet: "
+              "python scripts/run_diffusion_joint.py --tie-break")
+        return
+
+    ranked = [c for _f, _t, c in sorted(rows)]
+    by_three = [c for _t, c in sorted((t, c) for _f, t, c in rows)]
+    if ranked and ranked[0] == by_three[0]:
+        print(f"\n  the argmin holds at {wide} seeds: "
+              f"gamma={ranked[0][0]:g}, q={ranked[0][1]:g}, sigma_0^2={ranked[0][2]:g}")
+    elif ranked:
+        print(f"\n  !! the argmin MOVED: {by_three[0]} at {len(SEEDS)} seeds, "
+              f"{ranked[0]} at {wide}. The plateau is flat and the "
+              f"3-seed ranking was noise.")
+    finite = [f for f, _t, _c in rows if f != float("inf")]
+    if len(finite) > 1:
+        print(f"  plateau spans {max(finite) - min(finite):.4f} at "
+              f"{wide} seeds (threshold {THRESHOLD})")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = sweep_parser(__doc__.split("\n")[0], horizon=HORIZON, seeds=SEEDS)
     parser.add_argument("--report-only", action="store_true",
                         help="print the surface from cells already on disk")
+    parser.add_argument("--tie-break", action="store_true",
+                        help="re-run the cells within the threshold at more seeds")
     args = parser.parse_args(argv)
+    if args.tie_break and args.seeds == list(SEEDS):
+        args.seeds = list(TIE_BREAK_SEEDS)
+        print(f"tie-break: {len(args.seeds)} seeds (pass --seeds to override)")
 
     if args.report_only:
         report()
+        tie_break_report(args)
         return 0
     if not dataset_is_cached(args.dataset, ROOT / "data"):
         print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
         return 1
     train, test = load_dataset(args.dataset, ROOT / "data", download=False)
+    if args.tie_break:
+        return tie_break(args, train, test)
 
     status = json.loads(STATUS.read_text(encoding="utf-8")) if STATUS.exists() else {}
     cells = [(g, q, p) for g in GAMMAS for q in PROCESS_NOISE for p in PRIOR_SCALES]

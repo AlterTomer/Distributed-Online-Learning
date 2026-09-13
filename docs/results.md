@@ -1296,3 +1296,79 @@ accumulated information means a larger $\bm P$, a larger gain and faster
 adaptation; the centralised filter's data advantage makes it more confident and
 therefore more sluggish. **On error — the objective — the centralised filter wins
 all six cells**, as it should (D81).
+
+## Tuning all three axes at once (X23)
+
+X20 swept $(q,\sigma_0^2)$ with $\gamma$ pinned; X21 swept $(\gamma,q)$ with
+$\sigma_0^2$ pinned. Neither ever varied $\gamma$ and $\sigma_0^2$ together, so
+the selection rested on an assumption nobody had tested (D82). X23 crosses all
+three over the region X21 left alive: $\gamma\in\{1,0.9999,0.9995,0.999\}$ ×
+$q\in\{6\times10^{-4},6\times10^{-5}\}$ × $\sigma_0^2\in\{0.1,0.03,0.01,0.003,
+0.001\}$, 40 cells at 3 seeds, `diffusion_ekf` on 15° every 25 steps over
+Erdős–Rényi. No cell diverged.
+
+**Settled error, $q=6\times10^{-4}$:**
+
+| $\gamma$ \ $\sigma_0^2$ | 0.1 | 0.03 | 0.01 | 0.003 | 0.001 |
+|---|---|---|---|---|---|
+| 1 | 0.1219 | 0.1218 | 0.1236 | 0.1216 | 0.1213 |
+| 0.9999 | 0.1205 | 0.1209 | 0.1220 | 0.1199 | 0.1192 |
+| **0.9995** | 0.1181 | 0.1192 | 0.1189 | 0.1175 | **0.1173** |
+| 0.999 | 0.1185 | 0.1199 | 0.1186 | 0.1185 | 0.1184 |
+
+**Settled error, $q=6\times10^{-5}$:**
+
+| $\gamma$ \ $\sigma_0^2$ | 0.1 | 0.03 | 0.01 | 0.003 | 0.001 |
+|---|---|---|---|---|---|
+| 1 | 0.1190 | 0.1240 | 0.1288 | 0.1312 | 0.1317 |
+| 0.9999 | 0.1198 | 0.1252 | 0.1297 | 0.1319 | 0.1329 |
+| 0.9995 | 0.1260 | 0.1323 | 0.1356 | 0.1371 | 0.1385 |
+| 0.999 | 0.1377 | 0.1430 | 0.1449 | 0.1464 | 0.1480 |
+
+**Coordinate descent found the joint optimum.** The argmin is
+$(0.9995,\ 6\times10^{-4},\ 10^{-3})$ at 0.1173 — the setting X20 and X21 reached
+one axis at a time, unchanged to four decimals. Every diffusion result since X20
+keeps its tuning.
+
+**$\sigma_0^2$ couples to $q$, not to $\gamma$.** At $q=6\times10^{-4}$ the
+$\sigma_0^2$ row is flat at *every* $\gamma$ (spread 0.0015–0.0029, argmin
+$10^{-3}$); at $6\times10^{-5}$ it matters at every $\gamma$ (spread 0.0103–0.0132,
+argmin 0.1). The untested corner was empty.
+
+**The selection is a plateau.** Seven cells lie within the 0.0013 threshold of the
+best, spanning two $\gamma$ and the full two decades of $\sigma_0^2$:
+
+| $\gamma$ | $\sigma_0^2$ | error | vs best | seed spread | ECE |
+|---|---|---|---|---|---|
+| 0.9995 | 0.001 | 0.1173 | +0.0000 | 0.0015 | 0.0379 |
+| 0.9995 | 0.003 | 0.1175 | +0.0002 | 0.0006 | 0.0381 |
+| 0.9995 | 0.1 | 0.1181 | +0.0008 | 0.0019 | 0.0376 |
+| 0.999 | 0.001 | 0.1184 | +0.0011 | 0.0020 | 0.0636 |
+| 0.999 | 0.003 | 0.1185 | +0.0011 | 0.0023 | 0.0637 |
+| 0.999 | 0.1 | 0.1185 | +0.0012 | 0.0012 | 0.0641 |
+| 0.999 | 0.01 | 0.1186 | +0.0013 | 0.0019 | 0.0638 |
+
+The seed spread within a cell is the size of the gaps between cells, so the
+ordering inside the plateau is not resolved at three seeds. `--tie-break` re-runs
+these seven at five.
+
+**$\gamma$ remains a three-way trade, not a selection.** At the chosen
+$(q,\sigma_0^2)$:
+
+| $\gamma$ | error | \ac{ece} | $\lVert\bm\theta\rVert^2$ | mean conf |
+|---|---|---|---|---|
+| 0.9995 | **0.1173** | 0.0379 | 58.7 | 0.8465 |
+| 0.9999 | 0.1192 | 0.0228 | 88.5 | 0.8645 |
+| 1 | 0.1213 | **0.0195** | 100.4 | 0.8679 |
+
+All three sit on the Pareto frontier and both gaps clear the 0.0013 threshold, so
+this is a reporting choice rather than a measurement: $\gamma=0.9995$ for accuracy
+claims, $\gamma=1$ for calibration claims, $\gamma=0.9999$ if one setting has to
+serve both — +0.0019 error for a 40% cut in \ac{ece}.
+
+⚠ **$\alpha$ was 0 in every cell.** X23 tunes the filter as built; it does not
+apply the $c=(N/\lvert\mathcal M_v\rvert)^{\alpha}$ correction, which is X22. The
+parameter norm is where that shows: 58.7 here against the centralised filter's
+84.8, with one-hop overshooting to 139.3 when it really does gather more
+information. Raising $q$ recovered part of the norm (34.8 → 58.7 between X19 and
+X20) and then stopped.

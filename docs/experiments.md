@@ -61,7 +61,7 @@ D58). Every script prints a per-cell ETA as it goes.
 | **X20** | Was the diffusion deficit tuning, was the comparison unfair, and does a one-hop adapt repair it? | `run_diffusion_tuning.py --tune` then `run_diffusion_tuning.py` | 2 + 10 h |
 | **X21** | The knob X20 held fixed: $\gamma$ swept jointly with $q$, since $\gamma^2$ is the covariance's only contraction besides information | `run_diffusion_gamma.py` | |
 | **X22** | How far may an agent extrapolate its own batch to the network? $c=(N/|\mathcal M_v|)^{\alpha}$ | `run_diffusion_extrapolation.py` | |
-| **X23** | The three filter axes tuned **jointly** rather than in turn: $\gamma \times q \times \sigma_0^2$ over the region X21 left alive | `run_diffusion_joint.py` | ~2 h |
+| **X23** | The three filter axes tuned **jointly** rather than in turn: $\gamma \times q \times \sigma_0^2$ over the region X21 left alive | `run_diffusion_joint.py`, then `--tie-break` | 2 h + 35 min |
 
 **Order matters in five places.** X13 needs `--baselines` before `--full`, or it
 compares a drift-tuned filter against a stationary-tuned baseline. X14 needs

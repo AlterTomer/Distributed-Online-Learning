@@ -3170,7 +3170,7 @@ expect X21 to find less than D80 claimed it would.
 
 ## 2026-09-12 — Phase 5, the diffusion filter's tuning
 
-### ❓ D82. Three axes tuned in turn is not three axes tuned
+### ✅ D82. Three axes tuned in turn is not three axes tuned — but here they were
 
 **The gap.** X20 swept $(q,\sigma_0^2)$ with $\gamma$ pinned at the value X13
 chose for the *centralised* filter. X21 then swept $(\gamma,q)$ with $\sigma_0^2$
@@ -3211,6 +3211,46 @@ the axis with the steepest surface, and stability there is the best single
 predictor that the rest holds. The case worth watching is $\gamma=1$, where the
 covariance has no contraction at all and a large $\sigma_0^2$ has nothing pulling
 it back — if the surface has a second basin, it is there.
+
+---
+
+**Measured (X23, 40 cells, no divergences).** The joint argmin is
+$(\gamma,q,\sigma_0^2) = (0.9995,\ 6\times10^{-4},\ 10^{-3})$ at **0.1173** —
+*exactly* the setting coordinate descent selected, to four decimals. Sweeping in
+turn cost nothing here.
+
+**The $(\gamma,\sigma_0^2)$ corner is empty, which is the part worth keeping.**
+$\sigma_0^2$ behaves identically at all four $\gamma$:
+
+| $q$ | $\sigma_0^2$ spread, across the four $\gamma$ | argmin $\sigma_0^2$ |
+|---|---|---|
+| $6\times10^{-4}$ | 0.0015 – 0.0029 | $10^{-3}$ at every $\gamma$ |
+| $6\times10^{-5}$ | 0.0103 – 0.0132 | $0.1$ at every $\gamma$ |
+
+So $\sigma_0^2$ couples to $q$ and **not** to $\gamma$. The flip that made the
+axis look dangerous is entirely a $q$ effect, and $\gamma$ does not modulate it.
+The axis X21 pinned was pinnable — which is now measured rather than assumed, and
+that is the whole return on the two hours.
+
+**The $\gamma=1$ basin exists and is shallow.** At $q=6\times10^{-5}$,
+$\sigma_0^2=0.1$ it reaches 0.1190, +0.0017 from the best cell — real, above the
+threshold, and beaten. Predicting where it would be was right; predicting it
+would matter was not.
+
+**The selection is a plateau, not a peak.** Seven cells sit within 0.0013 of the
+best, spanning $\gamma\in\{0.9995,0.999\}$ and $\sigma_0^2$ across two decades,
+while the seed-to-seed spread within a cell is 0.0006–0.0023 — the same size as
+the gaps being ranked. Three seeds separate the *grid*; they do not separate a
+plateau. Hence `--tie-break`, which re-runs the tied cells at five seeds in their
+own directories.
+
+**What does not change.** [[D79]]'s deficit is untouched: this is the filter's own
+tuning, and $\alpha$ — the $c=(N/\lvert\mathcal M_v\rvert)^{\alpha}$ correction —
+was **0 in every X23 cell**. The parameter norm shows it: 58.7 at the selected
+setting against the centralised filter's 84.8, with `diffusion_ekf_onehop_mean`
+overshooting to 139.3 when it genuinely gathers more information. A larger $q$
+bought part of the norm back (34.8 → 58.7 from X19 to X20) but stopped well
+short, which is X22's motivation stated in one number.
 
 **If the prediction holds**, coordinate descent found the joint optimum, X20 and
 X21's settings stand unchanged, and every diffusion result since X20 keeps its
