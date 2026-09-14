@@ -1560,7 +1560,9 @@ covariances differ genuinely and carry what the mean cannot (D89). ⚠ For the
 one-hop adapt full sharing buys nothing even under skew (+0.0009, ns) — the two
 repairs are substitutes.
 
-**The filter loses to 2ψ ATC under severe skew.**
+**The *mean-only local-adapt* filter loses to 2ψ ATC under severe skew; the one-hop variant wins everywhere.**
+
+⚠ "The filter" is ambiguous here and should not be used: the two variants disagree in *sign* at $\beta_{\mathrm{dir}}=0.1$, which is the distinction this experiment exists to draw.
 
 | $\beta_{\mathrm{dir}}$ | local vs ATC | one-hop vs ATC |
 |---|---|---|

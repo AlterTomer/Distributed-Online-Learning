@@ -3632,6 +3632,28 @@ method that mixes a whole belief rather than a point.
 skew 0.1 against $-0.0042$ ($t=-4.96$) at skew 100, a 6.5× swing. Where the shards
 are exchangeable there is little to gather that the mean does not already carry.
 
+**⚠ Do not write "the filter" for these cells.** Against $2\psi$ \ac{atc} at severe
+skew the two variants disagree in *sign* — the mean-only local adapt **loses** by
+$+0.0196$ ($t=3.01$) while one-hop **wins** by $-0.0078$ ($t=-8.22$):
+
+| $\beta_{\mathrm{dir}}$ | local vs \ac{atc} | one-hop vs \ac{atc} |
+|---|---|---|
+| 0.1 | $+0.0196$, $t=+3.01$ | $-0.0078$, $t=-8.22$ |
+| 1 | $-0.0052$ (ns) | $-0.0086$, $t=-7.45$ |
+| 100 | $-0.0028$, $t=-2.87$ | $-0.0070$, $t=-14.03$ |
+
+X20's "all six cells" was measured with the mean-only variant on \ac{iid} data and
+holds there. At severe skew it fails, and only the one-hop adapt carries the claim
+— the same conclusion this note reaches from the covariance side, since one-hop and
+full sharing turn out to be substitutes.
+
+**And the centralised line is flat, not falling.** Its three points are 0.0544,
+0.0563, 0.0558 — non-monotone, paired $t=0.97$ across three seeds, with a seed sd
+at skew 100 of 0.0039, nearly three times the apparent slope. It *must* be flat:
+the centralised filter pools every agent's data, so the union it trains on does not
+depend on how the labels were partitioned. Figure 38(a) therefore draws it as
+markers without a connecting line, with a seed-range band on every series.
+
 **Damage under drift at skew 0.1**, abrupt: centralised 0.0358 < one-hop 0.0431 <
 centralised \ac{sgd} 0.0513 < local diffusion 0.0604 ≈ \ac{atc} 0.0638.
 ⚠ `local_only` shows the *lowest* damage of all, 0.0306, and is excluded: its floor
