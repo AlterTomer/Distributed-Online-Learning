@@ -1420,7 +1420,10 @@ X20) and then stopped.
 $\alpha$ is `information_exponent`: the adapt step scales $\bar{\bm B}$ by
 $\sqrt c$ and the score by $c$, with $c=(N/\lvert\mathcal M_v\rvert)^{\alpha}$.
 $\alpha=0$ claims only what the agent gathered; $\alpha=1$ claims the whole
-network's worth, which is the "just multiply by $N$" fix. Five values, both adapt
+network's worth. ⚠ That is "just multiply by $N$" **for the local adapt only** —
+$c$ is what is still missing, so $\lvert\mathcal M_v\rvert=1$ gives $c=N=10$ while
+one-hop, having already gathered $\approx3.7$ agents' worth, gives $c\approx2.7$.
+Five values, both adapt
 scopes, 3 seeds, 15° every 25 steps over ER $p=0.3$, at the X20/X23 setting
 ($\gamma=0.9995$, $q=6\times10^{-4}$, $\sigma_0^2=10^{-3}$).
 

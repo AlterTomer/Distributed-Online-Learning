@@ -3436,8 +3436,16 @@ $+0.0059$ ($t=2.93$) on the local adapt and $+0.0043$ ($t=3.99$) on one-hop. And
 $\alpha$ is bounded by its own meaning, so an argmin at $0$ is a real answer
 rather than a truncated grid.
 
-At $\alpha=1$ — which *is* multiplying by $N$ — the local-adapt filter does not
-degrade, it is destroyed: 0.8941 against a chance level of 0.9.
+At $\alpha=1$ the local-adapt filter does not degrade, it is destroyed: 0.8941
+against a chance level of 0.9.
+
+⚠ **"$\alpha=1$ is multiplying by $N$" holds for the local adapt only.** The factor
+is $c=N/\lvert\mathcal M_v\rvert$ — what is still *missing*. A local adapt has
+$\lvert\mathcal M_v\rvert=1$, so $c=N=10$ and the phrase is literal. One-hop has
+already gathered $\approx3.7$ agents' worth on \ac{er} $p=0.3$, so $c\approx2.7$.
+The same $\alpha$ therefore means a different extrapolation on each scope — which
+is the reason the sweep carried both, and the reason the two columns are not
+comparable at fixed $\alpha$ the way a shared knob would be.
 
 **The mechanism is in the parameter norm.**
 
