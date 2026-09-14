@@ -1525,3 +1525,62 @@ bandwidth.
 ⚠ The two diverged cells were caught mid-run at 67× the initial norm (steps 436
 and 534) by the trust region tightened to 50 after X22. At the old $10^6$ they
 would have completed and reported a number from a wrecked belief.
+
+## The diffusion filter under Dirichlet label skew (X25)
+
+X17 measured the *centralised* filter under skew and D77 recorded that it
+transfers nothing: pooling undoes the partition. Here each agent holds its own
+skewed shard and the combine step must reconcile beliefs formed from different
+label distributions. X17's axis, $\beta_{\mathrm{dir}}\in\{0.1,1,100\}$, plus its
+matched drift pair at $\beta_{\mathrm{dir}}=0.1$. ER $p=0.3$, 3 seeds, own `--lr`
+pass (X17's rates were selected on a ring).
+
+**Settled error, still cells:**
+
+| $\beta_{\mathrm{dir}}$ | centralised EKF | diff-EKF local | diff-EKF one-hop | centralised SGD | ATC (2ψ) | local only |
+|---|---|---|---|---|---|---|
+| 0.1 | 0.0544 | 0.1137 | 0.0863 | 0.0769 | 0.0941 | 0.6215 |
+| 1 | 0.0563 | 0.0780 | 0.0745 | 0.0789 | 0.0831 | 0.2695 |
+| 100 | 0.0558 | 0.0742 | 0.0701 | 0.0758 | 0.0771 | 0.1320 |
+
+**Spread across the axis** — centralised EKF 0.0019, centralised SGD 0.0031,
+one-hop 0.0163, ATC 0.0171, **local-adapt diffusion 0.0395**, local only 0.4895.
+D77 confirmed: pooling defuses skew, and the diffusion filter is *more*
+skew-sensitive than ATC.
+
+**⭐ Covariance sharing pays, but only under skew.**
+
+| $\beta_{\mathrm{dir}}$ | full sharing | mean-only | paired |
+|---|---|---|---|
+| 100 | 0.0732 | 0.0742 | −0.0010, $t=-2.60$ |
+| **0.1** | **0.0823** | **0.1137** | **−0.0314**, $t=-4.61$ |
+
+X19's "buys nothing" holds only on exchangeable shards. Under skew the agents'
+covariances differ genuinely and carry what the mean cannot (D89). ⚠ For the
+one-hop adapt full sharing buys nothing even under skew (+0.0009, ns) — the two
+repairs are substitutes.
+
+**The filter loses to 2ψ ATC under severe skew.**
+
+| $\beta_{\mathrm{dir}}$ | local vs ATC | one-hop vs ATC |
+|---|---|---|
+| 0.1 | **+0.0196**, $t=+3.01$ | −0.0078, $t=-8.22$ |
+| 1 | −0.0052 (ns) | −0.0086, $t=-7.45$ |
+| 100 | −0.0028, $t=-2.87$ | −0.0070, $t=-14.03$ |
+
+X20's "all six cells" holds on IID data and breaks at severe skew; only one-hop
+survives. ⚠ This is against **momentum ATC at 2ψ**; X25 carried no `atc_plain`, so
+the matched-bandwidth comparison under skew is unmeasured (D90).
+
+**One-hop is worth 6.5× more under skew** — −0.0274 ($t=-3.74$) at 0.1 against
+−0.0042 ($t=-4.96$) at 100.
+
+**Damage under drift at $\beta_{\mathrm{dir}}=0.1$**, abrupt: centralised 0.0358 <
+one-hop 0.0431 < centralised SGD 0.0513 < local diffusion 0.0604 ≈ ATC 0.0638.
+⚠ `local_only`'s 0.0306 is the lowest and is excluded — floor 0.6215, 11.4× the
+centralised filter's, outside D77's 2.5× rule.
+
+**$\beta$ is not made live by skew**: $\beta=2$ costs +0.1341 at skew 0.1 and
++0.1396 at skew 100 for full sharing. The agents' errors coincide because they
+mix, not because their data are alike, so D88 generalises rather than being
+conditional on exchangeability.

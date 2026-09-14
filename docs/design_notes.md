@@ -3566,3 +3566,112 @@ exactly what X22's $\alpha=1$ cell did before the tightening.
 
 **Net: $\alpha=0$, $\beta=1$.** Both free corrections, motivated by the same
 mechanism and aimed at opposite ends of the step, are rejected on measurement.
+
+### ✅ D89. Covariance sharing is useless only while the agents are exchangeable
+
+**The claim being tested.** [[D79]] concluded the combine axis is empty: X19 measured
+full covariance sharing against mean-only at +0.0002 to +0.0007 for 2909× the
+bandwidth, and X24 confirmed it at the re-tuned setting (−0.0018 for the local
+adapt, nothing for one-hop). Both were measured on **IID shards**.
+
+**Measured under Dirichlet skew, the conclusion reverses.**
+
+| $\beta_{\mathrm{dir}}$ | full sharing | mean-only | paired difference |
+|---|---|---|---|
+| 100 (≈IID) | 0.0732 | 0.0742 | $-0.0010$, $t=-2.60$ |
+| **0.1 (severe)** | **0.0823** | **0.1137** | $\mathbf{-0.0314}$, $t=-4.61$ |
+
+Thirty times the noise threshold, and larger than the entire
+centralised-versus-diffusion gap. **The mechanism is exchangeability.** On IID
+shards every agent's $\bm P$ is nearly the same matrix, so shipping it is
+redundant — the mean already carries everything the neighbour knows. Under skew
+the agents hold different label distributions, so their Fisher information points
+in genuinely different directions, and $\bm P$ carries what $\bm\psi$ cannot.
+
+⚠ **And the two repairs are substitutes, not complements.** For the *one-hop*
+adapt, full sharing buys nothing even under severe skew ($+0.0009$, ns). One-hop
+already gathers the neighbours' measurements, so it reconstructs the missing
+directions directly instead of needing the covariance to carry them. Pay for one
+or the other, never both.
+
+**The $\beta$ hypothesis this experiment was built on is refuted.** The prediction
+was that skew decorrelates the agents' errors, so `lem:conservative` would go
+loose and $\beta>1$ would become live. It does not move at all:
+
+| learner | skew | $\beta=2$ minus $\beta=1$ |
+|---|---|---|
+| full sharing | 0.1 | $+0.1341$, $t=9.34$ |
+| full sharing | 100 | $+0.1396$, $t=7.59$ |
+| one-hop, full | 0.1 | $+0.0402$, $t=5.03$ |
+| one-hop, full | 100 | $+0.0414$, $t=7.52$ |
+
+Skew changes the penalty by 0.004 on a 0.134 effect. **The agents' errors coincide
+because they mix at every step, not because their data are alike.** That is a
+stronger conclusion than the one being sought: $\beta=1$ is correct for any
+diffusion algorithm, structurally, and not merely for exchangeable shards.
+[[D88]]'s result generalises rather than being conditional.
+
+**Skew sensitivity, against X6's yardstick.** Spread of settled error across
+$\beta_{\mathrm{dir}}\in\{0.1,1,100\}$:
+
+| learner | spread |
+|---|---|
+| centralised EKF | 0.0019 |
+| centralised SGD | 0.0031 |
+| one-hop diffusion | 0.0163 |
+| \ac{atc} | 0.0171 |
+| **local-adapt diffusion** | **0.0395** |
+| local only | 0.4895 |
+
+[[D77]] is confirmed exactly as stated: the centralised filter barely moves, so
+X17 said nothing about a diffusion filter. And the diffusion filter is **more**
+skew-sensitive than \ac{atc}, which is not the direction one would guess for a
+method that mixes a whole belief rather than a point.
+
+**One-hop's value is almost entirely a skew effect** — $-0.0274$ ($t=-3.74$) at
+skew 0.1 against $-0.0042$ ($t=-4.96$) at skew 100, a 6.5× swing. Where the shards
+are exchangeable there is little to gather that the mean does not already carry.
+
+**Damage under drift at skew 0.1**, abrupt: centralised 0.0358 < one-hop 0.0431 <
+centralised \ac{sgd} 0.0513 < local diffusion 0.0604 ≈ \ac{atc} 0.0638.
+⚠ `local_only` shows the *lowest* damage of all, 0.0306, and is excluded: its floor
+is 0.6215, **11.4×** the centralised filter's, far outside [[D77]]'s 2.5× rule. The
+other five sit within 2.09× and are rankable.
+
+### 🔄 D90. `atc_plain` has been under-tuned since X20, so the matched-bandwidth margin is inflated
+
+**The defect.** X20 built its matched-bandwidth arm as
+`{**PLAIN, "lr": rates[BASELINE["name"]]}` — `atc_plain` carrying the *momentum*
+arm's selected rate. Plain \ac{sgd} at $\eta=0.01$ takes an effective step of
+0.01; momentum 0.9 at the same $\eta$ takes $\eta/(1-\beta)=0.10$. **Ten times
+larger.** `local_only` was given its own rate in the same cell, so the omission is
+inconsistent as well as wrong.
+
+X17's docstring states the principle plainly and predates the mistake: momentum at
+lr 0.05 gives an effective step of 0.5, "at which a single agent lands at chance
+while the same agent at lr 0.005 reaches 0.188". The methods differ in how far one
+update travels, so they do not share an optimum — which is the whole reason
+`sweep_hyperparameters.py` exists.
+
+**What it affects.** X20 reported the filter beating `atc_plain` by 0.048–0.082
+and, to its credit, declined to headline that number: "`atc_plain` is weak enough
+that the matched margin flatters us", choosing the $2\psi$ comparison instead. The
+instinct was right and the diagnosis was wrong. `atc_plain` is not weak because
+plain \ac{sgd} is weak; it is weak because it was handed a rate chosen for a method
+with ten times its effective step. At abrupt/\ac{er} it scored 0.2007 against
+`local_only`'s 0.2097 — a *cooperating* method barely beating a lone agent, which
+should have been read as a tuning failure rather than as a property of the method.
+
+**What it does not affect.** The headline claim rests on the $2\psi$ comparison
+against momentum \ac{atc}, which is correctly tuned and unaffected. D81 stands.
+
+**What is now missing.** X25 carried no `atc_plain` at all, so the
+matched-bandwidth comparison **under skew** is unmeasured — and skew is where
+[[D89]] finds the filter losing to the $2\psi$ arm. Whether it also loses at
+matched bandwidth is the open question, and it is the one a reviewer will ask.
+
+**The fix is cheap**, because the data stream is independent of which learners are
+attached — verified by X25's `lr` cells reproducing the main cells' baseline
+numbers to twelve decimals on shared seeds. So `atc_plain` can run in its own
+cells, at its own selected rate, and be compared paired against what already
+exists. \ac{sgd}-only cells are minutes.
