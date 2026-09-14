@@ -3697,3 +3697,77 @@ attached — verified by X25's `lr` cells reproducing the main cells' baseline
 numbers to twelve decimals on shared seeds. So `atc_plain` can run in its own
 cells, at its own selected rate, and be compared paired against what already
 exists. \ac{sgd}-only cells are minutes.
+
+### ✅ D91. The matched-bandwidth claim survives, at half the margin, and only one-hop survives skew
+
+**What D90 predicted, confirmed.** Given its own grid, `atc_plain` selects
+$\eta=0.05$ at **every one of the eight conditions** --- five times the 0.01 X20
+handed it from the momentum arm. The effective-step argument gave the direction;
+the size was not obvious.
+
+| condition | tuned, $\eta=0.05$ | X20's, $\eta=0.01$ | recovered |
+|---|---|---|---|
+| stationary | 0.0859 | 0.1213 | 0.0354 |
+| linear 0.03 | 0.1094 | 0.1587 | 0.0493 |
+| $15^{\circ}$ every 25 | 0.1408 | 0.2007 | 0.0600 |
+
+So the arm was 0.035 to 0.060 worse than the method is. Its "barely beats
+`local_only`" behaviour was a learning rate, not a property of plain \ac{sgd}, and
+[[D90]]'s diagnosis is closed.
+
+**The filter still wins at matched bandwidth --- and by *more* than against the
+$2\psi$ arm.**
+
+| condition | `diffusion_ekf` | `atc_plain` | gap | $t$ |
+|---|---|---|---|---|
+| stationary | 0.0736 | 0.0859 | $-0.0123$ | $-10.2$ |
+| linear 0.03 | 0.0844 | 0.1094 | $-0.0250$ | $-24.2$ |
+| $15^{\circ}$ every 25 | 0.1189 | 0.1408 | $-0.0218$ | $-24.3$ |
+
+This needs stating carefully, because two numbers move in opposite directions.
+X20's margin against `atc_plain` was 0.048--0.082 and was **inflated** --- the
+honest figure is 0.012--0.025. But that is *larger* than the margin against
+momentum \ac{atc} (0.0059--0.0125), because momentum genuinely helps \ac{atc}
+everywhere ($-0.005$ to $-0.021$). The $2\psi$ arm is the **stronger** baseline,
+not merely the more expensive one.
+
+**So the claim to headline is unchanged and now properly supported**: the filter
+beats the stronger baseline at half its bandwidth, and the matched baseline by
+about twice that margin. Reporting the $2\psi$ comparison remains right, for the
+reason X20 gave and not the one it gave it for.
+
+**Under severe skew the filter loses at matched bandwidth too.**
+
+| condition | gap | $t$ |
+|---|---|---|
+| skew 0.1 | $+0.0073$ | $1.66$ |
+| skew 1 | $-0.0105$ | $-3.12$ |
+| skew 100 | $-0.0114$ | $-20.8$ |
+| skew, abrupt | $-0.0046$ | $-1.02$ |
+| skew, smooth | $+0.0023$ | $0.38$ |
+
+[[D89]]'s loss was not an artefact of comparing against a $2\psi$ arm: the mean-only
+filter loses to diffusion \ac{sgd} at *equal communication* under severe skew.
+⚠ **But $t=1.66$ on three seeds is suggestive, not established.** The \ac{iid}
+cells run $t=10$ to $24$; this one is not in that class and should not be written
+as a finding without more seeds.
+
+**One-hop wins everywhere, and by most where the task is hardest.**
+
+| condition | `onehop_mean` | `atc_plain` | gap | $t$ |
+|---|---|---|---|---|
+| $15^{\circ}$ every 25 | 0.1066 | 0.1408 | $-0.0341$ | $-19.7$ |
+| skew 0.1 | 0.0863 | 0.1064 | $-0.0200$ | $-6.1$ |
+| **skew + abrupt** | **0.1295** | **0.1788** | $\mathbf{-0.0493}$ | $-6.4$ |
+| skew + smooth | 0.0856 | 0.1153 | $-0.0297$ | $-30.8$ |
+
+Its best cell is skew crossed with abrupt drift --- the hardest condition in the
+benchmark --- at $-0.0493$ against the matched arm. That is the strongest case the
+one-hop variant has, and it is the cell nobody would have looked at first.
+
+**Net.** At equal communication the filter beats diffusion \ac{sgd} on every
+\ac{iid} condition and on mild skew; at severe skew only the one-hop adapt does.
+Combined with [[D89]] --- where covariance sharing pays 0.0314 under skew but
+nothing for one-hop --- the picture is consistent: **once the shards stop being
+exchangeable, the mean alone is not enough, and the two ways of fixing that are
+substitutes.**

@@ -36,6 +36,7 @@ Thumbs.db
 /scripts/make_summary_docx.py
 /scripts/make_drift_presentation.py
 /scripts/make_drift_docx.py
+/scripts/make_diffusion_presentation.py
 
 # The figure layer, excluded on the same grounds. Every one of these draws a PNG
 # for those documents: they answer "what should the slide look like", not "does

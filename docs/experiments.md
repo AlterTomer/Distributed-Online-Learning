@@ -64,6 +64,7 @@ D58). Every script prints a per-cell ETA as it goes.
 | **X23** | The three filter axes tuned **jointly** rather than in turn: $\gamma \times q \times \sigma_0^2$ over the region X21 left alive | `run_diffusion_joint.py`, then `--tie-break` | 2 h + 35 min |
 | **X24** | Was covariance sharing wasted rather than useless? $\alpha \times \beta$ on the full-sharing variants, where $\beta=1$ is the conservative bound and $\beta=2$ assumes independent errors | `run_diffusion_combine.py` | 4 h |
 | **X25** | The diffusion filter under Dirichlet label skew — the first time the combine step must reconcile beliefs formed from different label distributions | `run_diffusion_skew.py --lr` then `run_diffusion_skew.py` | 0.3 + 9 h |
+| **X26** | `atc_plain` at its own learning rate, which it had never had — the bandwidth-matched baseline that settles the M2 claim | `run_atc_plain.py --lr` then `run_atc_plain.py` | 1.5 + 0.5 h |
 
 **Order matters in five places.** X13 needs `--baselines` before `--full`, or it
 compares a drift-tuned filter against a stationary-tuned baseline. X14 needs

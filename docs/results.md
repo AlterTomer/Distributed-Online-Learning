@@ -1586,3 +1586,37 @@ centralised filter's, outside D77's 2.5× rule.
 +0.1396 at skew 100 for full sharing. The agents' errors coincide because they
 mix, not because their data are alike, so D88 generalises rather than being
 conditional on exchangeability.
+
+## Matched bandwidth: the filter against `atc_plain` (X26)
+
+`atc_plain` sends exactly $\psi$ — the same payload as `diffusion_ekf` — and had
+never been given its own learning rate: X20 handed it the *momentum* arm's, which
+is a tenfold smaller effective step (D90). Re-tuned on its own grid it selects
+$\eta=0.05$ at **all eight conditions**, against the 0.01 it was given.
+
+| condition | tuned | X20's | recovered |
+|---|---|---|---|
+| stationary | 0.0859 | 0.1213 | 0.0354 |
+| linear 0.03 | 0.1094 | 0.1587 | 0.0493 |
+| 15° every 25 | 0.1408 | 0.2007 | 0.0600 |
+
+**The filter wins at equal bandwidth**, by more than it beats the $2\psi$ arm:
+
+| condition | `diffusion_ekf` | `atc_plain` | gap | $t$ | vs 2ψ ATC |
+|---|---|---|---|---|---|
+| stationary | 0.0736 | 0.0859 | −0.0123 | −10.2 | −0.0059 |
+| linear 0.03 | 0.0844 | 0.1094 | −0.0250 | −24.2 | −0.0125 |
+| 15° every 25 | 0.1189 | 0.1408 | −0.0218 | −24.3 | −0.0123 |
+
+Momentum helps ATC everywhere (−0.005 to −0.021), so the $2\psi$ arm is the
+**stronger** baseline as well as the costlier one. X20's matched margin of
+0.048–0.082 was inflated by the mis-tuning; the honest figure is 0.012–0.025, and
+the $2\psi$ comparison stays the one to headline.
+
+**Under severe skew the loss is real at matched bandwidth too** — +0.0073 at
+$\beta_{\mathrm{dir}}=0.1$ — so D89's result is not an artefact of the 2ψ pairing.
+⚠ $t=1.66$ on three seeds: suggestive, not established. The IID cells run $t$ =
+10–24.
+
+**One-hop beats the matched arm everywhere**, most of all at skew crossed with
+abrupt drift: −0.0493 ($t=-6.4$), the hardest cell in the benchmark.
