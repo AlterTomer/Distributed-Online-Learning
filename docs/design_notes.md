@@ -3484,3 +3484,85 @@ X22's cells are **not** re-run under the new guard. The $\alpha=1$ cell would no
 stop at a `_diverged` marker partway, and "error 0.8941 with
 $\lVert\bm\theta\rVert^2=3.8\times10^6$" is the more informative record of what
 $\alpha=1$ does. The numbers stand; only their marker would change.
+
+### ✅ D88. The conservative bound is not wasteful — it is approximately tight
+
+**The suspicion.** X19 measured full covariance sharing against mean-only and
+found it buys nothing for 2909× the bandwidth, and [[D79]] concluded the combine
+axis is empty. But that rested on the covariance being *worth* having, and
+`eq:cov_combine` ships $\sum_u a_{vu}\bm P^{\psi}_u$ — `lem:conservative`, the
+bound that holds for any cross-correlation precisely because it assumes the
+neighbours' errors **coincide**. A filter handed a worst-case covariance runs a
+smaller gain than its evidence deserves. So: was full sharing *wasted* rather than
+useless? $\beta=2$ assumes independent errors and divides the combined covariance
+by about $\lvert\mathcal M_v\rvert$ — the very factor D79 says the belief is
+inflated by.
+
+**Measured: no. $\beta=1$ wins, decisively, everywhere.**
+
+| | $\beta=1$ | $\beta=1.5$ | $\beta=2$ |
+|---|---|---|---|
+| `diffusion_ekf_full`, $\alpha=0$ | **0.1155** | 0.2616 | 0.3336 |
+| `diffusion_ekf_full`, $\alpha=0.5$ | 0.1272 | 0.1849 | 0.2021 |
+| `diffusion_ekf_onehop`, $\alpha=0$ | **0.1085** | 0.1713 | 0.1872 |
+| `diffusion_ekf_onehop`, $\alpha=0.5$ | 0.1163 | 0.1564 | 0.1695 |
+
+Paired, $\beta=1.5$ costs $+0.0401$ to $+0.1460$ and $\beta=2$ costs $+0.0532$ to
+$+0.2181$, at $t$ from 7.8 to **42.5**. Nothing marginal about it.
+
+**So the agents' errors really do nearly coincide**, which is what the
+conservative bound assumes and what makes it approximately tight. That is not a
+disappointment; it is a measurement of how little independent information
+diffusion actually moves. Ten agents mixing every step, all tracking the same
+$\bm\theta^{\star}$, end up with errors correlated closely enough that treating
+them as independent is badly wrong. **This answers P5.14 from the side nobody
+expected** — the worry recorded there was that the bound might be "wildly loose",
+in which case the conservative framing would be doing less work than it appears.
+The opposite holds.
+
+**⚠ Two predictions of mine, both wrong, both recorded because the errors are
+instructive.**
+
+*First: I expected the far corner $(\alpha=1,\beta=2)$ to diverge.* The opposite —
+$(\alpha=1,\beta=1)$ diverged in both variants, and $\beta\ge1.5$ **rescues** it:
+
+    diffusion_ekf_full     beta=1: DIV   beta=1.5: 0.1571   beta=2: 0.1652
+    diffusion_ekf_onehop   beta=1: DIV   beta=1.5: 0.1450   beta=2: 0.1549
+
+$\beta>1$ shrinks $\bm P$, which shrinks the gain, which offsets $\alpha=1$'s
+tenfold score inflation. **A real interaction, and the justification for sweeping
+jointly after all**: an $\alpha$ line at $\beta=1$ reports a divergence that the
+other axis silently removes, and a $\beta$ line at $\alpha=1$ reports $\beta>1$ as
+*necessary* when at $\alpha=0$ it is ruinous. [[D82]]'s rule earned its keep here
+on a case where the mechanism was known in advance.
+
+*Second: I called $\beta=2$ "the overconfident end".* In *reported* covariance it
+is. In effect it is the reverse — overconfidence runs $-0.0354$ → $-0.3057$ as
+$\beta$ rises, i.e. the filter becomes far more **under**-confident. Shrinking
+$\bm P$ does not merely change what the filter claims; it changes how fast the
+filter learns. Smaller gain, sluggish tracking, a smaller $\lVert\bm\theta\rVert$,
+and [[D80]] says confidence tracks the norm. The dynamic consequence dominates the
+static one, and both point the same way. **A covariance knob in a filter is never
+only a reporting knob** — it sits inside the gain, and anything that changes the
+gain changes the trajectory.
+
+**Full sharing, at the re-tuned setting, refines X19 slightly.**
+
+| adapt scope | full sharing | mean-only | difference |
+|---|---|---|---|
+| local | 0.1155 | 0.1173 | $-0.0018$, $t=-6.88$ |
+| one-hop | 0.1085 | 0.1077 | $+0.0008$, $t=0.97$ (ns) |
+
+At the centralised tuning, full sharing bought nothing. Re-tuned it buys a small
+but statistically clear 0.0018 for the local adapt — above the 0.0013 threshold —
+and nothing for one-hop. The headline survives, since 0.0018 for 2909× the
+bandwidth is still a bad trade, but "buys nothing" becomes "buys 0.0018 where it
+helps at all", and that is the honest form.
+
+**The guard paid for itself on its first run.** Both divergences were caught
+mid-run at 67× the initial norm, at steps 436 and 534. Under the old $10^6$
+threshold they would have completed and reported a number from a wrecked belief —
+exactly what X22's $\alpha=1$ cell did before the tightening.
+
+**Net: $\alpha=0$, $\beta=1$.** Both free corrections, motivated by the same
+mechanism and aimed at opposite ends of the step, are rejected on measurement.

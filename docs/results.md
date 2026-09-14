@@ -1467,3 +1467,61 @@ $\alpha$.
 `trust_region_ratio` was 1e6 and the mean only reached 323× its initial norm. The
 guard is now **50**. These cells are not re-run: the $\alpha=1$ numbers describe
 what $\alpha=1$ does better than a `_diverged` marker would.
+
+## Was covariance sharing wasted rather than useless? (X24)
+
+$\beta$ is `combine_exponent`: the covariance combine is
+$\sum_u a_{vu}^{\beta}\bm P^{\psi}_u$, with $\beta=1$ the conservative bound of
+`lem:conservative` (errors coincide) and $\beta=2$ what independent errors give.
+It reaches only the full-sharing variants — under local sharing there is no
+covariance combine (D85). Swept jointly with $\alpha$, one learner per cell,
+3 seeds, same condition and tuning as X22.
+
+**Full ablation.**
+
+| $\alpha$ | $\beta$ | error | ECE | overconf. |
+|---|---|---|---|---|
+| **`diffusion_ekf_full`** | | | | |
+| 0 | 1 | **0.1155** | 0.0371 | −0.0354 |
+| 0 | 1.5 | 0.2616 | 0.2558 | −0.2557 |
+| 0 | 2 | 0.3336 | 0.3058 | −0.3057 |
+| 0.5 | 1 | 0.1272 | 0.0277 | −0.0228 |
+| 0.5 | 1.5 | 0.1849 | 0.1262 | −0.1261 |
+| 0.5 | 2 | 0.2021 | 0.1617 | −0.1616 |
+| 1 | 1 | **diverged** | — | — |
+| 1 | 1.5 | 0.1571 | 0.0660 | −0.0652 |
+| 1 | 2 | 0.1652 | 0.0815 | −0.0810 |
+| **`diffusion_ekf_onehop`** | | | | |
+| 0 | 1 | **0.1085** | 0.0198 | −0.0156 |
+| 0 | 1.5 | 0.1713 | 0.1041 | −0.1039 |
+| 0 | 2 | 0.1872 | 0.1362 | −0.1361 |
+| 0.5 | 1 | 0.1163 | 0.0191 | −0.0127 |
+| 0.5 | 1.5 | 0.1564 | 0.0783 | −0.0779 |
+| 0.5 | 2 | 0.1695 | 0.1002 | −0.0999 |
+| 1 | 1 | **diverged** | — | — |
+| 1 | 1.5 | 0.1450 | 0.0588 | −0.0581 |
+| 1 | 2 | 0.1549 | 0.0746 | −0.0741 |
+
+**$\beta=1$ wins everywhere**, by $+0.0401$ to $+0.1460$ at $\beta=1.5$ and
+$+0.0532$ to $+0.2181$ at $\beta=2$, $t$ from 7.8 to 42.5. The conservative bound
+is approximately *tight*: the agents' errors nearly coincide, which is exactly what
+it assumes, and treating them as independent is badly wrong (D88, and P5.14
+answered from an unexpected side).
+
+**$\beta$ interacts with $\alpha$.** At $\beta=1$ the $\alpha=1$ cells diverge; at
+$\beta\ge1.5$ they survive, because shrinking $\bm P$ shrinks the gain and offsets
+$\alpha$'s score inflation. Either axis swept alone would have misreported the
+other.
+
+**$\beta>1$ makes the filter more under-confident, not less** — overconfidence
+runs −0.0354 → −0.3057. A covariance knob sits inside the gain, so shrinking $\bm
+P$ slows learning as well as narrowing the claim, and the first effect dominates.
+
+**Full sharing against mean-only, at the re-tuned setting:** −0.0018 ($t=-6.88$)
+for the local adapt, +0.0008 ($t=0.97$, ns) for one-hop. X19's "buys nothing"
+becomes "buys 0.0018 where it helps at all" — still a bad trade at 2909× the
+bandwidth.
+
+⚠ The two diverged cells were caught mid-run at 67× the initial norm (steps 436
+and 534) by the trust region tightened to 50 after X22. At the old $10^6$ they
+would have completed and reported a number from a wrecked belief.
