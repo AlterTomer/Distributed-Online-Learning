@@ -114,9 +114,12 @@ unmatched baseline and a filter tuned for ten times the data it has.
   It rides in `run_diffusion_tuning.py`'s main pass.
   D79 shows the deficit is in the adapt step and no combine rule can reach it;
   one-hop is the only implemented thing that can. ⚠ Implement its exchange as
-  **raw measurements, not information factors** — 788 scalars against 122 136,
-  exactly equivalent since the receiver already gets the sender's linearisation
-  point. Its real costs are compute and privacy, not bandwidth.
+  **raw measurements, not information factors** — the sender's predictive mean
+  plus 788 scalars (3 696) against 119 228 for $(\bm B,\bm g)$, exactly
+  equivalent because that mean travels with the batch and the receiver rebuilds
+  the block at it. The combine then needs a second message, so one-hop costs
+  $2\psi+788$ = 6 604 per link per step, slightly more than momentum ATC (D92).
+  Its real costs are that second message, compute, and privacy.
 
 ## Every earlier experiment that has an analogue
 

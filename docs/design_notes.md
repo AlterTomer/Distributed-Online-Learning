@@ -3002,7 +3002,9 @@ one-hop adapt step at $O(pq')$ per link. At $p=2908$, $q=10$, $n=4$ that is
 and the receiver already gets $\bm\psi_u=\bm m_{u,t|t-1}$ in the same message, so
 it can recompute $\bm H_u,\bm G_u,\bm s_u$ itself. **Exchanging the measurements
 is 155× cheaper than exchanging their information factors, and exactly
-equivalent.** This is not an accident of the config: raw data wins whenever
+equivalent.** ⚠ *Superseded in part by [[D92]]: the one-hop combine needs a
+second message, so the whole-step saving is 18×, not 155×.* This is not an
+accident of the config: raw data wins whenever
 $n(d+1)<pnq$, i.e. $p>(d+1)/q\approx20$, which holds for any over-parameterised
 model. The costs of a one-hop adapt are compute (each agent linearises its
 neighbours' data too) and privacy (raw data leaves the node) — not bandwidth.
@@ -3343,6 +3345,13 @@ reviewer asks why the ladder stops.
 **What stays open.** One-hop *measurement* exchange is not affected — that is
 $L=1$ and is `adapt_scope: one_hop`, which D85 keeps.
 
+**⚠ Addendum (2026-09-15, [[D92]]).** One-hop is $L=1$ in evidence but already
+**two messages per step**: the sender's predictive mean with its raw batch before
+the update, then $\bm\psi$ for the combine. So the latency this note charges to
+$L>1$ starts at the one-hop adapt itself — one-hop doubles it against the local
+adapt — and $L$ hops would need $L+1$ messages. The decision is unaffected; "one
+round per step" was only ever true of the local adapt.
+
 ### ✅ D85. Both `adapt_scope` values are carried; $\beta$ is not a knob on either
 
 **Decision.** `local` and `one_hop` are both reported, neither is "the" default.
@@ -3458,6 +3467,8 @@ comparable at fixed $\alpha$ the way a shared knob would be.
 
 $\alpha$ does mechanically what it was designed to do — inflate the claimed
 information, shrink $\bm P$, raise the gain — and that is the whole problem.
+⚠ *"Raise the gain" has the direction wrong — a smaller $\bm P$ gives a smaller
+gain. See [[D92]] for what actually makes the step grow.*
 Scaling one agent's information by $N$ does not manufacture $N$ agents' worth of
 *independent* evidence; it makes the filter confident about evidence it never
 received, and a Gauss–Newton step taken under an over-small covariance walks
@@ -3770,7 +3781,8 @@ as a finding without more seeds.
 | skew + smooth | 0.0856 | 0.1153 | $-0.0297$ | $-30.8$ |
 
 Its best cell is skew crossed with abrupt drift --- the hardest condition in the
-benchmark --- at $-0.0493$ against the matched arm. That is the strongest case the
+benchmark --- at $-0.0493$ against `atc_plain` (⚠ not its matched arm: one-hop
+sends $2.27\psi$, see [[D92]]). That is the strongest case the
 one-hop variant has, and it is the cell nobody would have looked at first.
 
 **Net.** At equal communication the filter beats diffusion \ac{sgd} on every
@@ -3779,3 +3791,60 @@ Combined with [[D89]] --- where covariance sharing pays 0.0314 under skew but
 nothing for one-hop --- the picture is consistent: **once the shards stop being
 exchangeable, the mean alone is not enough, and the two ways of fixing that are
 substitutes.**
+
+### ✅ D92. One-hop sends two messages a step, and its payload was short by one ψ
+
+**Found by the user**, reviewing the deck's payload column: the 788-scalar increment
+was labelled as neighbours sending $(\bm H,\bm R,\bm y)$, which it is not — it is the
+raw batch. Tracing what a receiver needs to rebuild a block from a raw batch turned
+up the larger error.
+
+**The code defers the one-hop update.** `adapt` returns the *predictive* mean
+$\bm\theta_u^-$ ("what travels is the prior plus the information to act on it");
+`combine` then replaces $\bm\psi$ with each agent's *updated* mean from
+`_one_hop_update` and mixes those. In one process that is one call. On a network it
+is two messages:
+
+1. **before the update** — $\bm\theta_u^-$ with the raw batch, $n(d+1)=788$,
+   because the receiver rebuilds $u$'s block at $\bm\theta_u^-$, the linearisation
+   point the implementation uses. It cannot already hold it: $\bm\theta_u^-$ comes
+   from $u$'s previous combine, which depends on $u$'s neighbours, not $v$'s.
+2. **after it** — $\bm\psi_u^+$ for the combine, which $v$ cannot compute without
+   $u$'s $\bm P$.
+
+| variant | messages | payload | ×ψ |
+|---|---|---|---|
+| `diffusion_ekf` | 1 | 2 908 | 1.00 |
+| `diffusion_ekf_onehop_mean` | **2** | **6 604** | **2.271** |
+| `diffusion_ekf_full` | 1 | 4 232 594 | 1 455.50 |
+| `diffusion_ekf_onehop` | **2** | **4 236 290** | **1 456.77** |
+| `diffusion_sgd_atc` (momentum) | 1 | 5 816 | 2.00 |
+
+The information-factor path was costed correctly all along — $\bm\psi+\bm B+\bm g$ =
+122 136, because a $\bm B$ block is already linearised and needs no
+$\bm\theta_u^-$. Only the raw-sample path lost a ψ. So raw samples are **32×**
+cheaper than factors in the first message (3 696 against 119 228) and **18×** over a
+whole step — not 151× or 155×. The condition under which raw samples win,
+$n(d+1)<p\,nq$, is unchanged: the $\bm\theta_u^-$ that must accompany the batch is
+matched by the $\bm g$ that accompanies $\bm B$.
+
+**What changes.** One-hop mean-only sends 14% more than momentum \ac{atc}, not 27%
+more than plain \ac{atc}. Its results survive, restated: its nearest baseline by
+bandwidth is momentum \ac{atc} at 2ψ, which it beats at every condition measured
+(0.1066 against 0.1312 on \ac{iid} abrupt; 0.0863 against 0.0941 at severe skew) —
+so "beats momentum \ac{atc} at 1.14× its bandwidth", not "at less bandwidth", and
+not "beats the matched arm", since `atc_plain` at 1ψ is not one-hop's matched arm
+([[D91]]). It also doubles one-hop's latency against the local adapt ([[D84]]).
+
+**Compute is unaffected, but one claim is withdrawn.** "One-hop costs no extra
+Jacobians" is true of the simulation, which reuses each sender's block in-process,
+and false of the raw-sample protocol the payload column describes, where the
+receiver must re-linearise its neighbours' samples. The excluded cost is small at
+this size — an estimated ~10⁶ flops against ~5×10⁹ for the Woodbury update — so the
+3.8× ratio is close to the total, but the claim as stated was wrong.
+
+**And from the same review: "a smaller $\bm P$ is a larger gain" was backwards.** A
+smaller $\bm P$ gives a smaller $\bm K$. What $\alpha$ does ([[D87]]) is scale the
+score by $c$ while the covariance shrinks by much less than $c$ wherever the prior
+dominates, so the step grows roughly $c$-fold in exactly the directions with least
+data — where the linearisation is least trustworthy.

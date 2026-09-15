@@ -1461,8 +1461,9 @@ above threshold, and on one-hop it is flat across the range.
 
 **Why**: scaling one agent's information by $N$ does not create $N$ agents' worth
 of independent evidence, it makes the filter confident about evidence it never
-received — smaller $\bm P$, larger gain, a Gauss–Newton step beyond where the
-linearisation holds. The $1/N$ deficit is real information, not a missing
+received. The score is scaled by $c$ while $\bm P$ shrinks by much less than $c$
+wherever the prior dominates, so the step grows and passes beyond where the
+linearisation holds (D92). The $1/N$ deficit is real information, not a missing
 constant (D87). What does close it is gathering more: one-hop beats local at every
 $\alpha$.
 
@@ -1621,5 +1622,8 @@ $\beta_{\mathrm{dir}}=0.1$ — so D89's result is not an artefact of the 2ψ pai
 ⚠ $t=1.66$ on three seeds: suggestive, not established. The IID cells run $t$ =
 10–24.
 
-**One-hop beats the matched arm everywhere**, most of all at skew crossed with
-abrupt drift: −0.0493 ($t=-6.4$), the hardest cell in the benchmark.
+**One-hop beats `atc_plain` everywhere — but not at matched bandwidth.** It sends
+two messages a step, $2\psi+788$ = 6 604 scalars (D92), so its nearest baseline
+by bandwidth is momentum ATC at 2ψ, which it also beats everywhere. Its largest
+margin over `atc_plain` is at skew crossed with abrupt drift: −0.0493
+($t=-6.4$), the hardest cell in the benchmark.
