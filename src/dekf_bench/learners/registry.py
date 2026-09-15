@@ -21,9 +21,10 @@ from dekf_bench.models.base import Model
 #: reason D71 records: two variants have to appear in a *single* run to be
 #: compared as a paired difference, and one name cannot appear twice.
 DIFFUSION_EKF_VARIANTS = {
-    # The expensive ceiling: shares everything the derivation makes available, so
-    # whatever diffusion can achieve on a graph it achieves here. Implemented and
-    # measured first precisely because it bounds the cheap one.
+    # The most expensive variant: shares everything the derivation makes
+    # available. Not an upper bound -- mixing correlated covariances changes later
+    # gains and can help or hurt, and X25 found it no better than one-hop under
+    # skew -- but the diagnostic for what covariance sharing is worth.
     "diffusion_ekf_full": ("local", "full"),
     # The deployable reduction, and what the communication claim will rest on.
     # Its gap to the above is the price of not shipping covariances.
@@ -44,6 +45,19 @@ DIFFUSION_EKF_VARIANTS = {
     # keeps full sharing only because that is the variant the proposition is
     # written for.
     "diffusion_ekf_onehop_mean": ("one_hop", "local"),
+    # The two above, linearising every received batch at the receiver's own
+    # predictive mean instead of the sender's: one linearisation point per
+    # update, and no theta_u^- in the first message (D93, D94).
+    "diffusion_ekf_onehop_receiver": ("one_hop", "full"),
+    "diffusion_ekf_onehop_mean_receiver": ("one_hop", "local"),
+}
+
+#: Where a one-hop agent linearises its neighbours' batches. A separate mapping
+#: rather than a third tuple entry, so the (scope, sharing) pairs keep their
+#: meaning; every name absent here is "sender", which is what X20--X26 ran.
+LINEARIZATION_POINT = {
+    "diffusion_ekf_onehop_receiver": "receiver",
+    "diffusion_ekf_onehop_mean_receiver": "receiver",
 }
 
 #: Every learner a config may name. `diffusion_sgd_atc_plain` shares the ATC
@@ -59,6 +73,8 @@ BUILDERS = {
     "diffusion_ekf_full": DiffusionEKF,
     "diffusion_ekf_onehop": DiffusionEKF,
     "diffusion_ekf_onehop_mean": DiffusionEKF,
+    "diffusion_ekf_onehop_receiver": DiffusionEKF,
+    "diffusion_ekf_onehop_mean_receiver": DiffusionEKF,
     # Two names, one class. The gamma and lambda families are the same recursion
     # under different transition models, and the config picks which by setting
     # `transition` -- so a run that names both gets a genuine comparison rather
@@ -153,6 +169,7 @@ def _build_diffusion_ekf(
     """
     name = learner_config.name
     scope, sharing = DIFFUSION_EKF_VARIANTS[name]
+    point = LINEARIZATION_POINT.get(name, "sender")
 
     for field, chosen, expected in (
         ("adapt_scope", getattr(learner_config, "adapt_scope", scope), scope),
@@ -160,6 +177,11 @@ def _build_diffusion_ekf(
             "covariance_sharing",
             getattr(learner_config, "covariance_sharing", sharing),
             sharing,
+        ),
+        (
+            "linearization_point",
+            getattr(learner_config, "linearization_point", point),
+            point,
         ),
     ):
         if chosen != expected:
@@ -189,6 +211,7 @@ def _build_diffusion_ekf(
         trust_region_ratio=getattr(learner_config, "trust_region_ratio", TRUST_REGION_RATIO),
         adapt_scope=scope,
         covariance_sharing=sharing,
+        linearization_point=point,
         # Dials, not variant identity, so unlike scope and sharing these are read
         # from the config rather than pinned by the name.
         adapt_rounds=getattr(learner_config, "adapt_rounds", 1),

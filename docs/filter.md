@@ -312,7 +312,9 @@ the variant it asked for:
   inverse per fusion.
 
 * **The adapt scope.** `local` (no communication) or `one_hop` (neighbours
-  exchange $(\bm B_{u,t},\bm H_{u,t}^{\top}\bm s_{u,t})$, $O(pq')$ per link).
+  exchange their raw labelled batches, $n(d+1)$ scalars, and each receiver
+  rebuilds $(\bm B_{u,t},\bm H_{u,t}^{\top}\bm s_{u,t})$ itself — 32× cheaper
+  than shipping the pair, D92).
   Complete-graph exactness — the filter's analogue of X0 — holds **only** for
   one-hop, because on $K_N$ that makes the measurement set the whole vertex set,
   which is the hypothesis of the exactness proposition. Under a local adapt each
@@ -323,14 +325,26 @@ the variant it asked for:
   `diffusion_ekf_onehop` therefore exists as a **fixture, not a competitor**: it
   is not tuned and not swept. `tests/test_learners.py` asserts both halves — that
   one-hop reproduces the centralised filter to 1e-10, and that local does not —
-  so the positive test cannot pass vacuously. Whether one-hop buys anything on a
-  *sparse* graph is unmeasured; the note asserts it propagates information a hop
-  faster and that claim is not yet evidence.
+  so the positive test cannot pass vacuously. What one-hop buys on a *sparse*
+  graph was measured from X20 on; see `docs/results.md`.
+
+* **The linearisation point** (one-hop only; D93, D94). A receiver can rebuild
+  a neighbour's block at the *sender's* predictive mean $\bm\theta_{u,t}^-$ —
+  `sender`, what X20–X26 ran, which sums blocks from different points into one
+  update and needs $\bm\theta_{u,t}^-$ in the first message, 6 604 scalars per
+  link per direction — or at its *own* $\bm\theta_{v,t}^-$ — `receiver`, one
+  point per update, the textbook diffusion \ac{ekf}, and 3 696. They coincide
+  whenever the agents' predictive means agree, so on a complete graph both pass
+  the exactness gate and only a sparse graph separates them. The `*_receiver`
+  learner names select it.
 
 **Memory, not compute, is what binds.** Each agent holds a $p\times p$
 covariance: 64.5 MiB at $p=2908$ in float64, so ten agents cost 645 MiB, and full
 sharing needs a second set live during the mix because every $\bm P^{\psi}_u$ must
 survive until the last $\bm P_{v,t|t}$ is written. A measured run carrying both
 diffusion variants and the centralised filter peaked at **3.3 GiB**. Compute is
-roughly centralised-equal: $N$ updates on $1/N$ of the data each cost about what
-one pooled update costs.
+**not** centralised-equal, as this section used to say: measured per agent per
+step (RTX 4070, float64; D93), a local adapt takes 14.0 ms against 64.7 ms for
+one pooled centralised update, so ten agents cost about twice the centralised
+filter — small Woodbury blocks underuse the GPU — and one-hop costs 2.04× a local
+adapt.

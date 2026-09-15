@@ -76,6 +76,7 @@ TRANSITIONS = ("identity", "scalar")
 #: refusal rather than a silently different method.
 ADAPT_SCOPES = ("local", "one_hop")
 COVARIANCE_SHARING = ("full", "local")
+LINEARIZATION_POINTS = ("sender", "receiver")
 FORGETTING_RULES = ("lambda", "process_noise")
 
 
@@ -384,6 +385,11 @@ class LearnerConfig:
     #: mean-only variant; `_build_diffusion_ekf` checks them against the name.
     adapt_scope: str = "local"
     covariance_sharing: str = "local"
+    #: One-hop only: where a neighbour's batch is linearised. "sender" at the
+    #: neighbour's own predictive mean, which is what X20--X26 ran; "receiver"
+    #: at the receiving agent's, one linearisation point per update (D94).
+    #: Pinned by the learner name.
+    linearization_point: str = "sender"
     #: How many hops of measurement information reach an agent. 1 is the
     #: canonical diffusion Kalman filter's incremental step; L >= diam(G) makes
     #: the measurement set the whole vertex set, so the filter equals the
@@ -474,6 +480,11 @@ class LearnerConfig:
             self.covariance_sharing,
             COVARIANCE_SHARING,
             f"learner[{self.name}].covariance_sharing",
+        )
+        _one_of(
+            self.linearization_point,
+            LINEARIZATION_POINTS,
+            f"learner[{self.name}].linearization_point",
         )
         if self.adapt_rounds < 1:
             raise ConfigError(

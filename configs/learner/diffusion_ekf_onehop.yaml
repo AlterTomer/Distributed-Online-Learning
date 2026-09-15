@@ -4,9 +4,10 @@
 #            psi_v = m_v + P^psi_v sum_{u in N_v u {v}} H_u^T s_u
 #   combine  as in diffusion_ekf_full
 #
-# Neighbours exchange the information pair (B_u, H_u^T s_u), which costs
-# O(p q') per link instead of O(p) -- but the sum is UNWEIGHTED: a_vu weights
-# the combine, never the measurement set.
+# Neighbours exchange raw labelled batches, from which each rebuilds the
+# information pair (B_u, H_u^T s_u) at the sender's theta_u^- (D92, D93) -- and
+# the sum is UNWEIGHTED: a_vu weights the combine, never the measurement set.
+# diffusion_ekf_onehop_receiver is the same fixture at the receiver's point.
 #
 # This is not a competitor and is not tuned. It exists because
 # `prop:complete_graph` holds only for M_v = V, and on a complete graph one-hop

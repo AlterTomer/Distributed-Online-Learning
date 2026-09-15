@@ -512,6 +512,7 @@ Shared fields:
 | `adapt_scope` | str | `local` | `local`, `one_hop` | Whose likelihood information an agent uses. `one_hop` is the canonical diffusion Kalman filter; `local` is a reduction of it. Pinned by the learner name |
 | `adapt_rounds` | int | `1` | `>= 1` | Hops of measurement information. `1` is one-hop; `>= diam(G)` makes the measurement set the whole graph, so the filter equals the centralised one. Only under `adapt_scope: one_hop` |
 | `covariance_sharing` | str | `local` | `full`, `local` | `full` is eq. 46, `local` is eq. 45. X19 measured the difference at +0.0002 to +0.0007 for 2909x the bandwidth. Pinned by the learner name |
+| `linearization_point` | str | `sender` | `sender`, `receiver` | One-hop only. Where a neighbour's batch is linearised: at the sender's $\bm\theta_u^-$ (what X20–X26 ran; mixed points, $\bm\theta_u^-$ must travel) or at the receiver's own $\bm\theta_v^-$ (one point per update; 3 696 scalars per link per direction instead of 6 604). D93, D94. Pinned by the learner name |
 | `combine_exponent` | float | `1.0` | `[1, 2]` | `P <- sum a^beta P`. `1` is the conservative bound, `2` what independent errors give. Costs no communication |
 | `freeze_after` | int \| null | `null` | ≥ 1 | Stop adapting *and* transmitting at this step |
 | `transition` | str | `identity` | `identity`, `scalar` | Phase 5; $\bm F_t$ |
@@ -585,9 +586,11 @@ Three validation rules worth knowing before you hit them:
 | `diffusion_sgd_cta.yaml` | Combine-then-adapt, eq. (17) of Olshevskyi et al. Measured in X1b so the ATC choice is reported rather than assumed |
 | `local_only.yaml` | Lower reference. No communication; the gap to ATC *is* the value of cooperation |
 | `diffusion_ekf.yaml` | Local adapt, mean-only combine: the deployable variant |
-| `diffusion_ekf_full.yaml` | Local adapt, full covariance sharing: the measured ceiling (X19) |
+| `diffusion_ekf_full.yaml` | Local adapt, full covariance sharing: the most expensive variant, a diagnostic rather than an upper bound (X19) |
 | `diffusion_ekf_onehop.yaml` | One-hop adapt, full sharing: the exactness fixture, not tuned |
 | `diffusion_ekf_onehop_mean.yaml` | One-hop adapt, mean-only: the canonical algorithm at the deployable payload |
+| `diffusion_ekf_onehop_receiver.yaml` | `diffusion_ekf_onehop` linearised at the receiver's point: also an exactness fixture (D94) |
+| `diffusion_ekf_onehop_mean_receiver.yaml` | `diffusion_ekf_onehop_mean` linearised at the receiver's point: one linearisation point per update, and no $\bm\theta_u^-$ on the wire (D94) |
 
 ---
 
@@ -692,6 +695,7 @@ learner.mix_optimizer_state   none | momentum | all
 learner.adapt_scope       local | one_hop
 learner.adapt_rounds      >= 1 (one_hop only)
 learner.covariance_sharing  full | local
+learner.linearization_point  sender | receiver (one_hop only)
 learner.combine_exponent  1.0 .. 2.0
 model.likelihood          categorical | gaussian
 eval.evalsets             prequential | current | backward | canonical

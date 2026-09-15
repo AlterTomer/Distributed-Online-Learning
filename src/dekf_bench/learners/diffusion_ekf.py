@@ -11,7 +11,7 @@ note, algorithm `alg:diffekf`):
 $\mathcal M_{v,t}$ of `eq:adapt`::
 
     local     M = {v}                    no communication in adapt; the default
-    one_hop   M = N^c_v union {v}        neighbours exchange (B_u, H_u^T s_u)
+    one_hop   M = N^c_v union {v}        neighbours exchange raw labelled batches
 
 ``covariance_sharing`` -- what an agent does with its *confidence* in combine::
 
@@ -20,6 +20,19 @@ $\mathcal M_{v,t}$ of `eq:adapt`::
 
 The mean update $\bm m_{v,t|t}=\sum_u a_{vu,t}\bm\psi_{u,t}$ is common to every
 combination: the choice is about confidence, never about the estimate.
+
+``linearization_point`` -- one-hop only: *where* agent $v$ linearises a
+neighbour's batch (design notes D93, D94)::
+
+    sender    at u's predictive mean theta_u^-   mixed points; theta_u^- must travel
+    receiver  at v's own theta_v^-                one point; the textbook diffusion EKF
+
+``sender`` is what X20--X26 ran and stays the default so they reproduce. Summed
+blocks linearised at different points are not one \ac{ekf} update at a common
+point; ``receiver`` is, and it drops $\bm\theta_u^-$ from the first message. The
+two coincide whenever the agents' predictive means agree -- at the first step,
+and at every step on a complete graph -- so the exactness gate cannot tell them
+apart, and only a sparse graph can.
 
 Two further dials, added after X19 measured what a local adapt costs. Unlike the
 axes above these are **not pinned by the learner name**, being continuous
@@ -61,9 +74,11 @@ covariance: at $p=2908$ in float64 that is 64.5 MiB, so $N=10$ agents cost
 645 MiB. Under ``full`` sharing the combine needs every $\bm P^{\psi}_u$ intact
 before any $\bm P_{v,t|t}$ is written, so a second set of the same size is live
 during the mix --- about 1.3 GiB. Under ``local`` sharing no second set is needed
-and the cost stays at 645 MiB. Compute, by contrast, is roughly centralised-equal:
-$N$ updates on $1/N$ of the data each cost about what one update on the pooled
-batch costs, and the combine adds $O(N d_v p^2)$.
+and the cost stays at 645 MiB. Compute is **not** centralised-equal, as an
+earlier version of this docstring claimed: measured per agent per step on the
+RTX 4070 in float64 (D93), a local adapt takes 14.0 ms and one pooled
+centralised update 64.7 ms, so ten agents cost about twice the centralised
+filter. Small Woodbury blocks underuse the GPU.
 """
 
 from __future__ import annotations
@@ -86,6 +101,7 @@ from dekf_bench.models.base import Model
 #: silently different method.
 ADAPT_SCOPES = ("local", "one_hop")
 COVARIANCE_SHARING = ("full", "local")
+LINEARIZATION_POINTS = ("sender", "receiver")
 
 
 class DiffusionEKF:
@@ -114,6 +130,7 @@ class DiffusionEKF:
         adapt_rounds: int = 1,
         combine_exponent: float = 1.0,
         information_exponent: float = 0.0,
+        linearization_point: str = "sender",
         **_ignored: Any,
     ) -> None:
         if adapt_scope not in ADAPT_SCOPES:
@@ -122,6 +139,17 @@ class DiffusionEKF:
             raise FilterError(
                 f"covariance_sharing must be one of {COVARIANCE_SHARING}, "
                 f"got {covariance_sharing!r}"
+            )
+        if linearization_point not in LINEARIZATION_POINTS:
+            raise FilterError(
+                f"linearization_point must be one of {LINEARIZATION_POINTS}, "
+                f"got {linearization_point!r}"
+            )
+        if linearization_point == "receiver" and adapt_scope != "one_hop":
+            raise FilterError(
+                "linearization_point='receiver' needs adapt_scope='one_hop'. A local adapt "
+                "linearises only its own batch, at its own mean, so the two points are the "
+                "same and the setting would name a variant that does not exist."
             )
         if adapt_rounds < 1:
             raise FilterError(
@@ -157,15 +185,24 @@ class DiffusionEKF:
         self.trust_region_ratio = trust_region_ratio
         self.adapt_scope = adapt_scope
         self.covariance_sharing = covariance_sharing
+        self.linearization_point = linearization_point
 
         self._states: dict[int, LearnerState] = {}
         self._steps = 0
         self._initial_norm = 0.0
-        #: One-hop stashes its information pair in adapt and applies it in
-        #: combine, because the exchange it needs has not happened yet when
-        #: `adapt` runs. `DiffusionSGDCTA` defers a gradient the same way and for
-        #: the same reason -- the interface reserves communication for combine.
+        #: One-hop stashes what it received in adapt and applies it in combine,
+        #: because the exchange it needs has not happened yet when `adapt` runs.
+        #: `DiffusionSGDCTA` defers a gradient the same way and for the same
+        #: reason -- the interface reserves communication for combine. Under
+        #: ``sender`` the stash is the information pair at the sender's mean;
+        #: under ``receiver`` it is the raw labelled batch, which every receiver
+        #: linearises at its own mean.
         self._pending: dict[int, tuple[torch.Tensor | None, torch.Tensor | None]] = {}
+        #: $n(d+1)$: the raw labelled batch as scalars, pixels plus one label per
+        #: sample. Recorded from the data rather than derived from the model
+        #: because $n$ is a property of the environment. The largest seen, which
+        #: under the fixed $n$ of every benchmark here is every agent's.
+        self._batch_scalars = 0
 
     # -- identity ----------------------------------------------------------- #
 
@@ -180,24 +217,38 @@ class DiffusionEKF:
     def comm_scalars_per_step(self, n_edges: int) -> int:
         r"""Scalars crossing every link, both directions, in one step.
 
-        $\bm\psi$ is always sent. ``full`` sharing adds the $p\times p$
-        covariance, which is $p$ further $p$-vectors -- the reason it is
-        undeployable and, at this scale, exactly why it is worth measuring once.
-        ``one_hop`` adds the pair $(\bm B,\bm H^{\mathsf T}\bm s)$.
+        Counted in scalars, per direction, as a deployment would send them:
+
+        * $\bm\psi$, always: $p$.
+        * ``full`` sharing: the upper triangle of $\bm P^{\psi}$, $p(p+1)/2$ --
+          symmetric, so the lower half is never sent. The reason full sharing is
+          undeployable and, at this scale, exactly why it is worth measuring once.
+        * ``one_hop``: a first message before the update, carrying the raw
+          labelled batch, $n(d+1)$, and under ``sender`` also $\bm\theta_u^-$,
+          $p$, because the receiver linearises at a point it cannot compute. At
+          $p=2908$, $n=4$, $d=196$ that is 6 604 per direction for ``sender`` and
+          3 696 for ``receiver``, against 5 816 for momentum ATC (D92, D94).
+
+        The simulation ships the information pair rather than the batch under
+        ``sender`` -- both give the identical block -- but the ledger prices the
+        cheaper encoding, which is what a deployment would send.
+
+        Exact for ``adapt_rounds = 1``, the only setting run. For $L>1$ this
+        charges each round one batch, a lower bound: a flooding round forwards
+        every batch newly reached, and how many that is depends on the graph.
+
+        ⚠ Until D94 this counted in $p$-vectors, priced the covariance at the full
+        $p^2$ and one-hop at $(q'+1)$ vectors. Parquets written before then carry
+        those values in ``cum_scalars_tx`` for every full-sharing and one-hop cell.
         """
         p = self.model.num_params
-        vectors = 1
+        per_direction = p
         if self.covariance_sharing == "full":
-            vectors += p
+            per_direction += p * (p + 1) // 2
         if self.adapt_scope == "one_hop":
-            # Each extra round forwards what was received, so the information
-            # payload is paid once per round.
-            vectors += self.adapt_rounds * (self._fisher_rank() + 1)
-        return vectors * p * 2 * n_edges
-
-    def _fisher_rank(self) -> int:
-        """$q'$: the columns $\\bm B$ carries per sample."""
-        return int(getattr(self.likelihood, "fisher_rank", 0) or 0)
+            first = self._batch_scalars + (p if self.linearization_point == "sender" else 0)
+            per_direction += self.adapt_rounds * first
+        return per_direction * 2 * n_edges
 
     # -- state -------------------------------------------------------------- #
 
@@ -261,8 +312,10 @@ class DiffusionEKF:
         r"""Predict locally, then form $(\bm\psi_v,\bm P^{\psi}_v)$.
 
         Under ``one_hop`` the update cannot happen yet -- it needs the
-        neighbours' information, which arrives in combine -- so this stashes the
-        local pair and emits it as the message.
+        neighbours' information, which arrives in combine -- so this stashes what
+        the neighbours will need and emits it as the message: the information
+        pair at this agent's mean under ``sender``, the raw batch under
+        ``receiver``.
         """
         self._check_initialised()
         self._check_node(node)
@@ -275,8 +328,20 @@ class DiffusionEKF:
         self._predict(state)
         mean, covariance = state.theta, state.extras["P"]
 
+        labelled = observation.has_label and observation.x.shape[0] != 0
+        if labelled:
+            batch = int(observation.x.numel()) + int(observation.x.shape[0])
+            self._batch_scalars = max(self._batch_scalars, batch)
+
+        if self.linearization_point == "receiver":
+            # Nothing to linearise yet: every receiver, this agent included,
+            # linearises the batch at its own mean once the batches have crossed.
+            self._pending[node] = (observation.x, observation.y) if labelled else (None, None)
+            extras = {"x": observation.x, "y": observation.y} if labelled else {}
+            return Intermediate(node=node, psi=mean, extras=extras)
+
         stacked, score = None, None
-        if observation.has_label and observation.x.shape[0] != 0:
+        if labelled:
             stacked, score = information_pair(
                 self.model, self.likelihood, mean, observation.x, observation.y
             )
@@ -373,6 +438,11 @@ class DiffusionEKF:
         the combine, not the measurement set. The neighbourhood is read off the
         mixing matrix's sparsity, which for Metropolis weights is exactly
         $\N^{\mathrm c}_v\cup\{v\}$ with every entry strictly positive.
+
+        Under ``receiver`` the reachable batches are pooled and linearised once,
+        at $v$'s predictive mean. `information_pair` sums over samples, so this is
+        the concatenation of per-agent blocks at that one point -- and on a
+        complete graph it is literally the centralised filter's pooled call.
         """
         reach = self._reachability(mixing)
         psi: dict[int, torch.Tensor] = {}
@@ -380,27 +450,31 @@ class DiffusionEKF:
         for row, node in enumerate(order):
             state = self._states[node]
             mean, covariance = state.theta, state.extras["P"]
-            columns = [
-                self._pending[other][0]
+            received = [
+                self._pending[other]
                 for column, other in enumerate(order)
                 if bool(reach[row, column]) and self._pending[other][0] is not None
             ]
-            scores = [
-                self._pending[other][1]
-                for column, other in enumerate(order)
-                if bool(reach[row, column]) and self._pending[other][1] is not None
-            ]
-            if columns:
-                # Concatenating the B blocks column-wise gives sum_u B_u B_u^T in
-                # one Woodbury solve, which is the same identity the centralized
-                # filter uses on the pooled batch.
-                stacked = torch.cat(columns, dim=1)
-                score = torch.stack(scores).sum(dim=0)
+            if received:
+                if self.linearization_point == "receiver":
+                    stacked, score = information_pair(
+                        self.model,
+                        self.likelihood,
+                        mean,
+                        torch.cat([x for x, _y in received]),
+                        torch.cat([y for _x, y in received]),
+                    )
+                else:
+                    # Concatenating the B blocks column-wise gives
+                    # sum_u B_u B_u^T in one Woodbury solve, which is the same
+                    # identity the centralized filter uses on the pooled batch.
+                    stacked = torch.cat([b for b, _s in received], dim=1)
+                    score = torch.stack([s for _b, s in received]).sum(dim=0)
                 # `seen` is the number of agents that actually contributed, not
                 # the neighbourhood size: an unlabelled neighbour supplies no
                 # information, so counting it would scale by a factor the
                 # evidence does not support.
-                stacked, score = self._rescale(stacked, score, seen=len(columns))
+                stacked, score = self._rescale(stacked, score, seen=len(received))
                 mean, covariance = self._apply(node, mean, covariance, stacked, score)
             psi[node], cov_psi[node] = mean, covariance
         return psi, cov_psi
@@ -559,6 +633,7 @@ class DiffusionEKF:
         return {
             "adapt_scope": self.adapt_scope,
             "covariance_sharing": self.covariance_sharing,
+            "linearization_point": self.linearization_point,
             "adapt_rounds": self.adapt_rounds,
             "combine_exponent": self.combine_exponent,
             "information_exponent": self.information_exponent,

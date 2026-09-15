@@ -1,0 +1,25 @@
+# One-hop adapt, full sharing, linearised at the RECEIVER's point (design note D94).
+#
+# diffusion_ekf_onehop with every received batch linearised at the receiving
+# agent's own theta_v^- rather than at the sender's theta_u^-. See
+# diffusion_ekf_onehop_mean_receiver for the argument; this is its full-sharing
+# counterpart, kept so both one-hop variants exist at both points.
+#
+# Like diffusion_ekf_onehop it is an exactness fixture first: on a complete graph
+# with a common prior every agent's predictive mean is the same, so the two points
+# coincide and this must reproduce the centralised filter to 1e-12 as well.
+#
+# Per link, per direction, per step: 788 + 2908 + 4229686 = 4233382, against
+# 4236290 at the sender's point -- the theta_u^- saved is lost in the covariance.
+name: diffusion_ekf_onehop_receiver
+
+adapt_scope: one_hop             # M_v = N^c_v union {v}; = V on a complete graph
+covariance_sharing: full
+linearization_point: receiver    # every batch at theta_v^-
+
+transition: scalar
+gamma: 1.0
+forgetting: process_noise
+process_noise_q: 1.0e-5
+lambda_forget: 1.0
+prior_scale: 0.01

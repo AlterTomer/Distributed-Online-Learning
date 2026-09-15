@@ -355,6 +355,13 @@ def test_the_diffusion_filter_reproduces_the_centralized_one_through_the_runner(
     assert run_filters("diffusion_ekf_onehop") < TOLERANCE
 
 
+def test_the_receiver_point_variant_reproduces_it_too() -> None:
+    """On a complete graph every agent's predictive mean is the same, so where a
+    neighbour's batch is linearised cannot matter. That is also why this gate
+    cannot tell the two points apart; the unit tests on a ring do (D94)."""
+    assert run_filters("diffusion_ekf_onehop_receiver") < TOLERANCE
+
+
 def test_a_local_adapt_breaks_the_identity_through_the_runner() -> None:
     """The negative half, so the positive one cannot pass vacuously.
 

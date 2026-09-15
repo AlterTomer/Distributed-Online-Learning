@@ -671,7 +671,7 @@ def test_an_unknown_learner_lists_the_available_ones(model: MLP, likelihood: Cat
 
 def _diffusion_ekf(model: MLP, likelihood: Categorical, name: str, **kwargs: object):
     from dekf_bench.learners.diffusion_ekf import DiffusionEKF
-    from dekf_bench.learners.registry import DIFFUSION_EKF_VARIANTS
+    from dekf_bench.learners.registry import DIFFUSION_EKF_VARIANTS, LINEARIZATION_POINT
 
     scope, sharing = DIFFUSION_EKF_VARIANTS[name]
     return DiffusionEKF(
@@ -684,8 +684,27 @@ def _diffusion_ekf(model: MLP, likelihood: Categorical, name: str, **kwargs: obj
         prior_scale=0.01,
         adapt_scope=scope,
         covariance_sharing=sharing,
+        linearization_point=LINEARIZATION_POINT.get(name, "sender"),
         **kwargs,
     )
+
+
+#: Every one-hop variant, at both linearisation points.
+ONE_HOP = [
+    "diffusion_ekf_onehop",
+    "diffusion_ekf_onehop_mean",
+    "diffusion_ekf_onehop_receiver",
+    "diffusion_ekf_onehop_mean_receiver",
+]
+
+
+def _ring_weights(n: int) -> torch.Tensor:
+    """A ring with uniform weights over the closed neighbourhood: sparse, diameter n/2."""
+    ring = torch.zeros(n, n, dtype=DTYPE)
+    for node in range(n):
+        for other in (node, (node - 1) % n, (node + 1) % n):
+            ring[node, other] = 1.0 / 3.0
+    return ring
 
 
 def _theta0(model: MLP) -> torch.Tensor:
@@ -727,8 +746,9 @@ def test_every_variant_holds_one_belief_per_agent(
     assert torch.equal(first, second)
 
 
+@pytest.mark.parametrize("name", ONE_HOP)
 def test_the_complete_graph_identity_holds_for_one_hop(
-    model: MLP, likelihood: Categorical
+    model: MLP, likelihood: Categorical, name: str
 ) -> None:
     r"""prop:complete_graph: with M_v = V the diffusion filter *is* the centralized one.
 
@@ -736,13 +756,18 @@ def test_the_complete_graph_identity_holds_for_one_hop(
     step: with a local adapt each agent updates on its own data and the combine
     averages covariances, which is not the same as summing information, so the
     two filters differ even on a complete graph.
+
+    Both linearisation points pass, and must: on a complete graph with a common
+    prior every agent's predictive mean is the same at every step, so the
+    sender's point *is* the receiver's. That is also why this gate cannot choose
+    between them (D94).
     """
     from dekf_bench.learners.ekf import CentralizedEKF
 
     theta0 = _theta0(model)
     weights = _uniform_weights(N_NODES)
 
-    diffusion = _diffusion_ekf(model, likelihood, "diffusion_ekf_onehop")
+    diffusion = _diffusion_ekf(model, likelihood, name)
     diffusion.init(theta0)
 
     centralized = CentralizedEKF(
@@ -862,15 +887,82 @@ def test_the_covariance_stays_symmetric_under_full_sharing(
     assert torch.allclose(covariance, covariance.transpose(0, 1), atol=1e-14)
 
 
-def test_the_ledger_prices_full_sharing_at_p_extra_vectors(
+def test_the_ledger_counts_scalars_as_a_deployment_sends_them(
     model: MLP, likelihood: Categorical
 ) -> None:
-    """A p x p covariance is p further p-vectors, which is the whole objection to it."""
-    mean_only = _diffusion_ekf(model, likelihood, "diffusion_ekf")
-    full = _diffusion_ekf(model, likelihood, "diffusion_ekf_full")
+    r"""D94. psi always; the upper triangle of P, not p^2; one-hop's raw batch,
+    plus theta_u^- only where the receiver cannot linearise at its own point.
+
+    Priced after a step, because n is a property of the data rather than the
+    model and the filter learns it from the first batch.
+    """
     p = model.num_params
-    assert mean_only.comm_scalars_per_step(n_edges=3) == 1 * p * 2 * 3
-    assert full.comm_scalars_per_step(n_edges=3) == (1 + p) * p * 2 * 3
+    triangle = p * (p + 1) // 2
+    batch = 2 * model.input_size**2 + 2  # n(d + 1) at the helper's n = 2
+    per_direction = {
+        "diffusion_ekf": p,
+        "diffusion_ekf_full": p + triangle,
+        "diffusion_ekf_onehop_mean": p + batch + p,
+        "diffusion_ekf_onehop_mean_receiver": p + batch,
+        "diffusion_ekf_onehop": p + triangle + batch + p,
+        "diffusion_ekf_onehop_receiver": p + triangle + batch,
+    }
+    for name, expected in per_direction.items():
+        learner = _diffusion_ekf(model, likelihood, name)
+        learner.init(_theta0(model))
+        _run_step(learner, model, _uniform_weights(N_NODES))
+        assert learner.comm_scalars_per_step(n_edges=3) == expected * 2 * 3, name
+
+
+def _sender_minus_receiver(model: MLP, likelihood: Categorical, steps: int) -> float:
+    """Both mean-only one-hop variants on the same ring; the worst gap in the means."""
+    ring = _ring_weights(N_NODES)
+    pair = []
+    for name in ("diffusion_ekf_onehop_mean", "diffusion_ekf_onehop_mean_receiver"):
+        learner = _diffusion_ekf(model, likelihood, name)
+        learner.init(_theta0(model))
+        for step in range(steps):
+            _run_step(learner, model, ring, step=step)
+        pair.append(learner)
+    sender, receiver = pair
+    return max(
+        float((sender.flat_params(v) - receiver.flat_params(v)).abs().max())
+        for v in range(N_NODES)
+    )
+
+
+def test_the_two_linearization_points_agree_at_the_first_step(
+    model: MLP, likelihood: Categorical
+) -> None:
+    r"""A common prior makes every theta_u^- equal, so where to linearise is moot.
+
+    On a ring rather than a complete graph, so the agreement comes from the prior
+    and not from the topology.
+    """
+    assert _sender_minus_receiver(model, likelihood, steps=1) < 1e-12
+
+
+def test_the_two_linearization_points_part_once_the_agents_disagree(
+    model: MLP, likelihood: Categorical
+) -> None:
+    r"""The negative half. After one combine on a ring the agents' means differ,
+    so linearising a neighbour's batch at its mean or at one's own is a different
+    update. If this ever fell to rounding, the switch would be doing nothing."""
+    assert _sender_minus_receiver(model, likelihood, steps=2) > 1e-8
+
+
+def test_a_receiver_point_on_a_local_adapt_is_refused(
+    model: MLP, likelihood: Categorical
+) -> None:
+    """A local adapt has only its own batch at its own mean: no second point exists."""
+    from dekf_bench.learners.diffusion_ekf import DiffusionEKF
+    from dekf_bench.learners.ekf import FilterError
+
+    with pytest.raises(FilterError, match="one_hop"):
+        DiffusionEKF(
+            name="diffusion_ekf", model=model, likelihood=likelihood, n_nodes=N_NODES,
+            adapt_scope="local", covariance_sharing="local", linearization_point="receiver",
+        )
 
 
 def test_more_rounds_reach_more_agents(model: MLP, likelihood: Categorical) -> None:
@@ -1070,6 +1162,18 @@ def test_a_name_and_a_contradicting_variant_are_refused(
     object.__setattr__(config, "name", "diffusion_ekf_full")
     object.__setattr__(config, "covariance_sharing", "local")
     with pytest.raises(LearnerError, match="same choice written twice"):
+        build_learner(config, model, likelihood, N_NODES)
+
+
+def test_a_name_and_a_contradicting_linearization_point_are_refused(
+    model: MLP, likelihood: Categorical
+) -> None:
+    config = load_config("x1_stationary").learners[0]
+    object.__setattr__(config, "name", "diffusion_ekf_onehop_mean_receiver")
+    object.__setattr__(config, "adapt_scope", "one_hop")
+    object.__setattr__(config, "covariance_sharing", "local")
+    object.__setattr__(config, "linearization_point", "sender")
+    with pytest.raises(LearnerError, match="linearization_point"):
         build_learner(config, model, likelihood, N_NODES)
 
 

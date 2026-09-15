@@ -13,19 +13,22 @@
 # So this is the variant that matters: it fixes the axis that is broken and pays
 # nothing on the axis that is not.
 #
-# BANDWIDTH. The note prices a one-hop exchange at O(p q'), which at p=2908,
-# q=10, n=4 is 122,136 scalars per link. But the raw measurements that quantity is
-# derived FROM are only n(d+1) = 788, and the receiver already gets psi_u =
-# m_{u,t|t-1} in the same message -- so it can recompute H_u, G_u and s_u itself
-# and reconstruct Delta_u exactly. Exchanging measurements is 155x cheaper and
-# algebraically identical, and wins whenever p > (d+1)/q ~ 20, which holds for any
-# over-parameterised model. The implementation here exchanges the information
-# factors; the cheaper encoding is an optimisation, not a different method, and
-# the honest cost to quote is the smaller one.
+# BANDWIDTH (corrected in D92, D94). The note prices a one-hop exchange as the
+# information pair (B_u, H_u^T s_u): p*nq + p = 119,228 scalars per link at
+# p=2908, q=10, n=4. The raw batch it is derived from is n(d+1) = 788, and a
+# receiver holding theta_u^- can rebuild B_u and H_u^T s_u exactly -- 32x cheaper
+# in that message, and cheaper whenever p > (d+1)/q ~ 20. The update is
+# deferred, so a step takes TWO messages: theta_u^- + the batch before it, psi_u
+# after it. 6,604 per link per direction, above momentum ATC's 5,816. The
+# simulation exchanges the pair; the ledger prices the batch.
 #
-# The real costs of a one-hop adapt are COMPUTE -- each agent linearises its
-# neighbours' data as well as its own, so adapt scales with |N_v|+1 -- and
-# PRIVACY, if the cheap encoding is used and raw samples leave the node.
+# LINEARISATION POINT. Each neighbour's block is linearised at the SENDER's
+# theta_u^-, so blocks from different points are summed into one update (D93).
+# diffusion_ekf_onehop_mean_receiver linearises at the receiver's own point
+# instead, which also drops theta_u^- from the first message (3,696).
+#
+# The other costs are COMPUTE -- measured at 2.04x a local adapt (D93), with the
+# neighbours' Jacobians 13% of the step -- and PRIVACY: raw samples leave the node.
 name: diffusion_ekf_onehop_mean
 
 adapt_scope: one_hop        # M_v = N^c_v union {v}

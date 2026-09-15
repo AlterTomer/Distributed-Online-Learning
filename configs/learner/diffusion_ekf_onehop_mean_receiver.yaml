@@ -1,0 +1,39 @@
+# One-hop adapt, mean-only, linearised at the RECEIVER's point (design note D94).
+#
+#   adapt    (P^psi_v)^-1 = P_v^-1 + sum_{u in N_v u {v}} Delta_u(theta_v^-)
+#            psi_v = m_v + P^psi_v sum_u H_u(theta_v^-)^T s_u(theta_v^-)
+#   combine  m_v <- sum_u a_vu psi_u ;  P_v <- P^psi_v
+#
+# The same method as diffusion_ekf_onehop_mean except for WHERE a neighbour's
+# batch is linearised. There, agent v rebuilds u's block at u's predictive mean
+# theta_u^-, so blocks from different points are summed into one update (D93).
+# Here every batch v receives is linearised at v's own theta_v^-: one point, one
+# EKF update -- the textbook diffusion EKF, where neighbours send measurements and
+# each agent linearises its own model.
+#
+# It is also cheaper to deploy: the receiver needs no theta_u^-, so the first
+# message is the raw batch alone. Per link, per direction, per step:
+#
+#   sender    theta_u^- + (x_u, y_u), then psi_u    2908 + 788 + 2908 = 6604
+#   receiver  (x_u, y_u), then psi_u                 788 + 2908       = 3696
+#
+# against 5816 for momentum ATC. The two coincide whenever the agents' predictive
+# means agree -- at t = 0, and at every step on a complete graph -- so the
+# exactness gate passes for both and cannot choose between them. Only a sparse
+# graph can.
+#
+# Settings copied from diffusion_ekf_onehop_mean, so a comparison isolates the
+# linearisation point. Whether the receiver point wants different tuning is a
+# separate question.
+name: diffusion_ekf_onehop_mean_receiver
+
+adapt_scope: one_hop             # M_v = N^c_v union {v}
+covariance_sharing: local        # P_v <- P^psi_v
+linearization_point: receiver    # every batch at theta_v^-
+
+transition: scalar
+gamma: 1.0
+forgetting: process_noise
+process_noise_q: 1.0e-5
+lambda_forget: 1.0
+prior_scale: 0.01

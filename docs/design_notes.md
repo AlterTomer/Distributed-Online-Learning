@@ -3875,7 +3875,8 @@ receiver linearises its own model — and no $\bm\theta_u^-$ in the first messag
 788 + 2 908 = 3 696 per link per step, below momentum \ac{atc} again. On a complete
 graph with a common prior the two coincide, so the exactness gate cannot tell them
 apart; on \ac{er} they differ, and X20–X26's one-hop numbers would not carry over.
-❓ **Open:** whether to implement the receiver-point variant and re-run.
+❓ **Open:** whether to implement the receiver-point variant and re-run. ⚠ *Implemented
+in [[D94]], alongside the sender point rather than replacing it; the comparison is X27.*
 
 **Measured compute replaces the analytic ratios.** Per agent per step, float64 on
 the RTX 4070 Laptop, median of 25 after warm-up, Jacobian reconstruction included:
@@ -3899,3 +3900,74 @@ measuring overturned the estimate, which is the argument for measuring.
 
 These are one GPU's ratios for isolated per-agent kernels, not end-to-end sweep
 times, and a CPU would order them differently.
+
+### 🔄 D94. Both linearisation points are implemented, and the ledger now counts scalars
+
+Decided 2026-09-15: build the receiver point next to the sender point and compare
+them, rather than choose between them on argument ([[D93]]'s open question).
+
+**The switch.** `linearization_point` $\in\{$`sender`, `receiver`$\}$, one-hop
+only, and pinned by the learner name like the two axes:
+`diffusion_ekf_onehop_mean_receiver` and `diffusion_ekf_onehop_receiver` are the
+existing one-hop variants at the receiver's point. Every other name is `sender`,
+the default, so X20–X26 reproduce unchanged. A receiver pools every reachable
+batch and calls `information_pair` once at its own $\bm\theta_v^-$; that function
+sums over samples, so the result is the concatenation of per-agent blocks at one
+point — and on a complete graph it is the centralised filter's pooled call
+verbatim. `receiver` under a local adapt is refused: one batch has one point, so
+the setting would name a variant that does not exist.
+
+**What the tests pin.** The complete-graph identity for all four one-hop variants,
+to 1e-10 in the unit test and 1e-12 through the runner. Both points pass, which is
+exactly why that gate cannot choose between them. On a ring the two agree at the
+first step — a common prior makes every $\bm\theta_u^-$ equal — and part from the
+second. The ledger per variant, and the refusal when a config contradicts the name.
+
+**How far apart, and at what cost.** A probe on the tests' small network ($p=349$,
+6-ring): $\max|\text{sender}-\text{receiver}|$ is 1.4e-17 after step 1, 1.2e-4
+after step 2 and 1.6e-4 by step 5, against an agent spread of 1e-2 to 3e-2 —
+about 1% of the disagreement that causes it, and not growing over five steps.
+Whether that is 1% of anything in the *error* is what X27 measures. Compute at
+$p=2908$, $N=10$, \ac{er} $p=0.3$ (one draw, mean $|\mathcal M_v|=5.0$), float64
+on the RTX 4070, median of 15 network steps: sender 36.1 ms per agent, receiver
+37.6 (+4%). The receiver linearises $\sum_v|\mathcal M_v|$ batches where the
+*simulated* sender linearises $N$; a *deployed* sender re-linearises its
+neighbours' batches too ([[D92]]), so the receiver's figure is the honest one for
+both.
+
+**The ledger, fixed.** `comm_scalars_per_step` counted $p$-vectors: full sharing
+at $p$ further vectors — all of $p^2$, lower triangle included — and one-hop at
+$q'+1=10$ further vectors, ignoring $n$ entirely. It now counts scalars per
+direction as a deployment sends them: $\bm\psi$, $p$; full sharing adds the upper
+triangle, $p(p+1)/2$; one-hop adds the raw batch $n(d+1)$ — recorded from the
+data, since $n$ belongs to the environment — plus $\bm\theta_u^-$ under `sender`.
+At $p=2908$, $n=4$, $d=196$, per link per direction:
+
+| variant | before | now |
+|---|---|---|
+| `diffusion_ekf` | 2 908 | 2 908 |
+| `diffusion_ekf_full` | 8 459 372 | 4 232 594 |
+| `diffusion_ekf_onehop_mean` | 31 988 | **6 604** |
+| `diffusion_ekf_onehop_mean_receiver` | — | **3 696** |
+| `diffusion_ekf_onehop` | 8 488 452 | 4 236 290 |
+| `diffusion_ekf_onehop_receiver` | — | 4 233 382 |
+
+For `adapt_rounds` $L>1$ it charges one batch per round, a lower bound: a flooding
+round forwards every batch newly reached, and how many is a property of the graph.
+
+⚠ **What is on disk.** Every parquet written before this carries the old values in
+`cum_scalars_tx` for its full-sharing and one-hop cells, X19–X26. Nothing read
+them: `make_figures.py` uses the column only for x1, x2 and x5, which carry no
+filter, and figure 39 and the deck price bandwidth from [[D92]]'s formulas.
+Re-deriving from the formulas is correct; re-reading the column is not. Separately,
+`config_fingerprint` hashes the resolved config, which now has one more field, so
+a checkpoint written before this will not resume. Finished runs are unaffected,
+and nothing was mid-run.
+
+**X27** pairs the two points on X25's seven cells — three still, two drifting and
+their twins — at X25's filter settings and seeds, both learners in one run so each
+comparison is paired against the same data stream. The sender arm must reproduce
+X25's `diffusion_ekf_onehop_mean` to the digit, since this note changed the
+ledger and not the filter, which makes X27 a reproduction check as well. About 7 h
+by the probe's step time. ❓ **Open:** whether to run it, and at three seeds or
+five.
