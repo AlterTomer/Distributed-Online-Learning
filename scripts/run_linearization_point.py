@@ -178,7 +178,7 @@ def report() -> None:
     """Receiver minus sender per cell, the reproduction check, and ATC for scale."""
     print("  settled error, receiver minus sender (negative: the receiver point wins)")
     print(f"    {'cell':>16}{'sender':>10}{'receiver':>10}{'diff':>10}{'t':>8}{'n':>4}"
-          f"{'X25 sender':>12}{'ATC (2psi)':>12}")
+          f"{'vs X25':>12}{'ATC (2psi)':>12}")
     rows = [(f"still_b{s:g}", False) for s in SKEWS]
     rows += [(c, False) for c in DRIFTS] + [(c, True) for c in DRIFTS]
     for condition, twin in rows:
@@ -189,14 +189,19 @@ def report() -> None:
             continue
         diff, t, n = paired(receiver, sender)
         mean = lambda d: sum(d.values()) / len(d)  # noqa: E731
+        # The reproduction check runs on the seeds both experiments share: X25 ran
+        # three, so comparing means over different seed sets would test nothing.
         old = per_seed(x25_cell(condition, twin), SENDER)
+        shared = sorted(set(old) & set(sender))
+        drift = max((abs(sender[s] - old[s]) for s in shared), default=math.nan)
         atc = per_seed(x25_cell(condition, twin), "diffusion_sgd_atc")
         print(f"    {run.removeprefix('x27_'):>16}{mean(sender):>10.4f}{mean(receiver):>10.4f}"
               f"{diff:>+10.4f}{t:>8.2f}{n:>4}"
-              f"{(f'{mean(old):.4f}' if old else '-'):>12}"
+              f"{(f'{drift:.1e} ({len(shared)})' if shared else '-'):>12}"
               f"{(f'{mean(atc):.4f}' if atc else '-'):>12}")
-    print("\n  The sender column must equal X25's to the digit: D94 changed the ledger,")
-    print("  not the filter. If it does not, stop -- something else moved.")
+    print("\n  'vs X25' is the largest per-seed |sender - X25 sender| over the seeds both")
+    print("  ran, in brackets. It must be zero: D94 changed the ledger, not the filter.")
+    print("  If it is not, stop -- something else moved. ATC is X25's, over its seeds.")
 
 
 if __name__ == "__main__":

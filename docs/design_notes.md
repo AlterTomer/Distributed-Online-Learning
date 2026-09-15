@@ -3970,4 +3970,5 @@ comparison is paired against the same data stream. The sender arm must reproduce
 X25's `diffusion_ekf_onehop_mean` to the digit, since this note changed the
 ledger and not the filter, which makes X27 a reproduction check as well. About 7 h
 by the probe's step time. ❓ **Open:** whether to run it, and at three seeds or
-five.
+five. ⚠ *Decided 2026-09-15: five seeds, about 12 h. X25 ran three, so the
+reproduction check compares per seed on the three both share.*
