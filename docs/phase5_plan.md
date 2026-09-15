@@ -12,7 +12,8 @@ lands it becomes a row in [`experiments.md`](experiments.md), which stays the
 operational index — this file is the plan, that one is the record.
 
 **Two learners are the subject throughout**: `diffusion_ekf` (mean-only,
-deployable) and `diffusion_ekf_full` (covariance sharing, the ceiling). The gap
+deployable) and `diffusion_ekf_full` (covariance sharing — a diagnostic, not an upper bound: mixing correlated
+covariances changes later gains and can help or hurt). The gap
 between them is the price of not shipping covariances and is the point of nearly
 every row below. `diffusion_ekf_onehop` is a fixture, not a competitor: it is not
 tuned and appears only in the gate.
@@ -540,7 +541,7 @@ agent. They are the reason phase 5 is not just "the same experiments again".
   *scalars sent*, not against $t$. `diffusion_ekf` sends $p$ per link against
   ATC-with-momentum's $2p$, so the filter should be compared at half the
   bandwidth — while `diffusion_ekf_full` sends 2908×, which is the honest cost of
-  the ceiling and belongs on the same axis. This is the claim the ledger was
+  the most expensive variant, and belongs on the same axis. This is the claim the ledger was
   built for and the one a reviewer will press hardest.
 - [ ] **P5.14** **Is the conservative bound actually conservative?** `lem:
   conservative` proves $\sum_u a_{vu}\bm P^{\psi}_u$ upper-bounds the combined

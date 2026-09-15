@@ -3841,10 +3841,61 @@ Jacobians" is true of the simulation, which reuses each sender's block in-proces
 and false of the raw-sample protocol the payload column describes, where the
 receiver must re-linearise its neighbours' samples. The excluded cost is small at
 this size — an estimated ~10⁶ flops against ~5×10⁹ for the Woodbury update — so the
-3.8× ratio is close to the total, but the claim as stated was wrong.
+3.8× ratio is close to the total, but the claim as stated was wrong. ⚠ *Measured
+in [[D93]]: the Jacobians are 13% of the one-hop step, and one-hop costs 2.0×,
+not 3.8× — the estimate here was wrong on both counts.*
 
 **And from the same review: "a smaller $\bm P$ is a larger gain" was backwards.** A
 smaller $\bm P$ gives a smaller $\bm K$. What $\alpha$ does ([[D87]]) is scale the
 score by $c$ while the covariance shrinks by much less than $c$ wherever the prior
 dominates, so the step grows roughly $c$-fold in exactly the directions with least
 data — where the linearisation is least trustworthy.
+
+### ✅ D93. One-hop linearises at mixed points, and the compute column is now measured
+
+Two findings from a second external review of the deck, one about what one-hop
+computes and one about what it costs.
+
+**Mixed linearisation points.** A receiver rebuilds each neighbour's block at the
+*sender's* predictive mean $\bm\theta_u^-$, sums the blocks with its own, and applies
+the sum to its own prior $(\bm\theta_v^-,\bm P_v^-)$. For a nonlinear network,
+blocks linearised at different points and summed into one update are **not** one
+\ac{ekf} update at a common point. It is exact when $\bm\theta_u^-=\bm\theta_v^-$
+for every $u\in\mathcal M_v$ — consensus, which holds on a complete graph with a
+common predictive prior, i.e. `prop:complete_graph`'s condition — and exact for a
+linear observation model. Away from consensus it is a well-defined approximation.
+The deck's "why one-hop evidence sharing is valid" overstated it.
+
+**And the choice was a simulation convenience that costs a ψ in deployment.** The
+sender forms its block once and every neighbour reuses it, which is cheap in one
+process. A deployment that ships raw batches re-linearises at the receiver anyway,
+so it could do so at the receiver's *own* $\bm\theta_v^-$: one linearisation point
+— the textbook diffusion \ac{ekf}, where neighbours send measurements and the
+receiver linearises its own model — and no $\bm\theta_u^-$ in the first message, so
+788 + 2 908 = 3 696 per link per step, below momentum \ac{atc} again. On a complete
+graph with a common prior the two coincide, so the exactness gate cannot tell them
+apart; on \ac{er} they differ, and X20–X26's one-hop numbers would not carry over.
+❓ **Open:** whether to implement the receiver-point variant and re-run.
+
+**Measured compute replaces the analytic ratios.** Per agent per step, float64 on
+the RTX 4070 Laptop, median of 25 after warm-up, Jacobian reconstruction included:
+
+| variant | ms | × local | flop model |
+|---|---|---|---|
+| `diffusion_ekf` | 14.0 | 1.00 | 1.00 |
+| `diffusion_ekf_onehop_mean` | 28.7 | **2.04** | 3.8 |
+| `diffusion_ekf_full` | 19.0 | **1.35** | 1.05 |
+| `diffusion_ekf_onehop` | 33.7 | 2.40 | 3.8 |
+
+The flop model is wrong **in both directions**. A wider Woodbury block parallelises
+far better on a GPU than its flops suggest — $m=148$ takes 2.04× the time of
+$m=40$ for 3.7× the flops — so one-hop is about half as expensive as claimed.
+Covariance mixing is memory-bound rather than flop-bound — each dense
+$p\times p$ add streams 64.5 MiB — so full sharing is a third more expensive than
+claimed. And the Jacobians [[D92]] estimated at ~10⁶ flops and called negligible
+are **13.3%** of the one-hop step: per-sample Jacobians are launch- and
+overhead-bound, so flops were the wrong unit. The review said "remove or measure";
+measuring overturned the estimate, which is the argument for measuring.
+
+These are one GPU's ratios for isolated per-agent kernels, not end-to-end sweep
+times, and a CPU would order them differently.
