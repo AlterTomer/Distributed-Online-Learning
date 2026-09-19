@@ -168,6 +168,43 @@ About **two and a half to three weeks.**
 
 ---
 
+## After A and B — one codebase
+
+Decided 2026-09-19, and **gated: this starts only once both MNIST and
+Mackey–Glass are finished**, not before. The two tracks grew on separate
+branches and the point is to end with one codebase rather than two that share a
+name.
+
+The git half is nearly free. Since the merge base (`f379326`) the only file both
+branches have touched is `docs/figures.md`, where each added a `## 15.` — MG1–MG8
+on `mg-task`, the diffusion figures 36–39 on `x15-state-model-settled`. Those two
+sections have to be interleaved by hand. Nothing else conflicts: the MG work
+added modules and edited shared ones the MNIST branch has left alone.
+
+The real work is the redundancy afterwards. Candidates, best first:
+
+1. **The model wrappers.** `mlp.py`, `linear_ar.py` and `transformer.py` each
+   repeat the same nine delegations to `models/functional.py` — `names`,
+   `shapes`, `flatten`, `unflatten`, `param_groups`, `vjp`, `jvp`, `jacobian`,
+   `per_sample_jacobian` — with identical bodies. They belong in `models/base.py`
+   once, leaving each class only its `_build_module`, `init_params` and
+   `summary`.
+2. **Classification against regression.** `metrics/classification.py` beside
+   `metrics/regression.py`, and `evaluation/evalsets.py` and `reference.py`
+   beside their `series_` counterparts. Measure how much of each series pair is
+   genuinely series-specific before merging them — the split may be load-bearing.
+3. **The four registries** (`data`, `models`, `learners`, `likelihoods`) share a
+   shape. Whether that is worth abstracting is a judgement call, not an obvious
+   win, and it is listed last for that reason.
+
+Two constraints. The D104 device contract — `init_params` is CPU-only, modules
+carry their own buffers — arrived on `mg-task` but touches `mlp.py`, so it lands
+on the MNIST path too; `tests/test_model_device.py` guards it and must come
+across with it. And the figure builders stay untracked: the merge must not add
+any `scripts/make_*.py` or `scripts/plot_*.py` to the public repo.
+
+---
+
 ## Calendar
 
 | dates | work |
