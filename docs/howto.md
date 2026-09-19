@@ -91,6 +91,16 @@ exists to enforce.
 Six schedules exist: `stationary`, `linear`, `ramp`, `piecewise`, `recurring`,
 `sinusoidal`.
 
+**Which file you edit depends on how far the change should reach.** The defaults
+live in `configs/base.yaml` § `env.drift`; each shipped condition is one file in
+`configs/env/` that overrides them (`mnist_stationary.yaml`,
+`mnist_rotating_linear.yaml`, `mnist_rotating_ramp.yaml`,
+`mnist_rotating_piecewise.yaml`, `mnist_rotating_sinusoidal.yaml`,
+`mnist_per_node_linear.yaml`, `mnist_prior_drift.yaml`). Edit
+`configs/env/<name>.yaml` to change one condition, `configs/base.yaml` to change
+the default everywhere, or pass `overrides=` to change it for a single run
+without touching either:
+
 ```python
 overrides={"env": {"drift": {"schedule": "recurring",
                              "jump_every": 25,
@@ -99,7 +109,7 @@ overrides={"env": {"drift": {"schedule": "recurring",
 ```
 
 Fields are per-schedule and documented in [`configs.md`](configs.md) §`env.drift`.
-Two things that will bite you:
+Three things that will bite you:
 
 - **Rotation is capped at 45°.** Past it a 6 becomes a 9, so a rising error would
   measure label ambiguity rather than tracking failure.
@@ -107,10 +117,16 @@ Two things that will bite you:
   $2\lfloor 45/J\rfloor + 1$. At $J=30$ that is three, and the walk spends half
   its steps unrotated — the nominal rate $J/t'$ then overstates the displacement
   anyone has to follow. Keep $J \le 22.5$ if you want sustained motion (D74).
+- **`recurring` is the one schedule with no file to edit.** The configs in
+  `configs/env/` cover the other five; `recurring` is reachable only through
+  `overrides=`, which is what `scripts/run_recurring_sweep.py` builds. Looking for
+  a `mnist_rotating_recurring.yaml` to copy is a dead end.
 
 **Q. How do I change the filter's hyperparameters?**
 
-They are learner config fields, so they can be swept like anything else:
+They are learner config fields — one file per learner in `configs/learner/`, so
+the snippet below is `configs/learner/centralized_ekf_gamma.yaml` with different
+values. Edit that file to move the shipped defaults, or override per run:
 
 ```python
 overrides={"learners": [{
@@ -126,6 +142,11 @@ overrides={"learners": [{
 The shipped values are what X13 selected and X14/X15 validated. `prior_scale` is
 a **trust region, not just a prior** — too large a value diverges on the first
 step rather than converging slowly (D61).
+
+One field in that snippet is not in the file: **`trust_region_ratio` has no YAML
+line.** It is overridable exactly as shown, but its default lives in code, as
+`TRUST_REGION_RATIO` in `src/dekf_bench/learners/ekf.py` and again in
+`diffusion_ekf.py`. Grepping `configs/learner/` for it finds nothing.
 
 ---
 
