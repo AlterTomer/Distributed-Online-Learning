@@ -32,11 +32,23 @@ def test_every_registered_dataset_declares_the_facts_others_depend_on() -> None:
     for name in dataset_names():
         entry = spec(name)
         assert entry.name == name, "a spec must know its own key"
+        assert callable(entry.load) and callable(entry.cached)
+        assert entry.kind in ("image", "series")
+        if entry.kind != "image":
+            continue
         assert entry.channels >= 1
         assert entry.image_size >= 1
         assert entry.num_classes >= 2
         assert entry.input_dim == entry.channels * entry.image_size**2
-        assert callable(entry.load) and callable(entry.cached)
+
+
+def test_a_generated_dataset_has_nothing_to_load() -> None:
+    """Mackey--Glass is integrated per run: no files, always available, no splits."""
+    entry = spec("mackey_glass")
+    assert entry.kind == "series"
+    assert dataset_is_cached("mackey_glass")
+    assert load_dataset("mackey_glass") == (None, None)
+    assert entry.rotation_cap_degrees is None
 
 
 def test_the_rotation_cap_is_a_property_of_the_task() -> None:

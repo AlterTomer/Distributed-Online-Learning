@@ -128,7 +128,13 @@ class MLP:
         params: ParamDict = {}
         for name, template in self._module.named_parameters():
             if name.endswith("bias"):
-                params[name] = torch.zeros_like(template)
+                # Not `zeros_like`: that inherits the *module's* device, which may be
+                # a GPU since D104, while the generator-driven weights below are built
+                # on the CPU. Mixing the two makes `flatten`'s cat fail. init_params is
+                # CPU-only by contract -- a cuda tensor would need a cuda generator and
+                # a different random stream, so theta_0 would depend on the device --
+                # and `run_one` moves the flat vector once it is assembled.
+                params[name] = torch.zeros(template.shape, dtype=self.dtype)
                 continue
             fan_out, fan_in = template.shape
             gain = _GAINS[self.activation]

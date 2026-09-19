@@ -1,0 +1,16 @@
+# Mackey–Glass, smooth drift: beta 0.22 -> 0.24 at a constant rate (D96).
+include:
+  env: mg_linear
+  graph: erdos_renyi
+  model: mg_transformer
+
+learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
+
+run:
+  name: m_linear
+  horizon: 1500
+  dtype: float64
+
+eval:
+  evalsets: [prequential, current, canonical]
+  batch_size: 64

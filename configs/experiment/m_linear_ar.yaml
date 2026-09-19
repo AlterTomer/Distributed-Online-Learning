@@ -1,0 +1,19 @@
+# Mackey–Glass with the linear AR(31): the exact-Kalman gate's model, and the
+# classical baseline (decision 11). Stationary; a sweep overrides the drift. Runs
+# as its own cells because the model is a run-level choice, on the same seeds as
+# the Transformer cells, so the data stream is identical by construction.
+include:
+  env: mg_stationary
+  graph: erdos_renyi
+  model: mg_linear_ar
+
+learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
+
+run:
+  name: m_linear_ar
+  horizon: 1500
+  dtype: float64
+
+eval:
+  evalsets: [prequential, current, canonical]
+  batch_size: 64

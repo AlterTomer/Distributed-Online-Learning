@@ -35,8 +35,10 @@ def build_likelihood(config: Any) -> Any:
     if name not in LIKELIHOODS:
         raise LikelihoodError(f"unknown likelihood {name!r}; available: {likelihood_names()}")
     if name == "gaussian":
+        per_position = getattr(config.model, "observation_variances", None) or None
         return Gaussian(
             output_dim=config.model.output_dim,
             variance=getattr(config.model, "observation_variance", 1.0),
+            variances=None if per_position is None else tuple(float(v) for v in per_position),
         )
     return Categorical(config.model.output_dim)

@@ -47,6 +47,14 @@ Thumbs.db
 # `make_figures` to check that figure axis labels match the data, so it tests a
 # file that is no longer here and would fail to collect on a fresh clone.
 /scripts/make_figures.py
+/scripts/make_mg_figures.py
+/scripts/make_mg_results_figures.py
 /scripts/make_preliminary_figures.py
 /scripts/plot_*.py
 /tests/test_figures.py
+
+# The Mackey-Glass catch-up document. Same grounds as the .docx builders above --
+# it writes a supervisor-facing summary to OneDrive -- but it is listed here
+# because it was written after that block and would otherwise sit untracked and
+# unignored, which is one `git add -A` away from being published.
+/scripts/make_mg_status_docx.py

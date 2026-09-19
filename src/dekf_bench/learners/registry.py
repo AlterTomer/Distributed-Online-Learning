@@ -92,6 +92,14 @@ BUILDERS = {
     # in carrying a `freeze_after`, so "what does continuing to adapt buy?" is
     # answered against the same algorithm rather than against a different one.
     "frozen_atc": DiffusionSGDATC,
+    # AdamW counterparts of the three gradient baselines, for the series task
+    # (docs/mackey_glass_plan.md, decision 19): a Transformer is normally trained
+    # with Adam, and a reviewer will ask. Separate names because one run carries
+    # both the SGD and the AdamW arm, and two entries need two names (D71). ATC
+    # mixes both moments ("all"), so its payload is 3p per link.
+    "centralized_adamw": CentralizedSGD,
+    "diffusion_atc_adamw": DiffusionSGDATC,
+    "local_adamw": LocalOnly,
 }
 
 #: Learners whose combine step actually transmits. `centralized_sgd` and
@@ -100,6 +108,7 @@ DIFFUSING = {
     "diffusion_sgd_atc",
     "diffusion_sgd_atc_plain",
     "diffusion_sgd_cta",
+    "diffusion_atc_adamw",
     *DIFFUSION_EKF_VARIANTS,
 }
 
@@ -109,6 +118,7 @@ DIFFUSING = {
 #: should not require editing `simulate.py` again to be dispatched correctly.
 POOLING = {
     "centralized_sgd",
+    "centralized_adamw",
     "centralized_ekf_gamma",
     "centralized_ekf_lambda",
     "centralized_ekf_walk",

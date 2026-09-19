@@ -1,0 +1,24 @@
+# The Mackey–Glass predictor (docs/mackey_glass_plan.md, decisions 9–10): one
+# pre-LayerNorm causal Transformer block, 2 heads, d_model 16, feed-forward 32,
+# GELU, fixed sinusoidal positions, a scalar head at every position. p = 2 273.
+#
+# A block of L - 1 = 31 inputs gives 31 one-step predictions, so the Gaussian
+# likelihood has q = 31 outputs and each block's Jacobian is 31 x p.
+name: causal_transformer
+likelihood: gaussian
+context: 31
+output_dim: 31
+d_model: 16
+n_heads: 2
+d_ff: 32
+# R: the per-position profile measured at the task's law (beta = 0.22, sigma = 0.1)
+# on an offline-converged Transformer (D96, scripts/measure_r_profile.py). This is
+# the CENTRE of the R grid: M4 and M5 tune one scale factor on it (decision 28),
+# never the 31 entries separately. Position 1 predicts from one sample and is the
+# worst; the variance falls to ~0.014 by position 20.
+observation_variance: 0.02199   # the profile's mean, for reference
+observation_variances: [0.05142, 0.04042, 0.03174, 0.02861, 0.02716, 0.02724, 0.02737,
+                        0.02762, 0.02578, 0.02606, 0.02622, 0.02533, 0.02411, 0.02257,
+                        0.02136, 0.01974, 0.01816, 0.01734, 0.01575, 0.01472, 0.01435,
+                        0.01394, 0.01473, 0.01510, 0.01465, 0.01444, 0.01436, 0.01430,
+                        0.01578, 0.01538, 0.01593]

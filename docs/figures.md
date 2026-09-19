@@ -745,7 +745,113 @@ transient rather than an average. This was first drawn as marker *size*, which
 looked fine until the legend swatch took its size from the first point plotted —
 making the key silently disagree with the data.
 
-## 15. Still to come
+## 15. The Mackey–Glass figures (MG1–MG8)
+
+`make_mg_figures.py`, excluded like every other builder (§1). All four draw from
+JSON the M-series already reduced — the pilot report, the reference sweep, the
+$\bm R$ profile — so none of them needs a `results/` run still on disk.
+
+### MG1 — the pilot gate
+
+Three panels, one per observation-noise level; inside each, one dumbbell per
+optimiser running from the solo learner to the pooled one. The gate asks whether
+pooling ten agents' blocks beats one agent's own data by more than the pooled
+learner's seed noise. It passes everywhere — 3.4× to 57.7× (D96).
+
+**Read the heights, not only the drop.** Both references are drawn — persistence
+dashed, the observation-noise floor dotted — because the caveat worth carrying is
+not that pooling wins but that at $\sigma=0.1$ every arm sits near persistence and
+only 1.52× above the floor. A figure showing the gap alone would hide that.
+
+### MG2 — the operating window
+
+Two panels over one x-axis, and deliberately **not** one panel with two y-scales:
+$\lambda$ and an excess RMSE are different quantities, and overlaying them would
+manufacture a crossing that does not exist.
+
+(a) $\lambda$ against $\beta$. The chaotic band is narrow — positive only on
+$[0.20, 0.24]$, peaking at $+0.0074$ at $0.22$, and back to $\sim2\times10^{-5}$
+by $0.26$. $\beta=0.12$ is a periodic window at $\lambda=-0.17$; it is masked out
+of the line and marked at the axis edge, because a clipped point makes matplotlib
+run the line to the boundary and draw a vertical stroke that reads as data.
+
+(b) The excess RMSE of a model **converged at $\beta=0.2$** as the law moves away
+from it. It climbs in *both* directions, which is the panel's whole point: a
+smaller $\beta$ is not an easier task for a model trained at 0.2 (D96). Two
+earlier drafts of this figure mislabelled that axis — one baselined the curve at
+$\beta=0.4$, the other called the left flank "the series is simply harder", which
+is exactly the reading D96 refutes.
+
+Together the panels justify the window: every drift condition is placed to stay
+inside the chaotic band, so a condition changes the law's parameters and never the
+kind of dynamics.
+
+### MG3 — the reference line
+
+What a converged offline model reaches across the window, $\beta$ by $\beta$;
+every online learner is scored against this line at its own $\beta$. The
+full-context variant (positions $\ge 16$) is drawn beside the all-position one
+because the gap between them is the cost of predicting from a short prefix, not a
+property of any method under test. Persistence and the $\sigma=0.1$ floor bound
+the plot: nothing should beat the floor, and a learner above persistence is not
+learning.
+
+### MG4 — the per-position $\bm R$
+
+The profile shipped in `mg_transformer.yaml`, log-scaled because the *shape* is
+the point: position 1 predicts from a single sample and is worst by far, and the
+variance falls to $\sim0.014$ by position 20. The linear AR profile sits beside it
+— higher everywhere, and much worse at position 2 — and the dotted line marks the
+$\bm R$ centre that M4 and M5 scale by a single tuned factor.
+
+**A flat profile would be the surprise**, since it would mean the per-position
+rule (decision 14) was never needed.
+
+### MG5 — the main comparison
+
+Every learner against the three drift conditions, one panel each. ⚠ The panels
+**share an x-axis**: drawn on independent ranges, the same horizontal position meant
+a different number in each, which destroys the only comparison the figure exists to
+make. Hue is spent on the three arms the comparison is *about* — the centralised
+filter, the deployable one-hop variant, and the local-adapt variant it is measured
+against — and every gradient baseline is muted ink, because twelve series have no
+honest categorical palette. The dotted vertical is the offline reference from D97's
+fitted line, not a single reference run.
+
+### MG6 — tracking over time
+
+RMSE against step, five learners rather than twelve, bands spanning the seed spread
+so a band answers "how far would a rerun move this curve". Read the *stationary*
+panel first: it is the twin every drifting cell's damage is measured against.
+
+### MG7 — what the accuracy costs on the wire
+
+Settled error against communication, the regression task's version of the claim the
+ledger was built for. ⚠ The x-axis is **scalars per step, network-wide** — not per
+link. `cum_scalars_tx` is a recorder *column*, accumulated across the whole graph,
+and an early draft of this figure mislabelled it; the ratio between learners is
+unaffected since they share a topology, but the absolute number is not a per-link
+figure. Symlog with a floor at zero, because several learners send nothing at all and
+a log axis would drop them.
+
+A surprise here would be the filters failing to separate from the gradient baselines
+on the cost axis — the whole argument is that a belief buys more per scalar than a
+gradient does.
+
+### MG8 — calibration
+
+The question the image task cannot ask. (a) realised against nominal coverage at
+50/90/95, where the diagonal is honesty and below it is over-confidence; (b) the
+ten-bin PIT histogram, where a U shape means over-confident and a hump means
+over-cautious. Only the five covariance-holding filters appear: the gradient
+baselines report no predictive covariance, and WP5's variance hook fires for exactly
+those five and no others.
+
+⚠ Identity here is carried by the legend, not by direct labels — every arm converges
+to nearly the same coverage at 0.95, and labelling them individually produced an
+unreadable smear.
+
+## 16. Still to come
 
 **F11** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is
 `diffusion_sgd_atc_plain`, not the momentum variant, because the filter sends one

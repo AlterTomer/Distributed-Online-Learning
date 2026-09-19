@@ -1,0 +1,17 @@
+# Mackey–Glass, abrupt drift: beta jumps by 0.0067 every 25 rounds inside the
+# chaotic window [0.20, 0.24] (D96).
+include:
+  env: mg_abrupt
+  graph: erdos_renyi
+  model: mg_transformer
+
+learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
+
+run:
+  name: m_abrupt
+  horizon: 1500
+  dtype: float64
+
+eval:
+  evalsets: [prequential, current, canonical]
+  batch_size: 64

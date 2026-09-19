@@ -164,6 +164,11 @@ class Environment:
     def n_nodes(self) -> int:
         return self.graphs.n_nodes
 
+    @property
+    def device(self) -> torch.device:
+        """Where the data live, so a caller can place theta_0 without knowing the task."""
+        return self.train.images.device
+
     def drift_state(self, step: int, node: int | None = None) -> DriftState:
         """The drift the data carries at ``step``.
 
@@ -172,6 +177,11 @@ class Environment:
         """
         self._check_step(step)
         return self.drift.state_at(step, node)
+
+    def pool(self, observations: dict[int, Observation]) -> tuple[torch.Tensor, torch.Tensor]:
+        """The pooled batch. A method so the runner asks the environment, which
+        knows its data's shapes, rather than assuming images (see env/series.py)."""
+        return pool(observations)
 
     def step(self, step: int) -> dict[int, Observation]:
         """Every agent's observation at ``step``.

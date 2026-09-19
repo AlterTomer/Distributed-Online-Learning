@@ -1,0 +1,18 @@
+# Linear AR(31) over the causal window, p = 32 (docs/mackey_glass_plan.md,
+# decision 11). Linear in theta, so under a Gaussian likelihood the EKF is an exact
+# Kalman filter -- the series task's correctness gate, and a reported baseline.
+# Runs as its own cells: the model is a run-level choice.
+name: linear_ar
+likelihood: gaussian
+context: 31
+output_dim: 31
+# R: the linear AR's OWN per-position profile at the task's law (beta = 0.22,
+# sigma = 0.1), from its least-squares optimum (D96). About 1.5x the Transformer's
+# level -- it is the weaker predictor -- and differently shaped: position 2, not 1,
+# is its worst. The centre of its R grid; M4/M5 tune one scale on it.
+observation_variance: 0.03398   # the profile's mean, for reference
+observation_variances: [0.05508, 0.08516, 0.06354, 0.04444, 0.03547, 0.03309, 0.03213,
+                        0.03227, 0.03225, 0.03162, 0.03308, 0.03236, 0.03170, 0.03121,
+                        0.03083, 0.02987, 0.02926, 0.02860, 0.02739, 0.02823, 0.02761,
+                        0.02764, 0.02818, 0.02834, 0.02817, 0.02801, 0.02775, 0.02753,
+                        0.02762, 0.02724, 0.02778]

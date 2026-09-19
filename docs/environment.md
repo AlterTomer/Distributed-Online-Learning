@@ -374,3 +374,77 @@ Tests marked `needs_data` skip when MNIST has not been downloaded; run
 - **No simulated network.** Messages are not sent; the combine step is a matrix
   product against the weights. `WORKPLAN.md` lists distributed *systems*
   engineering as an explicit non-goal.
+
+---
+
+## 7. The series task — `env/series.py`
+
+The second task, Mackey–Glass (`docs/mackey_glass_plan.md`), has no dataset to
+load. Each agent observes its own realisation of one delay differential equation,
+integrated **per run** by `data/mackey_glass.py`, because drift acts on the *law*
+rather than on cached data: a changed $\beta$ reshapes every later sample. Setting
+`env.dataset: mackey_glass` selects this environment through
+`runner/task.py::build_task`; the runner, learners and filter see the same
+interface as before (`step`, `observe`, `pool`, `assert_unmodified`, `graph`,
+`n_nodes`, `horizon`, `device`).
+
+**A round is a fixed stretch of physical time.** At build time every agent's whole
+series is integrated — $T$ rounds of $n_b$ blocks of $L$ samples — then
+standardised with fixed constants (from one long run at $\beta=0.2$, never per run)
+and observed through the sensor. Round $t$ is always the same $n_bL$ samples of
+agent $v$'s series; an unavailable round is a sensor dropout.
+
+### The guarantees, re-established
+
+| MNIST guarantee | On the series task |
+|---|---|
+| **G1** shards are disjoint | each agent integrates its own trajectory from its own initial history; chaos ($\lambda\approx0.006$ per time unit) decorrelates them |
+| **G2** each sample consumed once | blocks never overlap and the transition between blocks is dropped, so every target is used once (`to_blocks`) |
+| **G3** no train/test leakage | held-out sets come from separate histories and noise, on the seed sub-stream `stream/eval/<value>`; a test asserts no held-out block appears in training |
+| **G4** train and eval agree on the drift | `current` is built at the channel value the agents face at $t$, read from the same schedule |
+| **G5** observations are shared and read-only | observations are **clones** of the environment's data, so an in-place mutation cannot reach the master copy and `assert_unmodified` can see it |
+| **G6** `step(t)` is positional | everything is integrated at build; `step(t)` only slices |
+| **G7** batches are full or empty | a round is all $n_b$ blocks or a dropout (`env.label_availability` is block availability) |
+| **G8** reproducible from one seed | histories `stream/histories`, noise `stream/noise`, dropouts `stream/blocks`, graph `graph` — none depends on the drift, so a **stationary twin shares every history and noise draw** with its drifting run |
+
+### The drift channel
+
+The schedules of §3 are reused unchanged. A schedule's displacement $d$ (in its
+degree units, under the 45-degree cap) moves the configured channel by
+`span * d / 45`:
+
+- **`beta`** — the law. Applied per sample *inside* the integration.
+- **`gain`**, **`bias`** — the sensor. Applied to the observation only; the
+  dynamics are untouched, which is what makes them the analogue of label shift.
+
+`drift_scope: per_node` spreads agents' rates exactly as on MNIST.
+
+### Heterogeneity
+
+`agent_laws` spreads per-agent $\beta$ offsets and noise levels **evenly** (not
+randomly), and cycles delays through `tau_values`, so the heterogeneity is the same
+in every seed and only the data vary.
+
+### What the observation carries
+
+`SeriesObservation` has the fields every learner reads, with `x` and `y` of shape
+`(n_blocks, L - 1)` — inputs and one-step-ahead targets — and a "sample" is a
+block. Its `rotation_degrees` property is the channel's value ($\beta$, gain or
+bias), which the protocol and the schema record as `drift_state`.
+
+### Held-out sets and references
+
+`evaluation/series_evalsets.py` builds `current`, `current_mean` and `canonical`
+from **fresh trajectories at the fixed law**, cached by channel value, using the
+**central** law (no heterogeneity offsets) — the network's law, as MNIST's skew
+runs are scored on the global test set. There is no `backward` set; the config
+refuses it. `evaluation/series_reference.py` provides the noise floor,
+persistence and the offline reference $e^\star$ per channel value.
+
+### Tests
+
+`test_mackey_glass.py` (the integrator: an exact equilibrium, a closed form on
+$[0,\tau]$, fourth-order convergence across the history's kink, chaos at the
+published rate), `test_series_env.py`, `test_series_protocol.py`,
+`test_series_runner.py` (end to end through `simulate.run`),
+`test_series_exactness.py` (the M1 gates) and `test_series_reference.py`.

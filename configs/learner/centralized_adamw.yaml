@@ -1,0 +1,9 @@
+# Centralised AdamW: the pooled learner with the optimiser a Transformer is usually
+# trained with (docs/mackey_glass_plan.md, decision 19). M0 found AdamW the best
+# pooled gradient learner at every noise level (D96). The rate is a placeholder:
+# M3 tunes it per condition, on a grid reaching above 1e-2 (M0 chose the top of
+# its grid every time).
+name: centralized_adamw
+optimizer: adamw
+lr: 0.01
+mix_optimizer_state: all   # inert for a pooled learner, which never combines

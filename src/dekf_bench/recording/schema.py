@@ -152,6 +152,13 @@ class RunContext:
         cls, config: Any, seed: int, graph: Any, run_id: str, git_sha: str
     ) -> RunContext:
         summary = graph.summary()
+        # On a generated series a "sample" is a block, so the per-round count is
+        # the blocks per agent per round rather than MNIST's images per step.
+        per_node = (
+            config.env.series.n_blocks
+            if getattr(config.env, "is_series", False)
+            else config.env.samples_per_node_per_step
+        )
         return cls(
             run_id=run_id,
             git_sha=git_sha,
@@ -161,7 +168,7 @@ class RunContext:
             n_nodes=config.graph.n_nodes,
             spectral_gap=summary["spectral_gap"],
             mixing_gap=summary["mixing_gap"],
-            samples_per_node=config.env.samples_per_node_per_step,
+            samples_per_node=per_node,
             label_availability=config.env.label_availability,
             drift_schedule=config.env.drift.schedule,
             drift_param=config.env.drift.total_degrees,

@@ -239,6 +239,33 @@ measuring label ambiguity and the headline gap would be uninterpretable.
 `build_drift(config).rotation_at(t)` -- the schedule lives in `env/drift.py`,
 not on the config object (design note D19).
 
+### `env.series`
+
+Read only when `env.dataset` is a generated series (`mackey_glass`); see
+`docs/environment.md` §7 and `docs/mackey_glass_plan.md`. Selecting it also
+**skips the shard budget** — every round is integrated fresh — and adds a
+cross-check: the model must be a sequence model whose `context` is `length - 1`,
+and `backward` is refused as an evaluation set.
+
+| Field | Type | Default | Legal values | Notes |
+|---|---|---|---|---|
+| `length` | int | `32` | ≥ 3 | $L$: samples per block, giving $L-1$ inputs and targets |
+| `n_blocks` | int | `1` | ≥ 1 | $n_b$: blocks per agent per round — the data-rate axis |
+| `sigma` | float | `0.05` | ≥ 0 | Observation noise in standardised units. ⏳ provisional until M0 |
+| `beta`, `gamma`, `exponent`, `tau` | float | `0.2`, `0.1`, `10`, `17` | > 0 | The law. `tau` must be a whole number of `dt` |
+| `dt`, `delta`, `burn_in` | float | `0.1`, `1`, `1000` | > 0 (burn-in ≥ 0) | Integration step, sampling step, discarded transient |
+| `channel` | str | `beta` | `beta` \| `gain` \| `bias` | What the drift schedule moves. `tau` is planned |
+| `span` | float | `0.04` | any | The channel's displacement at the 45-degree cap. ⏳ provisional until M0 |
+| `beta_spread` | float | `0.0` | $[0,\beta)$ | Per-agent $\beta$ offsets, evenly over $[-s, s]$ |
+| `sigma_spread` | float | `0.0` | $[0,1)$ | Per-agent noise, evenly over $\sigma[1-s, 1+s]$ |
+| `tau_values` | list[float] | `[]` | each > 0 | Per-agent delays, cycled; empty means all `tau` |
+| `eval_blocks`, `eval_trajectories` | int | `32`, `8` | ≥ 1 | Size of each held-out set |
+
+**How a schedule drives the series.** The drift fields keep their degree units
+and their 45-degree cap; on this task the cap stands for the channel's full
+`span`. A displacement of $d$ degrees moves the channel by `span * d / 45`, so
+`total_degrees: 45` is the whole span and `jump_degrees: 15` a third of it.
+
 ### `model`
 
 | Field | Type | Default | Legal values | Notes |
@@ -249,8 +276,12 @@ not on the config object (design note D19).
 | `output_dim` | int | `10` | ≥ 2 | $q$; number of classes |
 | `likelihood` | str | `categorical` | `categorical` \| `gaussian` | Selects the observation model in `likelihoods/registry.py` |
 | `observation_variance` | float | `1.0` | > 0 | $\sigma^2$ in $\bm R = \sigma^2\bm I$; read only by `gaussian` |
+| `observation_variances` | list[float] | `[]` | each > 0, one per output | A per-position diagonal of $\bm R$, overriding `observation_variance` when non-empty (series task, decision 14) |
+| `context` | int | `31` | = `env.series.length - 1` | Sequence models: positions per block. `output_dim` must equal it |
+| `d_model`, `n_heads`, `d_ff` | int | `16`, `2`, `32` | `d_model` even, divisible by `n_heads` | `causal_transformer` widths |
 
-`config.model.num_params` computes $p$ from these — 2908 at the defaults.
+`config.model.num_params` computes $p$ from these — 2908 at the defaults, 2273 for
+`causal_transformer` and 32 for `linear_ar`, checked against the built models.
 
 `likelihood` is the observation model, not the loss: it decides what the
 filter's information pair $(\bm B, \bm s)$ *means*. Under `categorical` the
@@ -488,6 +519,8 @@ are handled for you.
 | `mlp_small.yaml` | 196–14–10 | **2908** | **Primary.** Small enough that a dense $p \times p$ covariance is affordable in phase 5, so phases 1–4 run the same architecture the filter will |
 | `mlp.yaml` | 784–128–10 | 101 770 | Sanity comparison at full resolution. A dense covariance here would be $10^{10}$ entries |
 | `linear_probe.yaml` | 196–10, no hidden | 1970 | $\theta \mapsto$ logits is **linear**, so the EKF becomes an exact KF and complete-graph exactness holds with no linearisation error |
+| `mg_transformer.yaml` | 31 in, 31 out; one pre-LN causal block, $d=16$, 2 heads, FF 32 | **2273** | **The series task's model.** Gaussian likelihood, $q=31$ |
+| `mg_linear_ar.yaml` | linear AR(31) over the causal window | 32 | The series task's exact-KF gate and a reported baseline; runs as its own cells |
 
 The budget cannot be met by shrinking the hidden layer: at 784 inputs,
 $p \le 3000$ forces a hidden width of about 3. The *input* is what comes down,
@@ -591,6 +624,9 @@ Three validation rules worth knowing before you hit them:
 | `diffusion_ekf_onehop_mean.yaml` | One-hop adapt, mean-only: the canonical algorithm at the deployable payload |
 | `diffusion_ekf_onehop_receiver.yaml` | `diffusion_ekf_onehop` linearised at the receiver's point: also an exactness fixture (D94) |
 | `diffusion_ekf_onehop_mean_receiver.yaml` | `diffusion_ekf_onehop_mean` linearised at the receiver's point: one linearisation point per update, and no $\bm\theta_u^-$ on the wire (D94) |
+| `centralized_adamw.yaml` | The pooled learner with AdamW — the series task's baseline for a Transformer, which is normally trained with Adam (Mackey–Glass plan, decision 19). Rate set per condition by M3 |
+| `diffusion_atc_adamw.yaml` | ATC with AdamW, both moments mixed: **3p** per link, the costliest gradient baseline. Rate set by M3 |
+| `local_adamw.yaml` | Each agent alone with AdamW: the no-cooperation floor of the AdamW arm. Never communicates |
 
 ---
 
@@ -686,6 +722,8 @@ run.device                cpu | cuda | auto
 graph.topology            complete | ring | path | grid2d | star |
                           erdos_renyi | watts_strogatz | disconnected
 graph.weights             metropolis | relative_degree | uniform
+env.dataset               mnist | mackey_glass
+env.series.channel        beta | gain | bias   (mackey_glass only)
 env.partition.kind        iid | dirichlet
 env.drift.schedule        stationary | linear | ramp | piecewise | sinusoidal
 env.drift_scope           global | per_node
@@ -697,6 +735,7 @@ learner.adapt_rounds      >= 1 (one_hop only)
 learner.covariance_sharing  full | local
 learner.linearization_point  sender | receiver (one_hop only)
 learner.combine_exponent  1.0 .. 2.0
+model.name                mlp | mlp_small | linear_probe | causal_transformer | linear_ar
 model.likelihood          categorical | gaussian
 eval.evalsets             prequential | current | backward | canonical
 ```

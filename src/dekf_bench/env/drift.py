@@ -548,8 +548,17 @@ class Drift:
 # --------------------------------------------------------------------------- #
 
 
-def build_schedule(drift_config: Any, horizon: int) -> DriftSchedule:
-    """The schedule a config's ``env.drift`` block asks for."""
+def build_schedule(
+    drift_config: Any, horizon: int, jump_seed: int | None = None
+) -> DriftSchedule:
+    """The schedule a config's ``env.drift`` block asks for.
+
+    ``jump_seed`` overrides ``env.drift.jump_seed`` for the ``recurring`` schedule.
+    Used by the series task, where the jump draw varies with the run seed (D98);
+    ``None`` keeps the configured value, which is what every image experiment
+    wants -- X11, X18 and X25 pin it so their shift *pattern* is held fixed while
+    the data vary, and comparing their cells depends on that.
+    """
     kind = drift_config.schedule
     if kind == "stationary":
         return Stationary()
@@ -566,7 +575,7 @@ def build_schedule(drift_config: Any, horizon: int) -> DriftSchedule:
             jump_degrees=drift_config.jump_degrees,
             jump_every=drift_config.jump_every,
             horizon=horizon,
-            seed=drift_config.jump_seed,
+            seed=drift_config.jump_seed if jump_seed is None else jump_seed,
         )
     if kind == "piecewise":
         return Piecewise(
@@ -584,15 +593,18 @@ def build_schedule(drift_config: Any, horizon: int) -> DriftSchedule:
     raise DriftError(f"unknown drift schedule {kind!r}")
 
 
-def build_drift(config: Any) -> Drift:
+def build_drift(config: Any, jump_seed: int | None = None) -> Drift:
     """The drift a run's config asks for, with the well-posedness cap checked.
 
     The cap is verified against what the schedule *does* over the horizon, not
     against the parameter that was configured -- a piecewise schedule with
     several change points can travel past the cap while every individual field
     looks reasonable.
+
+    ``jump_seed`` is threaded to :func:`build_schedule`; see there for why only
+    the series task passes it.
     """
-    schedule = build_schedule(config.env.drift, config.run.horizon)
+    schedule = build_schedule(config.env.drift, config.run.horizon, jump_seed)
     drift = Drift(
         schedule=schedule,
         scope=config.env.drift_scope,

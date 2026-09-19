@@ -89,16 +89,16 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from run_ekf_sweep import BASELINE_LRS, cell_name, cells, settled_for  # noqa: E402
 
 from dekf_bench.data.registry import dataset_is_cached, load_dataset  # noqa: E402
-from dekf_bench.env.environment import build_environment  # noqa: E402
-from dekf_bench.evaluation.evalsets import build_evalsets  # noqa: E402
 from dekf_bench.learners.base import LearnerError  # noqa: E402
 from dekf_bench.learners.registry import build_learners  # noqa: E402
 from dekf_bench.likelihoods.registry import build_likelihood  # noqa: E402
 from dekf_bench.metrics.classification import MetricError  # noqa: E402
+from dekf_bench.metrics.regression import RegressionMetricError  # noqa: E402
 from dekf_bench.models.registry import build_model_from_config  # noqa: E402
 from dekf_bench.recording import recorder as rec  # noqa: E402
 from dekf_bench.recording.schema import RunContext  # noqa: E402
 from dekf_bench.runner import simulate  # noqa: E402
+from dekf_bench.runner.task import build_task  # noqa: E402
 from dekf_bench.utils.config import load_config  # noqa: E402
 from dekf_bench.utils.determinism import git_revision  # noqa: E402
 
@@ -393,12 +393,14 @@ def run_one(config, train, test, fresh: bool) -> str:
     rec.write_metadata(out_dir, config, {"experiment": config.run.name})
 
     for seed in config.run.seeds:
-        environment = build_environment(config, seed, train)
+        # The task decides the environment: images over loaded splits, or a series
+        # integrated per seed (train and test are then unused and may be None).
+        environment, evalsets = build_task(config, seed, train, test)
         model = build_model_from_config(config)
         likelihood = build_likelihood(config)
         learners = build_learners(config, model, likelihood)
         theta0 = model.flatten(model.init_params(environment.seeds.torch_generator("init")))
-        theta0 = theta0.to(environment.train.images.device)
+        theta0 = theta0.to(environment.device)
         sha, _dirty = git_revision(ROOT)
         recorder = rec.Recorder(
             out_dir,
@@ -410,8 +412,7 @@ def run_one(config, train, test, fresh: bool) -> str:
         )
         try:
             simulate.run(
-                config, environment, learners,
-                build_evalsets(config, environment, test), likelihood, theta0,
+                config, environment, learners, evalsets, likelihood, theta0,
                 recorder=recorder, verify_observations=False, progress_every=0,
             )
         # MetricError is caught alongside LearnerError because divergence does not
@@ -424,7 +425,7 @@ def run_one(config, train, test, fresh: bool) -> str:
         # in `_check_belief` should now catch these first; this stays as a backstop
         # for escape routes not yet thought of, on the principle that a diverged
         # cell is a measurement and must never cost the cells after it.
-        except (LearnerError, MetricError) as failure:
+        except (LearnerError, MetricError, RegressionMetricError) as failure:
             note = f"diverged (seed {seed}): {failure}"
             shutil.rmtree(out_dir, ignore_errors=True)
             out_dir.mkdir(parents=True, exist_ok=True)

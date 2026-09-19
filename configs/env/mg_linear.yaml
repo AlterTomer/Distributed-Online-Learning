@@ -1,0 +1,10 @@
+# Mackey–Glass, smooth drift: beta rises at a constant rate from 0.22 to 0.24 over
+# the run -- the whole upper half of the chaotic window (D96). 45 "degrees" is the
+# channel's full span (env.series.span = 0.02), so this is MNIST's linear drift at
+# its fastest legal rate, transposed to the law.
+dataset: mackey_glass
+series:
+  channel: beta
+drift:
+  schedule: linear
+  total_degrees: 45.0

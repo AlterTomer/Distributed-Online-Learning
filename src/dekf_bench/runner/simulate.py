@@ -27,7 +27,9 @@ from typing import Any
 
 import torch
 
-from dekf_bench.env.environment import Environment, pool
+# `pool` is re-exported: the runner now asks the environment for its pooled batch,
+# but callers (and tests) import the image version from here.
+from dekf_bench.env.environment import Environment, pool  # noqa: F401
 from dekf_bench.evaluation import protocol
 from dekf_bench.evaluation.evalsets import EvalSetBuilder
 from dekf_bench.learners.registry import POOLING
@@ -161,7 +163,9 @@ def run(
 
     for step in range(start_step, last_step + 1):
         observations = environment.step(step)
-        pooled_x, pooled_y = pool(observations)
+        # Asked of the environment, which knows its data's shapes: images with
+        # integer labels here, blocks with float targets on the series task.
+        pooled_x, pooled_y = environment.pool(observations)
         full_eval = protocol.should_evaluate(step, config.run.eval_every, environment.horizon)
 
         for name, learner in learners.items():
@@ -182,6 +186,7 @@ def run(
                     evalsets=config.eval.evalsets,
                     batch_size=config.eval.batch_size,
                     per_node_drift=per_node_drift,
+                    predict_variance=_predictive_variance(learner, likelihood),
                 )
                 rows.extend(scores.as_rows())
                 rows.extend(_disagreement_rows(learner, learners, nodes, step))
@@ -214,6 +219,22 @@ def run(
             _report(step, environment.horizon, records)
 
     return records
+
+
+def _predictive_variance(learner: Any, likelihood: Any):
+    r"""$\operatorname{diag}(\bm H\bm P\bm H^{\mathsf T})$, or None.
+
+    Only for learners that hold a covariance, and only on regression tasks: on
+    MNIST the calibration scores come from the class probabilities, and forming
+    $\bm H\bm P\bm H^{\mathsf T}$ there would cost $nqp^2$ for nothing read.
+    """
+    if not getattr(likelihood, "is_regression", False) or not hasattr(learner, "logit_covariance"):
+        return None
+
+    def variance(node: int, x: torch.Tensor) -> torch.Tensor:
+        return learner.logit_covariance(node, x).diagonal(dim1=-2, dim2=-1)
+
+    return variance
 
 
 def _advance(

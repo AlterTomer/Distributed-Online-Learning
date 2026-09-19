@@ -1,0 +1,10 @@
+# Mackey–Glass, no drift: the twin every drifting cell's damage is measured
+# against. Same seed means the same histories and noise (docs/environment.md §7).
+#
+# The law and sensor are env.series' defaults, decided from M0 (D96): beta = 0.22,
+# the centre of the only chaotic window [0.20, 0.24]; sigma = 0.1, the only noise
+# level at which within-block residuals are near-independent.
+dataset: mackey_glass
+drift:
+  schedule: stationary
+  total_degrees: 0.0

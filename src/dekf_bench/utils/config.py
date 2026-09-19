@@ -282,6 +282,89 @@ class PriorDriftConfig:
             )
 
 
+#: What a drift schedule moves on the series task (docs/mackey_glass_plan.md,
+#: decisions 7-8). `tau` is planned and not yet built.
+SERIES_CHANNELS = ("beta", "gain", "bias")
+#: Models that map a block of L-1 inputs to L-1 one-step predictions.
+SEQUENCE_MODELS = ("causal_transformer", "linear_ar")
+
+
+@dataclass
+class SeriesConfig:
+    """The Mackey--Glass task: the law, the sensor, the drift channel, the blocks.
+
+    Read only when ``env.dataset`` names a series dataset. Two values are
+    **provisional until the pilot (M0) reports** and are marked so: the noise level
+    and the channel's span.
+
+    **How a schedule drives the series.** The drift schedules are shared with
+    MNIST and speak in degrees under a 45-degree cap. On this task the cap stands
+    for the channel's full usable span: a displacement of $d$ degrees moves the
+    channel by ``span * d / 45``. So ``total_degrees: 45`` means "the whole span",
+    ``jump_degrees: 15`` a third of it, and the cap check still guards the task.
+    """
+
+    #: $L$: samples per block. A block gives $L-1$ inputs and $L-1$ targets.
+    length: int = 32
+    #: $n_b$: blocks per agent per round -- the data-rate axis (decision 5).
+    n_blocks: int = 1
+    #: Observation noise in standardised units. Decided from M0 (D96): the only
+    #: level at which within-block residuals are near-independent (rho_1 = -0.09).
+    sigma: float = 0.1
+    #: The law's base beta. 0.22, not the classic 0.2 (D96): the system is chaotic
+    #: only for beta in [0.20, 0.24], and 0.22 is its centre, so drift in either
+    #: direction stays chaotic. Standardisation still uses beta = 0.2's constants.
+    beta: float = 0.22
+    gamma: float = 0.1
+    exponent: float = 10.0
+    tau: float = 17.0
+    dt: float = 0.1
+    delta: float = 1.0
+    burn_in: float = 1000.0
+    #: Which quantity the drift schedule moves.
+    channel: str = "beta"
+    #: The channel's displacement at the 45-degree cap. 0.02 for beta (D96): the
+    #: cap then spans [0.20, 0.24] around beta = 0.22, the whole chaotic window.
+    span: float = 0.02
+    #: Heterogeneity (decision 22). beta offsets evenly spaced over [-s, s];
+    #: noise evenly spaced over sigma * [1 - s, 1 + s]; delays cycled over agents.
+    beta_spread: float = 0.0
+    sigma_spread: float = 0.0
+    tau_values: list[float] = field(default_factory=list)
+    #: The held-out sets: this many blocks, from this many fresh trajectories.
+    eval_blocks: int = 32
+    eval_trajectories: int = 8
+
+    def __post_init__(self) -> None:
+        _one_of(self.channel, SERIES_CHANNELS, "env.series.channel")
+        if self.length < 3:
+            raise ConfigError(f"env.series.length must be >= 3, got {self.length}")
+        if self.n_blocks < 1:
+            raise ConfigError(f"env.series.n_blocks must be >= 1, got {self.n_blocks}")
+        if self.sigma < 0:
+            raise ConfigError(f"env.series.sigma must be >= 0, got {self.sigma}")
+        for name in ("beta", "gamma", "exponent", "tau", "dt", "delta"):
+            if getattr(self, name) <= 0:
+                raise ConfigError(f"env.series.{name} must be > 0, got {getattr(self, name)}")
+        if self.burn_in < 0:
+            raise ConfigError(f"env.series.burn_in must be >= 0, got {self.burn_in}")
+        if not 0.0 <= self.beta_spread < self.beta:
+            raise ConfigError(
+                f"env.series.beta_spread must lie in [0, beta={self.beta}), got {self.beta_spread}"
+            )
+        if not 0.0 <= self.sigma_spread < 1.0:
+            raise ConfigError(
+                f"env.series.sigma_spread must lie in [0, 1), got {self.sigma_spread}"
+            )
+        if any(t <= 0 for t in self.tau_values):
+            raise ConfigError(f"env.series.tau_values must be > 0, got {self.tau_values}")
+        if self.eval_blocks < 1 or self.eval_trajectories < 1:
+            raise ConfigError(
+                "env.series.eval_blocks and eval_trajectories must be >= 1, got "
+                f"{self.eval_blocks} and {self.eval_trajectories}"
+            )
+
+
 @dataclass
 class EnvConfig:
     #: Which dataset the run consumes. Before this field the dataset was implied
@@ -297,6 +380,15 @@ class EnvConfig:
     prior_drift: PriorDriftConfig = field(default_factory=PriorDriftConfig)
     drift_scope: str = "global"
     allow_epochs: bool = False
+    #: The series task's settings; ignored by image datasets.
+    series: SeriesConfig = field(default_factory=SeriesConfig)
+
+    @property
+    def is_series(self) -> bool:
+        """Whether the dataset is generated from a law rather than loaded."""
+        from dekf_bench.data.registry import spec  # noqa: PLC0415
+
+        return spec(self.dataset).kind == "series"
 
     def __post_init__(self) -> None:
         if self.samples_per_node_per_step < 1:
@@ -333,6 +425,15 @@ class ModelConfig:
     #: assumption bounds the linearisation remainder, and that bound fails for
     #: ReLU at its kink set. See models/mlp.py.
     activation: str = "gelu"
+    #: Sequence models (the series task): positions per block, and the block's
+    #: widths. Ignored by the MLP family.
+    context: int = 31
+    d_model: int = 16
+    n_heads: int = 2
+    d_ff: int = 32
+    #: A per-position diagonal of R, overriding ``observation_variance`` when
+    #: non-empty (docs/mackey_glass_plan.md, decision 14). Empty means isotropic.
+    observation_variances: list[float] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         # Imported here, not at module scope: config.py is imported by
@@ -352,10 +453,36 @@ class ModelConfig:
             raise ConfigError(f"model.hidden widths must be >= 1, got {self.hidden}")
         if self.output_dim < 2:
             raise ConfigError(f"model.output_dim must be >= 2, got {self.output_dim}")
+        if self.name in SEQUENCE_MODELS:
+            if self.output_dim != self.context:
+                raise ConfigError(
+                    f"model.output_dim ({self.output_dim}) must equal model.context "
+                    f"({self.context}) for {self.name}: one prediction per position"
+                )
+            if self.d_model < 2 or self.d_model % 2 or self.d_model % self.n_heads:
+                raise ConfigError(
+                    f"model.d_model ({self.d_model}) must be even and divisible by "
+                    f"model.n_heads ({self.n_heads})"
+                )
+        if self.observation_variances:
+            if len(self.observation_variances) != self.output_dim:
+                raise ConfigError(
+                    f"model.observation_variances has {len(self.observation_variances)} "
+                    f"entries; the model has {self.output_dim} outputs"
+                )
+            if any(v <= 0 for v in self.observation_variances):
+                raise ConfigError("model.observation_variances must all be > 0")
 
     @property
     def num_params(self) -> int:
         """Parameter count p, for the phase-5 covariance budget."""
+        if self.name == "causal_transformer":
+            # models/transformer.py: input 2d, two LayerNorms 4d, attention
+            # 3d^2+3d and d^2+d, feed-forward 2df+f+d, head d+1.
+            d, f = self.d_model, self.d_ff
+            return 2 * d + 4 * d + (3 * d * d + 3 * d) + (d * d + d) + (d * f + f) + (f * d + d) + (d + 1)
+        if self.name == "linear_ar":
+            return self.context + 1
         widths = [self.input_size**2, *self.hidden, self.output_dim]
         return sum(a * b + b for a, b in zip(widths[:-1], widths[1:], strict=True))
 
@@ -653,6 +780,32 @@ class Config:
             raise ConfigError(f"learners must have unique names, got {names}")
         self._check_shard_budget()
         self._check_backward_evalset()
+        self._check_series_shapes()
+
+    def _check_series_shapes(self) -> None:
+        """The series task needs a sequence model whose context is the block's L-1.
+
+        Checked here because it spans two sections: a Transformer sized for 31
+        positions fed 63-sample blocks would fail at the first forward pass, and a
+        refusal at load is cheaper than that.
+        """
+        if not self.env.is_series:
+            return
+        if self.model.name not in SEQUENCE_MODELS:
+            raise ConfigError(
+                f"the series task needs a sequence model {SEQUENCE_MODELS}, got "
+                f"model.name={self.model.name!r}"
+            )
+        expected = self.env.series.length - 1
+        if self.model.context != expected:
+            raise ConfigError(
+                f"model.context ({self.model.context}) must equal env.series.length - 1 "
+                f"({expected})"
+            )
+        if "backward" in self.eval.evalsets:
+            raise ConfigError(
+                "the series task has no backward set (docs/mackey_glass_plan.md, decision 16)"
+            )
 
     def _check_shard_budget(self) -> None:
         """Reject a horizon the disjoint shards cannot supply.
@@ -661,7 +814,9 @@ class Config:
         step, so the run needs ``N * n * T`` samples in total. Discovering this
         at step 1400 rather than at load is how a long sweep gets wasted.
         """
-        if self.env.allow_epochs:
+        if self.env.allow_epochs or self.env.is_series:
+            # A generated series has no finite shard: every round integrates fresh
+            # samples, so exactly-once holds by construction at any horizon.
             return
         required = self.graph.n_nodes * self.env.samples_per_node_per_step * self.run.horizon
         if required > MNIST_TRAIN_SIZE:

@@ -32,12 +32,15 @@ from typing import Any
 import torch
 
 from dekf_bench.evaluation.evalsets import EvalSet, EvalSetBuilder
-from dekf_bench.metrics import calibration
+from dekf_bench.metrics import calibration, regression
 from dekf_bench.metrics.classification import correct_count
 
 #: A learner's prediction interface: (node, inputs) -> logits. Deliberately
 #: narrower than the learner itself, so a protocol cannot mutate one.
 PredictFn = Callable[[int, torch.Tensor], torch.Tensor]
+#: diag(H P H^T) per sample, ``(n, q)``, for learners that hold a covariance.
+#: Only ever read on regression tasks, where it becomes a predictive variance.
+VarianceFn = Callable[[int, torch.Tensor], torch.Tensor]
 
 
 class ProtocolError(ValueError):
@@ -95,11 +98,48 @@ class NodeScore:
 
 
 @dataclass(frozen=True)
+class RegressionScore:
+    """One agent's regression score on one set at one step (the series task).
+
+    No error rate: accuracy is squared error, reported as MSE and RMSE over every
+    position and RMSE over the positions with a whole delay of context. The NLL is
+    the plug-in one at the likelihood's own R, which every learner can be scored
+    on. ``predictive`` holds the calibration scores, present only for learners
+    that hold a covariance (see `metrics/regression.py`).
+    """
+
+    node: int
+    evalset: str
+    step: int
+    n_samples: int
+    rotation_degrees: float
+    mse: float
+    rmse: float
+    rmse_full_context: float | None
+    nll: float
+    predictive: dict[str, float] | None = None
+
+    def as_rows(self) -> list[dict[str, Any]]:
+        base = {
+            "node_id": self.node,
+            "evalset": self.evalset,
+            "t": self.step,
+            "drift_state": self.rotation_degrees,
+        }
+        values = {"mse": self.mse, "rmse": self.rmse, "nll": self.nll}
+        if self.rmse_full_context is not None:
+            values["rmse_full_context"] = self.rmse_full_context
+        if self.predictive is not None:
+            values.update(self.predictive)
+        return [{**base, "metric": name, "value": value} for name, value in values.items()]
+
+
+@dataclass(frozen=True)
 class StepScores:
     """Every agent's scores at one step, across the sets that were evaluated."""
 
     step: int
-    scores: tuple[NodeScore, ...] = field(default_factory=tuple)
+    scores: tuple[NodeScore | RegressionScore, ...] = field(default_factory=tuple)
     skipped: tuple[int, ...] = field(default_factory=tuple)
 
     def for_evalset(self, name: str) -> tuple[NodeScore, ...]:
@@ -172,6 +212,7 @@ def full_evaluate(
     batch_size: int = 1000,
     per_node_drift: bool = False,
     with_calibration: bool = True,
+    predict_variance: VarianceFn | None = None,
 ) -> StepScores:
     """Score every agent on the held-out sets.
 
@@ -181,6 +222,9 @@ def full_evaluate(
         per_node_drift: when true, ``current`` is built per agent at that
             agent's own rotation, and ``current_mean`` is additionally scored so
             the per-agent spread can be separated from the rotation spread.
+        predict_variance: on a regression task, the learner's
+            $\\operatorname{diag}(\\bm H\\bm P\\bm H^{\\mathsf T})$; enables the
+            predictive calibration scores. Ignored for classification.
     """
     scores: list[NodeScore] = []
     wanted = [name for name in evalsets if name != "prequential"]
@@ -197,7 +241,10 @@ def full_evaluate(
                 # log the same value.
                 continue
             scores.append(
-                _score_evalset(node, evalset, predict, likelihood, batch_size, with_calibration)
+                _score_evalset(
+                    node, evalset, predict, likelihood, batch_size, with_calibration,
+                    predict_variance,
+                )
             )
 
     return StepScores(step=step, scores=tuple(scores))
@@ -227,13 +274,21 @@ def _score_evalset(
     likelihood: Any,
     batch_size: int,
     with_calibration: bool,
-) -> NodeScore:
+    predict_variance: VarianceFn | None = None,
+) -> NodeScore | RegressionScore:
     """Score one agent on one set, in batches so a 10 000-image pass is not one
     allocation."""
-    all_logits, all_targets = [], []
+    wants_variance = (
+        with_calibration
+        and predict_variance is not None
+        and getattr(likelihood, "is_regression", False)
+    )
+    all_logits, all_targets, all_variances = [], [], []
     for images, labels in evalset.batches(batch_size):
         all_logits.append(predict(node, images))
         all_targets.append(labels)
+        if wants_variance:
+            all_variances.append(predict_variance(node, images))  # type: ignore[misc]
 
     logits = torch.cat(all_logits)
     targets = torch.cat(all_targets)
@@ -246,6 +301,7 @@ def _score_evalset(
         rotation=evalset.rotation_degrees,
         likelihood=likelihood,
         with_calibration=with_calibration,
+        variance=torch.cat(all_variances) if all_variances else None,
     )
 
 
@@ -258,7 +314,12 @@ def _score(
     rotation: float,
     likelihood: Any,
     with_calibration: bool,
-) -> NodeScore:
+    variance: torch.Tensor | None = None,
+) -> NodeScore | RegressionScore:
+    if getattr(likelihood, "is_regression", False):
+        return _score_regression(
+            node, evalset, step, logits, targets, rotation, likelihood, variance
+        )
     predictions = likelihood.predictions(logits)
     return NodeScore(
         node=node,
@@ -269,6 +330,40 @@ def _score(
         rotation_degrees=rotation,
         nll=float(likelihood.nll(logits, targets, reduction="mean")),
         calibration=(calibration.score(logits, targets, likelihood) if with_calibration else None),
+    )
+
+
+def _score_regression(
+    node: int,
+    evalset: str,
+    step: int,
+    predictions: torch.Tensor,
+    targets: torch.Tensor,
+    rotation: float,
+    likelihood: Any,
+    variance: torch.Tensor | None,
+) -> RegressionScore:
+    """The series task's scores. ``variance`` is diag(H P H^T), without R."""
+    residuals = targets - predictions
+    noise = likelihood.noise_covariance(predictions).diagonal(dim1=-2, dim2=-1)
+    positions = predictions.shape[-1]
+    return RegressionScore(
+        node=node,
+        evalset=evalset,
+        step=step,
+        n_samples=int(predictions.shape[0]),
+        rotation_degrees=rotation,
+        mse=regression.mse(predictions, targets),
+        rmse=regression.rmse(predictions, targets),
+        rmse_full_context=(
+            regression.rmse_from(predictions, targets, regression.FULL_CONTEXT_FROM)
+            if positions > regression.FULL_CONTEXT_FROM
+            else None
+        ),
+        nll=regression.gaussian_nll(residuals, noise),
+        predictive=(
+            None if variance is None else regression.predictive_scores(residuals, variance + noise)
+        ),
     )
 
 

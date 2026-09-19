@@ -1,0 +1,18 @@
+# Mackey–Glass, stationary: the twin, and the base config every M-series sweep
+# overrides (docs/mackey_glass_plan.md). The law, sensor and R profile are the
+# ones M0 decided (D96).
+include:
+  env: mg_stationary
+  graph: erdos_renyi
+  model: mg_transformer
+
+learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
+
+run:
+  name: m_stationary
+  horizon: 1500
+  dtype: float64
+
+eval:
+  evalsets: [prequential, current, canonical]
+  batch_size: 64

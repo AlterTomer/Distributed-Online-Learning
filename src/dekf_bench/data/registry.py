@@ -42,6 +42,11 @@ class DatasetSpec:
     #: The largest rotation under which labels stay well defined, or ``None`` for
     #: a dataset whose labels rotation cannot confuse. Read by `env/drift.py`.
     rotation_cap_degrees: float | None
+    #: ``"image"`` for a dataset loaded once and rotated at serve time;
+    #: ``"series"`` for one generated from a law per run (Mackey--Glass), which has
+    #: no files, no classes and no image shape -- its facts live in ``env.series``,
+    #: and its environment is `env/series.py` rather than `env/environment.py`.
+    kind: str = "image"
 
     @property
     def input_dim(self) -> int:
@@ -49,8 +54,17 @@ class DatasetSpec:
         return self.channels * self.image_size * self.image_size
 
 
-#: Every dataset a config may name. One entry today; the point of the table is
-#: that the second one is an entry rather than an edit to eighteen scripts.
+def _generated(root: str | Path | None = None, *, download: bool = False) -> tuple[None, None]:
+    """A generated dataset has no splits to load: the environment integrates it."""
+    return None, None
+
+
+def _always_available(root: str | Path | None = None) -> bool:
+    return True
+
+
+#: Every dataset a config may name. The point of the table is that the second one
+#: is an entry rather than an edit to eighteen scripts -- which Mackey--Glass now is.
 DATASETS: dict[str, DatasetSpec] = {
     "mnist": DatasetSpec(
         name="mnist",
@@ -61,6 +75,19 @@ DATASETS: dict[str, DatasetSpec] = {
         num_classes=10,
         # 45 degrees: past it a rotated 6 is a 9 and, less sharply, a 2 is a 7.
         rotation_cap_degrees=45.0,
+    ),
+    # The second task (docs/mackey_glass_plan.md). No rotation, so no cap here; the
+    # drift schedules' 45-degree cap stands for the channel's usable span instead,
+    # which the pilot sets (env.series.span).
+    "mackey_glass": DatasetSpec(
+        name="mackey_glass",
+        load=_generated,
+        cached=_always_available,
+        channels=0,
+        image_size=0,
+        num_classes=0,
+        rotation_cap_degrees=None,
+        kind="series",
     ),
 }
 

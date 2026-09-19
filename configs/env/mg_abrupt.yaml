@@ -1,0 +1,12 @@
+# Mackey–Glass, abrupt drift: beta jumps by a third of the span (0.0067) every 25
+# rounds, in an unpredictable direction, reflected at the band edges -- so it
+# stays inside the chaotic window [0.20, 0.24] around 0.22 (D96). The analogue of
+# MNIST's "15 degrees every 25 steps".
+dataset: mackey_glass
+series:
+  channel: beta
+drift:
+  schedule: recurring
+  jump_degrees: 15.0
+  jump_every: 25
+  jump_seed: 0

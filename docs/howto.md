@@ -360,6 +360,7 @@ the state that caused it.
 | `FilterError: ... lost positive definiteness` | The covariance collapsed. With $\gamma=1$ and $\bm Q=\zero$ it only ever shrinks; give the filter a way to stay uncertain. |
 | `MetricError: probabilities must sum to one` | Almost always a diverged belief reaching the metrics. The guards above should catch it first; if this fires, one did not. |
 | `BreakError: no rows to pool a noise estimate from` | The learner name is not in the run, or the filter arguments excluded everything. |
+| `UnicodeEncodeError: 'charmap' codec can't encode character` | A non-ASCII character reached **printed output** while stdout was redirected to a file — on Windows that file is cp1252, not UTF-8. Keep prints ASCII; docstrings, comments and written files are free, since only the print stream is encoded this way. A warning-sign glyph in M4's edge check killed its report at the end of a seven-hour run (2026-09-16), after every cell had been computed and the selection written. |
 
 ---
 
@@ -403,5 +404,11 @@ Collected because each cost us a result before it became a rule.
 - **Extrapolating from a shortened run is only valid for terms linear in what was
   shortened.** A per-step benchmark that omits the recorder underestimated a
   sweep by 4×.
+- **A results file appearing is not a run finishing.** These runners rewrite a
+  seed's parquet as they go, so its existence marks a seed *starting*; its size,
+  or the cell's `_complete` marker, marks it done. Reading a mid-run file as a
+  finished one halved a measured runtime on 2026-09-16 and turned a correct
+  estimate into a confident wrong one — in a docstring, where it would have
+  outlived the mistake.
 - **A null result at a mild condition is not a null result.** Two claims have
   been withdrawn for exactly this (D72 → D73 → D76).
