@@ -745,7 +745,58 @@ transient rather than an average. This was first drawn as marker *size*, which
 looked fine until the legend swatch took its size from the first point plotted —
 making the key silently disagree with the data.
 
-## 15. Still to come
+## 15. The diffusion figures (36–39)
+
+The four that make up the supervisor deck (`make_diffusion_presentation.py`), all
+drawn by `plot_diffusion_mechanism.py`. They are not in the repository (D75); this
+is what they show.
+
+### 36 — the mechanism
+
+Two free corrections aimed at opposite ends of the adapt-then-combine step, both
+rejected on measurement: $\alpha$, which extrapolates one agent's evidence to an
+$N$-agent equivalent, and $\beta_c$, which assumes neighbours' errors are
+independent. **The $1/N$ deficit is missing evidence, not a missing constant** — you
+cannot assert information into existence, and fusing does not create it either. A
+surprise here would be either heuristic helping at any setting.
+
+### 37 — the tuning
+
+What the re-tune bought, and the finding that **mis-tuning costs the same order as
+decentralising**: +0.0161 against one-hop's entire deficit of +0.0135. Read it as
+the reason every comparison in this benchmark re-tunes per condition.
+
+### 38 — skew
+
+Three panels: the skew curve, the mean-only/full-sharing reversal, and $\beta_c$.
+**The still cells are five seeds** — X25's 0–2 pooled with X25+'s 3–4, which is
+exact rather than matched because the stream depends only on configuration and seed
+(D101). ⚠ **Panel (c) is three seeds**: $\beta_c=2$ was deliberately not topped up,
+and the panel says so, because a figure whose seed count varies silently between
+panels is worse than one that admits it.
+
+The centralised filter's three points are drawn as scatter, never joined: it is
+partition-invariant (−0.0003 across the axis, $t=-0.32$), and a line would invite a
+slope to be read into noise. The local-adapt filter moves **35×** more.
+
+### 39 — bandwidth
+
+Settled error against scalars per link per step, which is the claim the whole
+communication ledger was built for. The two methods at exactly $\psi$ — `atc_plain`
+and the mean-only filter — are the matched comparison, joined by a dotted segment
+because they share an x-coordinate.
+
+**Panel (b) carries the linearisation point as a move, not a number.** An arrow runs
+from the sender-point marker at 6,604 scalars to the receiver-point star at 3,696:
+same method, no worse, and crossing *below* momentum ATC's 2ψ on the way. That is
+the difference between "better but dearer than the baseline" and "better and
+cheaper", and it is why the deck's payload tables were rewritten (D94, D99).
+
+⚠ **Only panel (b) draws it.** X27 measured the receiver point on the skew
+conditions only, so the IID panel has no such measurement and none is invented; the
+loop skips the key where the data do not exist.
+
+## 16. Still to come
 
 **F11** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is
 `diffusion_sgd_atc_plain`, not the momentum variant, because the filter sends one

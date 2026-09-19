@@ -1536,33 +1536,40 @@ X17 measured the *centralised* filter under skew and D77 recorded that it
 transfers nothing: pooling undoes the partition. Here each agent holds its own
 skewed shard and the combine step must reconcile beliefs formed from different
 label distributions. X17's axis, $\beta_{\mathrm{dir}}\in\{0.1,1,100\}$, plus its
-matched drift pair at $\beta_{\mathrm{dir}}=0.1$. ER $p=0.3$, 3 seeds, own `--lr`
-pass (X17's rates were selected on a ring).
+matched drift pair at $\beta_{\mathrm{dir}}=0.1$. ER $p=0.3$, own `--lr`
+pass (X17's rates were selected on a ring). **The still cells run at five seeds** —
+X25's 0–2 pooled with X25+'s 3–4 ([[D101]]) — while the drift pair and $\beta_c=2$
+stay at three, so the seed count is not uniform across this section.
 
 **Settled error, still cells:**
 
-| $\beta_{\mathrm{dir}}$ | centralised EKF | diff-EKF local | diff-EKF one-hop | centralised SGD | ATC (2ψ) | local only |
-|---|---|---|---|---|---|---|
-| 0.1 | 0.0544 | 0.1137 | 0.0863 | 0.0769 | 0.0941 | 0.6215 |
-| 1 | 0.0563 | 0.0780 | 0.0745 | 0.0789 | 0.0831 | 0.2695 |
-| 100 | 0.0558 | 0.0742 | 0.0701 | 0.0758 | 0.0771 | 0.1320 |
+| $\beta_{\mathrm{dir}}$ | centralised EKF | diff-EKF local | diff-EKF one-hop | centralised SGD | ATC (2ψ) | ATC plain (ψ) | local only |
+|---|---|---|---|---|---|---|---|
+| 0.1 | 0.0557 | 0.1114 | 0.0840 | 0.0766 | 0.0903 | 0.1046 | 0.6266 |
+| 1 | 0.0568 | 0.0764 | 0.0734 | 0.0779 | 0.0808 | 0.0878 | 0.2692 |
+| 100 | 0.0560 | 0.0726 | 0.0705 | 0.0758 | 0.0767 | 0.0856 | 0.1359 |
 
-**Spread across the axis** — centralised EKF 0.0019, centralised SGD 0.0031,
-one-hop 0.0163, ATC 0.0171, **local-adapt diffusion 0.0395**, local only 0.4895.
-D77 confirmed: pooling defuses skew, and the diffusion filter is *more*
-skew-sensitive than ATC.
+**Spread across the axis** — centralised EKF 0.0011, centralised SGD 0.0021,
+one-hop 0.0135, ATC 0.0136, `atc_plain` 0.0190, **local-adapt diffusion 0.0388**,
+local only 0.4907.
+D77 confirmed: pooling defuses skew. ⚠ It is the **local-adapt** filter that is more
+skew-sensitive than ATC — 0.0388 against 0.0136, a factor of 2.9 — while one-hop's
+0.0135 is indistinguishable from ATC's. "The diffusion filter" must not carry this
+claim, which is the same ambiguity the warning below is about.
 
 **⭐ Covariance sharing pays, but only under skew.**
 
 | $\beta_{\mathrm{dir}}$ | full sharing | mean-only | paired |
 |---|---|---|---|
-| 100 | 0.0732 | 0.0742 | −0.0010, $t=-2.60$ |
-| **0.1** | **0.0823** | **0.1137** | **−0.0314**, $t=-4.61$ |
+| 100 | 0.0716 | 0.0726 | −0.0010, $t=-4.45$ |
+| **0.1** | **0.0787** | **0.1114** | **−0.0327**, $t=-6.56$ |
 
 X19's "buys nothing" holds only on exchangeable shards. Under skew the agents'
 covariances differ genuinely and carry what the mean cannot (D89). ⚠ For the
-one-hop adapt full sharing buys nothing even under skew (+0.0009, ns) — the two
-repairs are substitutes.
+one-hop adapt full sharing buys nothing even under skew (−0.0009, $p=0.55$ at five
+seeds) — the two repairs are substitutes. At three seeds this read $+0.0009$; the
+sign was noise either way, and it now agrees with the receiver point's −0.0019
+($p=0.18$, [[D100]]), where the same question is likewise a tie.
 
 **The *mean-only local-adapt* filter loses to 2ψ ATC under severe skew; the one-hop variant wins everywhere.**
 
@@ -1570,26 +1577,162 @@ repairs are substitutes.
 
 | $\beta_{\mathrm{dir}}$ | local vs ATC | one-hop vs ATC |
 |---|---|---|
-| 0.1 | **+0.0196**, $t=+3.01$ | −0.0078, $t=-8.22$ |
-| 1 | −0.0052 (ns) | −0.0086, $t=-7.45$ |
-| 100 | −0.0028, $t=-2.87$ | −0.0070, $t=-14.03$ |
+| 0.1 | **+0.0211**, $t=+5.11$ | −0.0063, $t=-5.63$ |
+| 1 | −0.0044 (ns, $p=0.14$) | −0.0075, $t=-6.88$ |
+| 100 | −0.0042, $t=-4.16$ | −0.0062, $t=-11.13$ |
 
 X20's "all six cells" holds on IID data and breaks at severe skew; only one-hop
-survives. ⚠ This is against **momentum ATC at 2ψ**; X25 carried no `atc_plain`, so
-the matched-bandwidth comparison under skew is unmeasured (D90).
+survives. This is against **momentum ATC at 2ψ**. The matched-bandwidth comparison
+is no longer missing: X25+ carries `atc_plain` at X26's selected rate across the
+axis, and the local-adapt filter **loses** to it at severe skew (+0.0068, $t=2.43$,
+$p=0.07$) while beating it comfortably at 1 and 100 (−0.0114 and −0.0130, both
+significant). D90's "unmeasured" is retired; what replaces it is a sign change along
+the axis, marginal at the severe end. ⚠ Both arms are weak there — `atc_plain`
+0.1046 against the filter's 0.1114 — so that row compares two poor performers, and
+the 2ψ comparison stays the defensible headline.
 
-**One-hop is worth 6.5× more under skew** — −0.0274 ($t=-3.74$) at 0.1 against
-−0.0042 ($t=-4.96$) at 100.
+**One-hop's value is a skew effect, not a constant** — −0.0274 ($t=-6.40$,
+$p=0.003$) at $\beta_{\mathrm{dir}}=0.1$, against −0.0031 (ns, $p=0.20$) at 1 and
+−0.0021 (ns, $p=0.21$) at 100. ⚠ At three seeds this was stated as "6.5× more under
+skew"; five seeds make the mild-skew end **indistinguishable from zero**, so the
+ratio was an artefact of a small denominator that looked significant. The effect is
+a skew effect, which is the same claim stated honestly.
 
-**Damage under drift at $\beta_{\mathrm{dir}}=0.1$**, abrupt: centralised 0.0358 <
+**Damage under drift at $\beta_{\mathrm{dir}}=0.1$** (three seeds — the drift pair
+was deliberately not topped up), abrupt: centralised 0.0358 <
 one-hop 0.0431 < centralised SGD 0.0513 < local diffusion 0.0604 ≈ ATC 0.0638.
 ⚠ `local_only`'s 0.0306 is the lowest and is excluded — floor 0.6215, 11.4× the
 centralised filter's, outside D77's 2.5× rule.
 
-**$\beta$ is not made live by skew**: $\beta=2$ costs +0.1341 at skew 0.1 and
+**$\beta$ is not made live by skew** (three seeds; $\beta_c=2$ was not topped up):
+$\beta=2$ costs +0.1341 at skew 0.1 and
 +0.1396 at skew 100 for full sharing. The agents' errors coincide because they
 mix, not because their data are alike, so D88 generalises rather than being
 conditional on exchangeability.
+
+## Where one-hop linearises: sender against receiver (X27)
+
+Both points in one run, X25's five conditions, five seeds, paired by seed (D99).
+The sender point is what X20–X26 ran; the receiver point linearises every received
+batch at the receiving agent's own $\bm\theta_v^-$ — one linearisation point per
+update, and no $\bm\theta_u^-$ on the wire.
+
+| cell | sender | receiver | receiver − sender | $t$ |
+|---|---|---|---|---|
+| still, $\beta_{\mathrm{dir}}=0.1$ | 0.0840 | 0.0779 | **−0.0060** | −2.55 |
+| still, $\beta_{\mathrm{dir}}=1$ | 0.0734 | 0.0728 | −0.0005 | −0.98 (ns) |
+| still, $\beta_{\mathrm{dir}}=100$ | 0.0705 | 0.0693 | **−0.0012** | −5.19 |
+| abrupt + skew 0.1 | 0.1281 | 0.1189 | **−0.0091** | −2.54 |
+| smooth + skew 0.1 | 0.0834 | 0.0792 | −0.0043 | −1.80 (ns) |
+
+**⭐ The receiver point is never worse, wins most where the task is hardest, and
+costs less**: 3 696 scalars per link per step against 6 604 — 199.6M against 356.6M
+over a run, from the ledger. It is also better *calibrated*: lower \ac{nll} in all
+five cells (0.002 to 0.026), \ac{ece} equal or slightly lower. In the abrupt cell
+the margin is there from the first quarter of the run (−0.0109) to the last
+(−0.0087), so it is a steady advantage rather than faster recovery after a jump.
+
+⚠ **Why it wins is not established.** The natural explanation — that the two points
+differ by the inter-agent disagreement, so the margin should track it — is
+contradicted by the data: the correlation is +0.44 over five cells, the wrong sign,
+and the two most-disagreeing cells have the smallest margins (D99).
+
+Damage (drifting minus its twin): abrupt +0.0441 sender, +0.0410 receiver; smooth
+−0.0005 and +0.0012 — the 0.6°/step smooth schedule does essentially no damage to
+either, which M6 should know before reusing it.
+
+Reproduction: the sender arm matches X25 to 0.0e+00 on every shared seed, and both
+control cells match the still severe-skew cell exactly.
+
+## Does covariance sharing still pay at the receiver point? (X28)
+
+`diffusion_ekf_onehop_receiver` — one-hop, **full** sharing, receiver point — at
+$\beta_c=1$ on the ends of X25's skew axis, five seeds, paired by seed against
+X27's mean-only receiver cells already on disk (D100).
+
+| cell | full sharing | mean-only | full − mean | $t$ | $p$ |
+|---|---|---|---|---|---|
+| still, $\beta_{\mathrm{dir}}=0.1$ | 0.0761 | 0.0779 | −0.0019 | −1.61 | 0.18 (ns) |
+| still, $\beta_{\mathrm{dir}}=100$ | 0.0692 | 0.0693 | −0.0001 | −0.45 | 0.67 (ns) |
+
+**⭐ There is nothing left to buy.** X25 found the two repairs to be substitutes at
+the *sender* point; the receiver point is a different update (D99), so the result
+could not be inherited and was re-measured. It holds. Full sharing is nominally
+ahead at both ends of the skew axis and significant at neither, while costing
+**4 233 382 scalars per link per direction against 3 696** — 1 145×.
+
+The contrast that gives it force: the same sharing is worth **−0.0314 ($t=-4.61$)**
+to the *local-adapt* filter under severe skew (X25). Beside a one-hop adapt it is
+worth −0.0019, about seventeen times less and inside the noise. Once fresh
+neighbour evidence enters the adapt step, the neighbours' accumulated uncertainty
+has nothing left to add — at either linearisation point.
+
+**Read it as a tie, not a win.** Per seed, 4 of 5 favour full sharing at
+$\beta_{\mathrm{dir}}=0.1$ (−0.0048, −0.0010, +0.0020, −0.0024, −0.0031) and 3 of 5
+at 100, where the paired difference is −0.0001. The sign differs from the sender
+point's +0.0009, but both straddle zero at different seed counts (5 against 3), so
+the flip carries no information.
+
+⚠ **This is not "covariance sharing is useless".** It is useless *on top of a
+one-hop adapt*. Where the adapt step stays local, sharing is the repair that works,
+and X25 measured it as such.
+
+Reproduction: the mean-only arms are X27's cells unchanged, so the pairing is exact
+on all five seeds; both cells ran ~59 min (1 h 58 min total).
+
+## Topology and the spectral gap (P5.3)
+
+Path, ring, \ac{er} $p=0.3$ and complete; 8 cells × 5 seeds, 12.6 h. The first sweep
+to run one-hop at the **receiver** point natively (D99), so its one-hop numbers are
+not comparable cell-for-cell with X20–X26's. Gradient baselines re-tuned per
+topology; the filter carries X20's selection (D103).
+
+**Settled error, sparse to dense:**
+
+| learner | path | ring | ER 0.3 | complete |
+|---|---|---|---|---|
+| centralised EKF | 0.0561 | 0.0561 | 0.0561 | 0.0561 |
+| diff-EKF, local | 0.0738 | 0.0728 | 0.0736 | 0.0726 |
+| diff-EKF, one-hop (receiver) | 0.0732 | **0.0689** | 0.0707 | 0.0756 |
+| diff-EKF, local + full sharing | 0.0728 | 0.0713 | 0.0726 | 0.0708 |
+| diff-EKF, one-hop + full sharing | 0.0733 | 0.0694 | 0.0711 | 0.0756 |
+| centralised SGD | 0.0785 | 0.0785 | 0.0785 | 0.0785 |
+| ATC (momentum, 2ψ) | 0.0812 | 0.0798 | 0.0795 | 0.0785 |
+| ATC (plain, ψ) | 0.0884 | 0.0865 | 0.0859 | 0.0757 |
+| local only | 0.1332 | 0.1332 | 0.1332 | 0.1332 |
+
+**⭐ Neither hypothesis survives.** The covariance-sharing gap does **not** widen as
+connectivity falls: full minus mean-only for the local adapt is −0.0010, −0.0015,
+−0.0010 and −0.0018 from path to complete — flat, and nominally largest on the
+*densest* graph. And one-hop's value over the local adapt is **non-monotone**:
+−0.0006 (ns) on a path, −0.0038 ($t=-4.1$) on a ring, −0.0028 ($t=-2.7$) at ER 0.3,
+and +0.0031 (ns) on a complete graph. It peaks at intermediate connectivity, because
+a path's degree-1 endpoints gather little and a complete graph's combine already
+reaches consensus.
+
+So connectivity is not what makes covariance sharing pay — heterogeneity is (D89,
+D101). That is the useful negative result here.
+
+**D100's null holds at every topology.** Full sharing on top of a one-hop adapt is
++0.0001, +0.0004, +0.0003 and +0.0000 across the axis, none significant. The ring
+was named in advance as where it should break, and it did not break there or on a
+path.
+
+**Against the cheapest baseline**, one-hop beats `atc_plain` by −0.0152 to −0.0176
+($t=-9$ to $-15$) on path, ring and ER 0.3, and ties on complete (−0.0001, ns) where
+\ac{atc} reaches consensus in one step and *is* centralized.
+
+Three checks passed: the graph-blind learners agree to **0.0e+00** across all four
+topologies; the complete-graph one-hop variants are identical by construction (so
+their sharing gap is exactly zero, and the reported $t=\infty$ is degenerate, not
+significant); and the complete-graph one-hop-minus-local figure reproduces X20's
++0.0031 to four decimals, as it must, since the two linearisation points coincide
+there.
+
+⚠ The sparse point was first set to \ac{er} $p=0.15$, which is below the
+$\ln(n)/n=0.230$ connectivity threshold at $N=10$: the sweep died mid-run, and a
+draw that *had* succeeded would have been conditioned on a rare event rather than
+sampled from that law. `path` replaced it (D103).
 
 ## Matched bandwidth: the filter against `atc_plain` (X26)
 
@@ -1617,13 +1760,22 @@ Momentum helps ATC everywhere (−0.005 to −0.021), so the $2\psi$ arm is the
 0.048–0.082 was inflated by the mis-tuning; the honest figure is 0.012–0.025, and
 the $2\psi$ comparison stays the one to headline.
 
-**Under severe skew the loss is real at matched bandwidth too** — +0.0073 at
+**Under severe skew the loss is real at matched bandwidth too** — +0.0068 at
 $\beta_{\mathrm{dir}}=0.1$ — so D89's result is not an artefact of the 2ψ pairing.
-⚠ $t=1.66$ on three seeds: suggestive, not established. The IID cells run $t$ =
-10–24.
+⚠ **$t=2.43$ on five seeds** ($p=0.07$), firmed from $t=1.66$ on three by X25+
+([[D101]]): marginal, not established. The IID cells run $t$ = 10–24. Both arms are
+weak at that skew — 0.1046 against the filter's 0.1114 — so the row compares two
+poor performers.
 
-**One-hop beats `atc_plain` everywhere — but not at matched bandwidth.** It sends
-two messages a step, $2\psi+788$ = 6 604 scalars (D92), so its nearest baseline
-by bandwidth is momentum ATC at 2ψ, which it also beats everywhere. Its largest
-margin over `atc_plain` is at skew crossed with abrupt drift: −0.0493
-($t=-6.4$), the hardest cell in the benchmark.
+**One-hop beats `atc_plain` everywhere — but not at matched bandwidth.** At the
+**sender** point it sends two messages a step, $2\psi+788$ = 6 604 scalars (D92), so
+its nearest baseline by bandwidth is momentum ATC at 2ψ, which it also beats
+everywhere. Its largest margin over `atc_plain` is at skew crossed with abrupt
+drift: −0.0493 ($t=-6.4$), the hardest cell in the benchmark.
+
+⚠ **The carried variant changes this, and the change is in our favour.** At the
+receiver point one-hop sends $\psi+788$ = 3 696 scalars ([[D94]], [[D99]]) — *below*
+momentum ATC's 5 816, and only 1.27× `atc_plain`'s 2 908. Its nearest baseline by
+bandwidth is therefore no longer the 2ψ arm, and the paragraph above describes the
+abandoned point only. The headline comparison becomes one-hop against momentum ATC,
+which it beats **while sending less**, rather than "better but dearer".

@@ -34,9 +34,10 @@ $N\in\{20,30\}$ below.
 
 | item | what | GPU | status |
 |---|---|---|---|
-| X27 | Sender vs receiver linearisation point, 5 seeds; picks the headline one-hop variant | ~12 h | ⏳ running |
-| X25+ | X25's still skew cells, full-sharing cells at $\beta=1$, and `atc_plain`, topped up to 5 seeds. The equal-bandwidth loss at $\beta_{\mathrm{dir}}=0.1$ is $t=1.66$ on 3 | ~7 h | queued |
-| P5.3 | Topology and spectral gap (X3 analogue): ring and a sparser ER beside the existing ER 0.3 and complete graphs, baselines re-tuned per topology. One-hop's value should scale with degree | ~14 h | queued |
+| X27 | Sender vs receiver linearisation point, 5 seeds; picks the headline one-hop variant | 9 h | ✅ done — receiver adopted ([[D99]]) |
+| X28 | Does full sharing still buy nothing once one-hop linearises at the **receiver** point? Two cells at the ends of the skew axis, paired against X27's mean-only cells | 2 h | ✅ done — it does not, at either end ([[D100]]) |
+| X25+ | X25's still skew cells, full-sharing cells at $\beta=1$, and `atc_plain`, topped up to 5 seeds. The equal-bandwidth loss at $\beta_{\mathrm{dir}}=0.1$ is $t=1.66$ on 3 | 3.9 h | ✅ done — the loss firms to $t=2.43$ on five seeds, and `atc_plain` under skew is no longer unmeasured ([[D101]]) |
+| P5.3 | Topology and spectral gap (X3 analogue): path, ring, the existing ER 0.3 and complete, baselines re-tuned per topology. (A sparser ER was the original plan; at $N=10$ it sits below the $\ln(n)/n=0.230$ connectivity threshold, so `path` supplies the sparse end instead.) One-hop's value should scale with degree | ~14 h | ✅ done — and **both hypotheses are refuted**: the covariance-sharing gap does *not* widen as connectivity falls (flat across the axis, nominally largest on the complete graph), and one-hop's value is non-monotone in degree, peaking at intermediate connectivity. D100's null holds at every topology ([[D103]]) |
 | N>10 | $N\in\{20,30\}$, stationary and abrupt, all variants | ~16 h | queued |
 | P5.7 | Heterogeneous drift (X8 analogue) — one of the two rows where per-agent beliefs could **beat** the centralised filter | ~8 h | queued |
 | P5.11, P5.14 | Calibration, and whether `lem:conservative` is conservative in practice: new evaluation metrics, then a re-run of X20's ER cells | 1–2 days code, ~6 h | open |
@@ -74,6 +75,10 @@ about 86 GPU-hours, **finishing about 3 October**, or about 7 October if a sweep
 has to be re-run.
 
 ## Track B — Mackey–Glass regression (P5.25)
+
+**Planned in full in `docs/mackey_glass_plan.md`** (D95): 25 decisions, eight work
+packages, the M-series battery M0–M14 at about 90 GPU-hours. The table below is the
+original sketch and is kept for the record.
 
 Configuration as settled in the design doc (v3): one realisation per agent of the
 same law, blockwise causal many-to-many on non-overlapping blocks, $L=32$,

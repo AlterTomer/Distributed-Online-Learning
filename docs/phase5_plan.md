@@ -137,11 +137,16 @@ Ordered by what each would change if it came out badly, not by experiment number
   that has seen only three classes should be *confident* about those and
   uncertain elsewhere, which is information a mean-only exchange throws away.
   β ∈ {0.1, 1, 100}, stationary and drifting.
-- [ ] **P5.3** *(X3 analogue)* **Topology and the spectral gap.** Whether the
+- [x] **P5.3** *(X3 analogue)* **Topology and the spectral gap.** Whether the
   covariance-sharing gap widens as connectivity falls. Mean-only sharing loses
   more when information has to travel further, so the two variants should
   separate here if they separate anywhere. Learning rate re-tuned per topology
-  for the SGD arm, as X3 does.
+  for the SGD arm, as X3 does. ✅ **Answered — and the hypothesis is refuted.** The
+  gap is flat across the axis (−0.0010 to −0.0018 from path to complete) and
+  nominally *largest* on the complete graph; one-hop's value over the local adapt is
+  non-monotone in degree, peaking at intermediate connectivity and vanishing at both
+  ends. Connectivity is not what makes sharing pay — heterogeneity is. [[D100]]'s
+  null holds at every topology, including the path ([[D103]]).
 - [ ] **P5.4** *(X4 analogue)* **Sparse labels, $n$ × $\pi_{\text{lab}}$.** An
   unlabelled agent passes its prediction through and still takes part in the
   combine — one of diffusion's more attractive properties, and untested for a
@@ -583,7 +588,8 @@ agent. They are the reason phase 5 is not just "the same experiments again".
   and D77's floor rule applies to it like anything else. Cheap: one extra learner
   entry in an existing sweep, no new script.
 - [ ] **P5.25** **A second task: Mackey–Glass regression with a causal
-  Transformer.** ⏸ **Decide after X22.** Proposed by the user (`Mackey_Glass_
+  Transformer.** ✅ **Approved 2026-09-15 and planned in `docs/mackey_glass_plan.md`
+  (the M-series, D95)** — that file supersedes the open items below. Proposed by the user (`Mackey_Glass_
   Transformer_Regression_Summary.pdf`, 2026-09-13). One-step-ahead prediction of
   the Mackey–Glass delay system ($\beta=0.2$, $\gamma=0.1$, $n=10$, $\tau=17$)
   from a window of $L$ past samples, one parameter update per revealed sample.

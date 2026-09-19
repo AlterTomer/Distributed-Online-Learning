@@ -3836,6 +3836,26 @@ so "beats momentum \ac{atc} at 1.14× its bandwidth", not "at less bandwidth", a
 not "beats the matched arm", since `atc_plain` at 1ψ is not one-hop's matched arm
 ([[D91]]). It also doubles one-hop's latency against the local adapt ([[D84]]).
 
+**Amended 2026-09-17: the carried variant inverts this paragraph's conclusion.**
+The arithmetic above is right for the *sender* point, which is what one-hop meant
+when this note was written. [[D99]] adopted the receiver point and [[D100]]
+confirmed it, and there one-hop mean-only sends **3 696** scalars per link per step:
+$0.64\times$ momentum \ac{atc}'s 5 816, and $1.27\times$ `atc_plain`'s 2 908. Three
+consequences, all favourable:
+
+* "beats momentum \ac{atc} at $1.14\times$ its bandwidth, **not** at less bandwidth"
+  becomes *beats it at $0.64\times$* — that is, at less. The phrasing this note
+  explicitly ruled out is now the correct one.
+* **The nearest baseline by bandwidth flips** from momentum \ac{atc} to `atc_plain`:
+  one-hop sits 788 scalars above the cheap arm and 2 120 below the costly one, where
+  at the sender point it was above both.
+* [[D91]]'s "`atc_plain` is not one-hop's matched arm" weakens accordingly — still
+  not matched at $1.27\times$, but near enough that the comparison is now worth
+  making, and one-hop wins it at every condition measured.
+
+The one-hop *results* are unchanged by this; what changed is the variant the paper
+carries and therefore which baseline it should be priced against.
+
 **Compute is unaffected, but one claim is withdrawn.** "One-hop costs no extra
 Jacobians" is true of the simulation, which reuses each sender's block in-process,
 and false of the raw-sample protocol the payload column describes, where the
@@ -3972,3 +3992,608 @@ ledger and not the filter, which makes X27 a reproduction check as well. About 7
 by the probe's step time. ❓ **Open:** whether to run it, and at three seeds or
 five. ⚠ *Decided 2026-09-15: five seeds, about 12 h. X25 ran three, so the
 reproduction check compares per seed on the three both share.*
+
+### ✅ D95. Mackey–Glass is planned before it is built, and every choice was asked
+
+The supervisor approved the regression task on 2026-09-15. Before any code, every
+open question was put to the user with options and a recommendation; the answers,
+the work packages and the battery are in `docs/mackey_glass_plan.md`, which is the
+authority for the task from here on.
+
+Three answers depart from the recommendation and are worth recording as choices.
+**Calibration adds PIT histograms**, beyond NLL, coverage and the variance ratio.
+**Heterogeneity is all three kinds** — per-agent $\beta$ offsets, noise $\sigma_v$ and
+delay $\tau_v$ — not the recommended first two. **The $\beta$ range is the pilot's to
+widen** if roughly 0.1–0.4 proves too narrow. Two are staged: fixed sinusoidal
+positions first, a learned embedding if order proves a problem; sensor gain/bias
+drift first, $\tau$ drift if time.
+
+Five quantities are deliberately left to the pilot (M0) rather than guessed: the
+noise level $\sigma$, the usable $\beta$ range, whether $\bm R$ is diagonal
+($|\rho_1|<0.2$, and watched throughout rather than settled once), whether it is
+per-position ($>2\times$ variance across positions), and the centre of the $\bm R$
+grid. The pilot is also a hard gate: one agent alone must trail the pooled learner by
+more than three times the seed noise, or the task is hardened before anything else is
+built.
+
+One operational rule follows from the repository rather than the task. Several
+modules import lazily inside functions, so editing shared source in the tree an MNIST
+sweep runs from can change that sweep mid-run. Mackey–Glass is therefore developed in
+a separate git worktree and merged only between sweeps, with the full suite green.
+
+### ✅ D96. M0: the task separates methods at every noise level, and the chaos is narrow
+
+The Mackey–Glass pilot (`scripts/pilot_mackey_glass.py`, 54.5 min CPU,
+`results/m0_pilot/report.json` in the worktree). Online gradient learners only:
+ten solo learners against one pooling all ten agents' blocks, five seeds, $T=1500$,
+each optimiser at its own rate chosen on two seeds. Standardisation constants:
+mean 0.930075, std 0.226215 ($\beta=0.2$, $10\times10\,000$ samples, seed 0).
+
+**The gate passes everywhere** — solo minus pooled, in multiples of the pooled
+learner's seed noise:
+
+| $\sigma$ | SGD | momentum | AdamW | best pooled / floor | persistence |
+|---|---|---|---|---|---|
+| 0.01 | 3.4× | 21.2× | 11.6× | 5.50 | 0.147 |
+| 0.05 | 4.1× | 19.5× | 39.9× | 1.87 | 0.162 |
+| 0.10 | 7.4× | 7.7× | 57.7× | 1.52 | 0.203 |
+
+AdamW is the best pooled learner at every $\sigma$ (0.055, 0.093, 0.152), and it
+chose $10^{-2}$, **the top of its grid**, every time — M3's AdamW grid must reach
+higher. Plain SGD passes but barely at low noise, which is the pilot's argument
+for having added AdamW (decision 19).
+
+**The residual structure decides whether the filter's $\bm R$ is right**, and it
+depends on $\sigma$ (a converged offline model, 20 000 held-out blocks):
+
+| $\sigma$ | $\rho_1$ | variance ratio (from pos. 2) | $\bm R$ centre |
+|---|---|---|---|
+| 0.01 | **+0.372** | 51.6 (5.4) | $1.58\times10^{-3}$ |
+| 0.05 | **−0.206** | 6.4 (3.3) | $6.86\times10^{-3}$ |
+| 0.10 | −0.087 | 3.2 (2.8) | $1.93\times10^{-2}$ |
+
+At low noise the model's own error dominates and is smooth across positions
+(positive correlation); as noise grows the observation noise takes over, and at
+0.05 the sign flips negative mid-block (−0.30). **Only $\sigma=0.1$ meets the
+diagonal rule** ($|\rho_1|<0.2$, decision 13). The per-position rule
+(ratio $>2\times$, decision 14) fires at **every** $\sigma$: position 1, predicting
+from one sample, is the worst by far, and the variance falls steadily to position
+31.
+
+**The chaos is confined to $\beta\in[0.20,0.24]$.** The divergence rate of two
+histories $10^{-8}$ apart is $+0.0039$ at 0.20, $+0.0074$ at 0.22, $+0.0048$ at
+0.24, and zero to four decimals elsewhere across $[0.10,0.40]$: periodic, or a
+fixed point at 0.12 (std 0.000). A model converged at $\beta=0.2$ ($\sigma=0.05$)
+loses RMSE in both directions — +0.0072 at 0.18, +0.054 at 0.16, +0.032 at 0.22,
++0.077 at 0.24, +0.135 at 0.26 — so a smaller $\beta$ is not an easier task for a
+model trained at 0.2, unlike the smoke run's under-trained model suggested.
+The amplitude grows with $\beta$ (std 0.13 at 0.16, 0.30 at 0.24).
+
+**What this leaves open.** The noise level; how the drift is placed against a
+chaotic window only 0.04 wide — the provisional span of 0.04 fits it exactly
+upward from 0.2, but a recurring schedule jumps both ways and would leave it; and
+the $\bm R$ grid, whose centre and per-position shape now come from the table
+above at whichever $\sigma$ is chosen. ❓ **Open**, put to the user.
+
+**Decided 2026-09-15**, all three as recommended:
+
+1. **$\sigma=0.1$** — the only level meeting the diagonal rule, with the strongest
+   separation (57.7× the seed noise) and the pooled learner still 1.52× above the
+   floor. Per-position $\bm R$ is needed regardless.
+2. **$\beta_0=0.22$, span 0.02.** Every cell sits at the centre of the chaotic
+   window, the most chaotic point measured ($\lambda=0.0074$), and the full span
+   reaches exactly its edges: linear drift runs 0.22→0.24, and recurring jumps of
+   15 "degrees" (0.0067) reflect inside $[0.20,0.24]$. No condition leaves chaos,
+   so a drift changes the law's parameters, never the kind of dynamics. The
+   standardisation constants stay those of $\beta=0.2$ — fixed, never per run.
+3. **$\bm R$ = the pilot's per-position profile × one tuned scale.** The shape is
+   measured, the level is tuned — one grid axis, not 31. ⚠ The pilot measured the
+   profile at $\beta=0.2$; it is re-measured at the chosen law ($\beta=0.22$,
+   $\sigma=0.1$), for the linear AR as well as the Transformer, before M4.
+
+**Re-measured at the chosen law** (`scripts/measure_r_profile.py`, four seeds'
+agents fitted, the fifth held out):
+
+| model | RMSE | $\bm R$ centre | per-position ratio | $\rho_1$ |
+|---|---|---|---|---|
+| Transformer (offline AdamW) | **0.1526** | $2.20\times10^{-2}$ | 3.69 | −0.118 |
+| linear AR(31) (least squares) | 0.1844 | $3.40\times10^{-2}$ | 3.13 | +0.017 |
+| persistence | 0.2265 | — | — | — |
+
+Both meet the diagonal rule at this law, and both need a per-position $\bm R$. The
+Transformer beats the linear AR's *optimum* by 0.032 — decision 11's question,
+whether the Transformer is needed at all, answered offline before any online run:
+it is. The two profiles differ in level by 1.5× and are recorded separately, each
+in its own model config, as the centre of its $\bm R$ grid.
+
+### ✅ D104. The model protocol had no device contract, and exactly one model needed one
+
+M5 died on its first cell with `Expected all tensors to be on the same device, but
+found at least two devices, cuda:0 and cpu!`, raised at `embed(x) + self.positions`
+inside the Transformer's `forward`.
+
+**Why it surfaced only there.** Models here are *functional*: parameters arrive as
+an argument and carry their own placement, so a model that owns no tensors runs
+correctly wherever it was built. The \ac{mlp} and the linear AR own nothing — which
+is why every image-task run, P5.3 included, has used `device: auto` on a \ac{gpu}
+without trouble. The causal Transformer owns **two registered buffers**, the
+sinusoidal positions and the causal mask. Buffers travel with the module, and
+`functional_call` substitutes parameters without touching them, so device-resident
+parameters met a \ac{cpu}-resident encoding.
+
+**Why it took until M5.** Every Mackey--Glass run before it was \ac{cpu}: M3 and
+M6's smoke by configuration, M4 deliberately, to leave the \ac{gpu} free for the
+image sweeps. M5 is the first \ac{mg} run ever to ask for a device.
+
+**The gap was in the protocol.** `Model` declares twelve methods and not one of them
+mentions placement; `build_model_from_config` took only a dtype, and the runner moved
+`theta0` alone. Device-agnostic construction is correct for a model that owns
+nothing and silently wrong for one that does not.
+
+**The fix.** `build_model` now takes a device, `build_model_from_config` resolves
+`run.device` through the same `resolve_device` the environment uses — so the model
+and the data cannot disagree about where they are — and the Transformer builds its
+buffers on that device rather than being moved afterwards. Placement is *also*
+applied generically to `_module`, which every model wraps, so a buffer added to any
+future model is covered. It is a no-op for the models that hold nothing.
+
+**⚠ That fix then caused a second, different failure — and the test written for the
+first one hid it.** With the module on a \ac{gpu}, `init_params` split: its `*_like`
+constructions followed the module to \ac{cuda} while the generator-driven weights
+stayed on the \ac{cpu}, and `flatten`'s `cat` raised one line later in `run_one`.
+**The \ac{mlp} carried the identical mix**, so the same change broke the *image* path,
+which had been working — undetected only because no image sweep had started since.
+
+`init_params` is now **\ac{cpu}-only by contract** in every model, and must stay so.
+A \ac{cuda} tensor needs a \ac{cuda} generator, which draws a different random stream;
+$\bm\theta_0$ would then depend on where it was built, breaking reproducibility and the
+D9/D18 requirement that every agent start from the *same* vector. The runner moves the
+flat vector once, after assembly.
+
+The first version of the test moved every parameter to \ac{cuda} itself before using
+it, which is exactly why it passed while the split existed — it asserted the fix it
+was meant to check. It now asserts the contract: `init_params` returns \ac{cpu}
+tensors whatever the module's device, $\bm\theta_0$ is bit-identical across devices,
+and `forward`/`vjp` run through the runner's real path (`flatten` → `.to(device)` →
+`unflatten`) rather than by hand.
+
+**Verified.** Twelve device tests pass with the \ac{cuda} cases executing; one real M5
+cell runs end to end on the \ac{gpu} (`ok`, 40 steps, marker written); the suite is
+**1 433 passed, 1 skipped**, which is exactly the five added tests and no movement
+elsewhere; $p=2273$ is unchanged.
+
+**The lesson, which is the reason this note is long.** Both faults were device-only,
+and the suite never left the \ac{cpu}. The first was invisible because no \ac{mg} run
+had used a \ac{gpu}; the second because the test written for the first one worked
+around it. A unit test that constructs the conditions it is checking for proves
+nothing — the verification that finally caught both was *running one real cell of the
+actual sweep on the actual device*, which takes sixteen seconds and should have
+preceded the first launch.
+
+⚠ **No result is affected.** Every completed \ac{mg} cell records `device=cpu`, and
+the image-task runs use a model with no buffers.
+
+⚠ **The suite could not have caught either fault, which is why the device test now
+exists.** Every
+series test pinned `"device": "cpu"`, and the only `cuda.is_available()` in the suite
+guarded the \ac{cuda}-*refusal* test — the one that shows as skipped. No test ever
+placed a model on a \ac{gpu}. `tests/test_model_device.py` now asserts the contract in
+both directions, with the \ac{cuda} cases skipped where there is no device to fail on.
+
+⚠ **And the pre-flight missed it.** M5's report path, refusal guard, lint and output
+encoding were all exercised before launch, on empty data, and the chain was called
+"wired and verified end to end" — but no cell had ever been executed on the device
+the sweep would actually use. Verifying the plumbing is not verifying the run.
+
+### ✅ D103. P5.3: the sharing gap does not widen as connectivity falls, and one-hop's value is not monotone in degree
+
+`run_diffusion_topology.py`, 12.6 h over 8 cells × 5 seeds (plus 0.6 h tuning), on
+path, ring, \ac{er} $p=0.3$ and complete. The first sweep to run one-hop at the
+**receiver** point natively (D99). Gradient baselines re-tuned per topology (D39,
+D77); the filter carries X20's selection unchanged, which is the X14 discipline.
+
+**Both stated hypotheses are refuted.**
+
+*"Mean-only sharing loses more when information has to travel further, so the two
+variants should separate here if they separate anywhere"* — they do not separate.
+Full minus mean-only, paired by seed:
+
+| | local adapt | one-hop (receiver) |
+|---|---|---|
+| path | −0.0010 ($t=-10.4$) | +0.0001 (ns) |
+| ring | −0.0015 ($t=-5.1$) | +0.0004 (ns) |
+| ER 0.3 | −0.0010 ($t=-1.4$) | +0.0003 (ns) |
+| complete | −0.0018 ($t=-4.0$) | +0.0000 |
+
+The local-adapt benefit is flat across the whole axis and nominally **largest on the
+complete graph** — the opposite of the prediction. Connectivity is not what makes
+covariance sharing pay; heterogeneity is (D89, D101).
+
+*"One-hop's value should scale with degree"* — it is **non-monotone**, peaking at
+intermediate connectivity: −0.0006 (ns) on a path, −0.0038 ($t=-4.1$) on a ring,
+−0.0028 ($t=-2.7$) at \ac{er} 0.3, and **+0.0031 (ns)** on a complete graph, where
+one combine step already reaches consensus. A path's degree-1 endpoints gather
+little, so more reach is not monotonically more value.
+
+**[[D100]]'s null holds at every topology.** Full sharing adds nothing on top of a
+one-hop adapt anywhere on the axis, including the sparsest. This note set the ring
+up as the place it should break — one-hop reaches two neighbours there, so the
+"fresh evidence has already entered the adapt step" mechanism is at its weakest —
+and it did not break at the ring or at the path either.
+
+**Three correctness checks passed.**
+
+1. `centralized_ekf_gamma`, `centralized_sgd` and `local_only` never read the graph,
+   and produce **0.0e+00** spread across all four topologies. The graph does not leak
+   into the data path.
+2. On the complete graph the two one-hop variants are identical by construction, and
+   full minus mean-only is exactly $+0.0000$ with zero variance. ⚠ The report prints
+   $t=\infty$ there; read it as degenerate, not as significance.
+3. The complete-graph one-hop-minus-local figure reproduces X20's **+0.0031** to four
+   decimals — correctly, since the sender and receiver points coincide on a complete
+   graph. That was the number flagged as most at risk of flipping at the receiver
+   point (results.md §1283); it did not flip.
+
+**At matched-ish bandwidth** one-hop beats `atc_plain` by −0.0152 to −0.0176
+($t=-9$ to $-15$) on path, ring and \ac{er} 0.3, and ties on complete (−0.0001, ns)
+where \ac{atc} reaches consensus in one step and *is* centralized.
+
+⚠ **The sparse point was originally \ac{er} $p=0.15$, and that was my error.** At
+$N=10$ the connectivity threshold is $\ln(n)/n=0.230$, so 0.15 sits below it: the
+builder resampled for a connected draw and gave up after 20 attempts, mid-sweep.
+The deeper fault is that a draw which *does* succeed is conditioned on a rare event
+and is no longer a sample from ER(10, 0.15) — the cell would not have meant what its
+label said, so the crash was the lucky outcome. `path` replaced it: connected by
+construction and genuinely sparser than a ring in spectral gap. The tuning pass had
+slipped through on a lucky draw at seeds 0–1, which is why it was not caught earlier.
+
+**Cost rises with degree**, as one-hop's mechanism predicts: 86, 96 and 138 min for
+the group-A cells at path, \ac{er} 0.3 and complete. The tuning pass showed the
+reverse ordering, but that was machine contention rather than topology — it runs only
+the gradient baselines, which never re-linearise a neighbour's batch.
+
+### ✅ D102. M4: the centralised filter's four knobs, and an axis that flattened rather than ran out
+
+`scripts/run_m4_centralised.py`, 336.6 min CPU: $\gamma\times q\times\sigma_0^2\times$
+the scale of $\bm R$, **crossed**, 24 cells × 2 seeds on the abrupt condition and
+carried everywhere (the X14 discipline). Selected: $\gamma=1$, $q=6\times10^{-6}$,
+$\sigma_0^2=0.01$, $\bm R\times1$, at settled RMSE **0.1429**.
+
+**The $q$ argmin sits on the grid's bottom edge, and that is not a reason to extend
+it.** The axis flattened:
+
+| | $q=6\times10^{-4}$ | $6\times10^{-5}$ | $6\times10^{-6}$ |
+|---|---|---|---|
+| mean over the 8 slices | 0.1580 | 0.1459 | **0.1453** |
+| best slice | 0.1543 | 0.1449 | **0.1429** |
+
+The first decade buys 0.0121; the second buys **0.0006**, and in **three of eight**
+slices $6\times10^{-6}$ is already *worse* than $6\times10^{-5}$ (0.1465 against
+0.1456; 0.1487 against 0.1453; 0.1452 against 0.1451). A further decade would buy
+less than the noise we decline to interpret elsewhere. **Decided: carry
+$6\times10^{-6}$, sweep lower only if a later result makes $q$ look load-bearing** —
+the same reasoning as the AdamW tie in [[D98]].
+
+**The axes do not separate, which is why the grid was crossed.** $\gamma$ interacts
+with $q$: at $q=6\times10^{-4}$ the contracting $\gamma=0.9995$ wins **all four**
+slices, while at $6\times10^{-5}$ and $6\times10^{-6}$ the random walk $\gamma=1$
+wins **all eight**. $\bm R$ interacts the same way — $\times2$ is better at high $q$,
+$\times1$ at low. X23 found coordinate descent sufficient on the image task; that was
+a measurement there and does not transfer, and here it would have missed the
+interaction.
+
+⚠ **The selection is not sharply determined.** The top four cells span 0.1429 to
+0.1447 — a range of 0.0018, the same order as the $q$ flattening. M6 should carry
+this setting as "the best of a flat region", not as a located optimum.
+
+⚠ **The run exited non-zero on a cosmetic fault in its own report.** A warning-sign
+glyph in the edge check raised `UnicodeEncodeError` under the cp1252 encoding of a
+redirected log, *after* every cell had been computed and `m4_selection.json` written.
+The real report came from `--report-only` against the corrected file. Recorded in
+`howto.md`; the traceback's line numbers were also garbled, because the file had been
+edited while the run was in flight — the second hazard that file documents.
+
+### ✅ D101. X25+: the skew cells at five seeds, and `atc_plain` under skew at last
+
+`run_skew_topup.py`, 231 min on the RTX 4070. Seeds 3 and 4 in new cells carrying
+X25's exact settings, pooled with X25's 0--2, plus `atc_plain` at X26's selected
+rate — the arm X25 never carried, which is what D90 recorded as missing. Seven
+cells; the drifting pair and $\beta_c=2$ were deliberately left at three seeds,
+because the schedule names the *still* cells as where the equal-bandwidth claim
+lives.
+
+**The pooling is exact, not merely matched.** The sender-point one-hop filter rides
+along as a reproduction check and agrees with X27 to **0.0e+00 on every shared
+seed**, at all three skews. The data stream depends on configuration and seed alone,
+never on which learners are attached (X26 established that to twelve decimals), so
+new cells at new seeds are the same experiment rather than a comparable one.
+
+| paired at $\beta_{\mathrm{dir}}$ | 0.1 | 1 | 100 |
+|---|---|---|---|
+| local adapt vs `atc_plain` (equal $\psi$) | **+0.0068**, $t=2.43$ ($p=0.07$) | −0.0114, $t=-5.88$ | −0.0130, $t=-12.10$ |
+| local adapt vs momentum ATC ($2\psi$) | +0.0211, $t=5.11$ | −0.0044 (ns) | −0.0042, $t=-4.16$ |
+| one-hop vs momentum ATC ($2\psi$) | −0.0063, $t=-5.63$ | −0.0075, $t=-6.88$ | −0.0062, $t=-11.13$ |
+| one-hop vs local adapt | −0.0274, $t=-6.40$ | −0.0031 (ns) | −0.0021 (ns) |
+
+**What it settled.** X25's sharpest claim — that the mean-only local-adapt filter
+loses to `atc_plain` at equal bandwidth under severe skew — was $t=1.66$ on three
+seeds. At five it is $t=2.43$, $p=0.07$. The effect size barely moved (+0.0073 to
++0.0068) while the statistic firmed, which is what a real effect does on gaining
+seeds rather than what an artefact does. It remains **marginal, not established**.
+
+**What it changed**, and both are corrections rather than additions:
+
+* **"One-hop is worth 6.5× more under skew" does not survive.** At five seeds
+  one-hop's advantage over the local adapt is −0.0274 ($p=0.003$) at severe skew and
+  **indistinguishable from zero** at 1 and 100 ($p=0.20$, $p=0.21$). The ratio was
+  an artefact of a small denominator that three seeds made look significant. The
+  honest statement is that one-hop's value *is* a skew effect.
+* **The sender-point substitution number flipped sign and stayed a tie**: full
+  sharing on top of one-hop reads −0.0009 ($p=0.55$) where three seeds gave
+  $+0.0009$. It now agrees in sign with the receiver point's −0.0019, and [[D100]]
+  is amended accordingly — the sign difference was the seed count, not the
+  linearisation point.
+
+⚠ **`atc_plain` is weak in absolute terms at severe skew** (0.1046, against the
+filter's 0.1114 and `local_only`'s 0.6266), so the equal-bandwidth row compares two
+poor performers there. The $2\psi$ comparison against momentum ATC remains the
+defensible headline, and one-hop wins it at every skew.
+
+### ✅ D100. X28: at the receiver point too, one-hop leaves covariance sharing nothing to do
+
+`run_receiver_full.py`, 1 h 58 min on the RTX 4070: two cells at the ends of X25's
+skew axis, `diffusion_ekf_onehop_receiver` (one-hop, **full** sharing, receiver
+point) at $\beta_c=1$, five seeds, $T=1500$. Paired by seed against X27's mean-only
+receiver cells already on disk — the same configuration and the same stream, so the
+pairing is exact rather than merely matched.
+
+| cell | full sharing | mean-only | full − mean | $t$ | $p$ | seeds favouring full |
+|---|---|---|---|---|---|---|
+| still, $\beta_{\mathrm{dir}}=0.1$ | 0.0761 | 0.0779 | −0.0019 | −1.61 | 0.18 | 4/5 |
+| still, $\beta_{\mathrm{dir}}=100$ | 0.0692 | 0.0693 | −0.0001 | −0.45 | 0.67 | 3/5 |
+
+**The substitution survives the change of linearisation point.** X25 measured the
+two repairs as substitutes at the sender point (+0.0009, ns, at three seeds, under
+severe skew);
+[[D99]] then established that the receiver point is a *different update*, so that
+result could not simply be inherited. Re-measured, it holds: full sharing is
+nominally ahead at both ends of the axis and significant at neither, for **1 145×**
+the bandwidth — 4 233 382 scalars per link per direction against 3 696, on
+[[D94]]'s ledger.
+
+**What gives the null its force is the contrast, not the $p$-value.** The same
+sharing is worth **−0.0314 ($t=-4.61$)** to the *local-adapt* filter under severe
+skew (X25). Beside a one-hop adapt it is worth −0.0019 — seventeen times smaller,
+and inside the noise. The mechanism reads the same at both linearisation points:
+once fresh neighbour evidence enters the adapt step, the neighbours' accumulated
+uncertainty has nothing left to contribute.
+
+⚠ **Recorded as a tie, not a win.** Per seed at $\beta_{\mathrm{dir}}=0.1$: −0.0048,
+−0.0010, **+0.0020**, −0.0024, −0.0031. The direction is consistent in four of five,
+but the effect does not clear noise at $n=5$.
+
+**Amended 2026-09-17.** This note first read the receiver point as differing in sign
+from the sender point's $+0.0009$, and declined to call that a reversal. X25+ has
+since put the sender point on five seeds too, where it reads **−0.0009 ($p=0.55$)**:
+the sign difference was the three-seed estimate, not the linearisation point. Both
+points now agree — a tie, leaning the same way, at either one ([[D101]]).
+
+⚠ **Not a claim that covariance sharing is useless.** It is useless *on top of a
+one-hop adapt*. Where the adapt step stays local, sharing is the repair that works,
+and X25 measured it doing so.
+
+$\beta_c=2$ was not topped up here: [[D88]] and X25 both priced it as ruinous, and
+skew did not make it live.
+
+**Consequence.** Mean-only at the receiver point stays the deployable variant — now
+on a measurement taken at the linearisation point the paper actually carries, rather
+than on an analogy from the one it abandoned.
+
+### ✅ D99. X27: the receiver point is never worse, and wins where the agents disagree
+
+Seven cells, five seeds, X25's conditions and settings, both linearisation points in
+one run so every comparison is paired against the same data stream
+(`run_linearization_point.py`; 9 h on the RTX 4070).
+
+| cell | sender | receiver | receiver − sender | $t$ | \ac{atc} (2ψ) |
+|---|---|---|---|---|---|
+| still, $\beta_{\mathrm{dir}}=0.1$ | 0.0840 | 0.0779 | **−0.0060** | −2.55 | 0.0941 |
+| still, $\beta_{\mathrm{dir}}=1$ | 0.0734 | 0.0728 | −0.0005 | −0.98 (ns) | 0.0831 |
+| still, $\beta_{\mathrm{dir}}=100$ | 0.0705 | 0.0693 | **−0.0012** | −5.19 | 0.0771 |
+| abrupt + severe skew | 0.1281 | 0.1189 | **−0.0091** | −2.54 | 0.1579 |
+| smooth + severe skew | 0.0834 | 0.0792 | −0.0043 | −1.80 (ns) | 0.1024 |
+
+**The receiver point is never worse, and its margin grows with the cell's
+difficulty.** It is largest in the hardest cell — abrupt drift on severe skew,
+−0.0091 — and statistically flat at moderate skew. The near-IID cell's −0.0012 at
+$t=-5.19$ is tiny but consistent across every seed.
+
+⚠ **The obvious explanation was tested and does not hold.** A first version of this
+note claimed the margin "tracks disagreement", since the two points differ *only*
+by the inter-agent spread in the predictive mean (D93). Measured on the recorded
+$E_{\mathrm{agree}}$, the correlation between the margin and the disagreement is
+**+0.44** over the five distinct cells — the wrong sign for that story, and
+meaningless at $n=5$ in any case. The two cells with the *highest* disagreement
+(0.409, 0.412 at $\beta_{\mathrm{dir}}=100$ and $1$) have the *smallest* margins;
+the ordering the margin actually follows is the ordering of the error. Nor does the
+receiver point systematically reduce disagreement: the ratio to the sender's
+straddles one (0.977 to 1.027).
+
+So the defensible claim is narrower: **the receiver point is never worse, wins most
+where the task is hardest, and X27 does not isolate why.** Separating difficulty
+from disagreement needs cells that vary one while holding the other — which these
+do not.
+
+**And it is the cheaper one**: 3 696 scalars per link per step against 6 604, since
+$\bm\theta_u^-$ need not travel (D94). Better *and* 1.8× cheaper, so the receiver
+point is the one to carry forward — the textbook diffusion \ac{ekf}, which is also
+what the note should have specified all along.
+
+**Three reproduction checks passed.** The sender arm reproduces X25 **exactly**
+(0.0e+00 on every shared seed, all five cells): D94 changed the ledger, not the
+filter. Both control cells reproduce the still severe-skew cell exactly, as the same
+law on the same seeds must. Damage (drifting minus its twin) is +0.0441 abrupt and
+−0.0006 smooth for the sender, +0.0410 and +0.0013 for the receiver.
+
+⚠ **X20–X26's one-hop numbers stand as published** — they are the sender point, and
+this note does not restate them. What changes is which variant the paper *carries*:
+`diffusion_ekf_onehop_mean_receiver` from here on.
+
+**Decided 2026-09-16: the receiver point is the carried variant.** Better in five
+cells of five, better calibrated, 44% cheaper on the wire, and the formulation the
+literature states. Every sweep from here carries it; the published sender-point
+numbers stay as they are, labelled as such.
+
+One inherited result does **not** transfer automatically. X25's finding that full
+covariance sharing adds nothing on top of a one-hop adapt (+0.0009, ns, under
+severe skew, against −0.0314 for the *local*-adapt filter) was measured at the
+sender point. The receiver point is a different update, so **X28** re-measures it:
+`diffusion_ekf_onehop_receiver` at $\beta_c=1$ on the ends of the skew axis, paired
+by seed against X27's mean-only receiver cells, which are already on disk at the
+same conditions and seeds.
+
+### ✅ D98. M3: the rates are stable across conditions, and the abrupt anomaly was one jump draw
+
+`scripts/run_m3_rates.py`, 255 min CPU for the first pass and 140 min to re-run the
+five abrupt cells, 15 cells (3 conditions × 5 rates) × 2 seeds, all seven gradient
+baselines per cell, none diverged as a cell. Selected rate per learner per
+condition, on settled RMSE on the held-out current set:
+
+| learner | stationary | linear | abrupt | selected rate |
+|---|---|---|---|---|
+| centralised AdamW | **0.1634** | **0.1700** | **0.1682** | $3\times10^{-3}$ |
+| ATC AdamW | 0.1680 | 0.1728 | 0.1704 | $3\times10^{-3}$ |
+| centralised SGD | 0.1781 | 0.1836 | 0.1826 | $3\times10^{-5}$ |
+| momentum ATC | 0.1810 | 0.1869 | 0.1850 | $1\times10^{-5}$ |
+| plain ATC | 0.1865 | 0.1953 | 0.1915 | $3\times10^{-5}$ |
+| local AdamW | 0.1784 | 0.1850 | 0.1825 | $3\times10^{-3}$ ⚠ |
+| local only | 0.1900 | 0.2000 | 0.1959 | $3\times10^{-5}$ |
+
+The abrupt column is the **re-run** under the per-seed jump draw; stationary and
+linear are unchanged and were served from cache, so the two halves of this table
+come from the same computation on different days.
+
+**Every learner selects the same rate in all three conditions**, and only one lands
+on a grid edge — so per-condition tuning here *confirms* stability rather than
+changing the choice. That is worth having measured rather than assumed, which is
+the whole of D77 and D90. **AdamW beats the SGD family for every learner type**, by
+0.010 to 0.015: decision 19 earned its place.
+
+⚠ **That one exception is nominal.** Under the re-run, local AdamW's abrupt argmin
+moves to $10^{-3}$, the bottom of the grid, but its curve there reads
+$\{10^{-3}\!:\,0.1825,\ 3\times10^{-3}\!:\,0.1827\}$ — a gap of $0.0002$, far inside
+seed noise, so the selection is *indifferent* rather than relocated and
+$3\times10^{-3}$ is carried. Extending the grid downward is not a one-line change:
+a cell pairs an SGD rate and an AdamW rate at the same index, so a sixth rate costs
+a sixth cell for both families. **Decided 2026-09-16: carry $3\times10^{-3}$**, and
+sweep a sixth rate only if a later result makes that rate look load-bearing.
+
+**The NLL-scale grid was the right one.** Rates at $10^{-4}$ and above diverge for
+the SGD family, and the optimum is bracketed at $3\times10^{-5}$ — about 700×
+below the pilot's MSE-scale rates, as the scale argument predicted.
+
+⚠ **A diverged regression learner records NaN rather than raising.** That is better
+than the classification path, where one divergence discards the whole cell — but
+NaN compares False both ways, so the first version of the selection could have
+picked a diverged rate as "best". Non-finite is now mapped to infinity. The table
+above is from the corrected code; the sweep's own end-of-run printout used the old.
+
+**The abrupt condition scored *better* than stationary for all seven learners**
+(0.1610 against 0.1634 for centralised AdamW; 0.1821 against 0.1900 for local
+only). Drift does not make a task easier, so the condition was measured rather
+than reasoned about:
+
+| condition | mean $\beta$ | min | max | fraction below 0.22 |
+|---|---|---|---|---|
+| stationary | 0.2200 | 0.2200 | 0.2200 | 0% |
+| linear | 0.2300 | 0.2200 | 0.2400 | 0% |
+| **abrupt**, one fixed draw | **0.2111** | 0.2000 | 0.2333 | **73%** |
+| **abrupt**, jump seed per run seed | 0.2193 | 0.2000 | 0.2400 | 46% |
+
+The abrupt run sat at a *gentler law* for most of its length, and a gentler law is
+an easier task: M2 measured $e^\star$ rising monotonically from 0.1342 at
+$\beta=0.20$ to 0.1467 at 0.24.
+
+**✅ Resolved by the re-run** (140 min CPU, 2026-09-16). With the jump seed derived
+from the run seed the realised law centres on the channel's own centre — 0.2191 and
+0.2196 on the two seeds, pooled 0.2193 against a nominal 0.22, with 46% of steps
+below it rather than 73% — and the reflection now reaches the full window (max
+0.2400, not 0.2333). Every abrupt number rose, by 0.0072 to 0.0138, and **all seven
+learners now score worse under abrupt drift than stationary**, which is what drift
+must do. Abrupt still sits just under linear (0.1682 against 0.1700 for centralised
+AdamW), and that ordering is the sensible one: the linear schedule *ends* at 0.24,
+the hardest law in the window, while the abrupt one reflects about 0.22.
+
+⚠ **The first explanation here was wrong, and is kept because the correction is the
+point.** It claimed `recurring` reflects at the band edges and is therefore biased
+downward from the centre — a systematic defect in the schedule. Measuring twelve
+jump seeds refutes it: mean displacement **−0.38°, s.d. 12.0°, range −20° to +19°**.
+The schedule is symmetric in distribution; **seed 0 simply drew a low walk**. With
+$T/t'=60$ jumps, a run's *time-average* $\beta$ is itself a random variable with a
+12° spread, so any single jump seed lands somewhere in $[0.211, 0.229]$.
+
+That is the real finding, and it is about the **estimator, not the schedule**: on
+this task the drifting cell's mean law varies by seed as much as the drift effect
+being measured, so a damage figure from one jump seed compares two different mean
+laws. It does not arise on MNIST, where rotation is symmetric about a neutral 0 and
+the task's difficulty is (to first order) even in the angle; here the channel's
+centre is the interesting law and either side is a different difficulty.
+
+**Decided 2026-09-16: `jump_seed` varies with the run seed.** Each run seed draws
+its own jump sequence, so the realised mean law averages out across the five seeds
+instead of being one fixed offset, and what the damage metric measures is the
+drift rather than the draw. The schedule and the one-twin-per-cell design are
+unchanged; the twin still shares every history and noise draw with its drifting
+run, since those come from streams that do not depend on the drift.
+
+The user's earlier choice ("start at the band edge") was made against the wrong
+diagnosis and does not survive it: starting at an edge biases the walk *upward*
+instead. The two alternatives considered and not taken — a twin at each cell's own
+realised mean $\beta$, and reading damage against $e^\star(\bar\beta)$ from D97's
+line — both remove the confound for cells already run, but the first makes the twin
+depend on the drift draw and the second changes what "damage" means relative to
+MNIST's twin-based definition.
+
+M3's five abrupt cells have been re-run under the new rule; the stationary and
+linear cells were served from cache and their selections are unaffected. The
+superseded cells are kept in `results/_superseded_m3_abrupt_fixed_jump_seed/`,
+because the "one fixed draw" row above is theirs and the comparison is the point.
+
+### ✅ D97. M2: the offline reference across the chaotic window, and why a line beats the points
+
+`scripts/run_m2_references.py`, 23.7 min CPU, `results/m2_references.json` in the
+worktree. At each of 13 $\beta$ levels on $[0.20,0.24]$ (a 1/300 grid that contains
+every value the abrupt schedule can reach, and covers the linear one at twice that
+resolution): the Transformer trained offline on one run's whole budget (15 000
+blocks at a fixed law), epoch chosen on 2 000 validation blocks, scored on 4 000.
+
+| $\beta$ | 0.2000 | 0.2100 | 0.2200 | 0.2300 | 0.2400 |
+|---|---|---|---|---|---|
+| $e^\star$ | 0.1342 | 0.1405 | 0.1433 | 0.1442 | 0.1467 |
+| full context | 0.1135 | 0.1173 | 0.1177 | 0.1170 | 0.1184 |
+| persistence | 0.2033 | 0.2151 | 0.2264 | 0.2378 | 0.2480 |
+
+(all 13 levels in the JSON; noise floor 0.1 throughout.)
+
+**The epoch cap had to rise first.** At the original 40 the first level selected
+epoch 37 — still improving at the cap, so not the converged reference $e^\star$ is
+defined as. At a ceiling of 100 with patience 5 every level stopped on its own,
+between epochs 26 and 58.
+
+**What it says.** The reference degrades by about 0.0125 across the window while
+persistence degrades by 0.045: the drift makes the *trivial* predictor much worse
+and a good one only slightly worse, so the task stays learnable across the whole
+span. $e^\star$ sits 1.34–1.47× above the noise floor.
+
+⚠ *See [[D98]]: the abrupt condition these references are read against scores
+**better** than stationary, which needs explaining before any damage figure on this
+task is believed.*
+
+**Use the line, not the points.** A least-squares fit gives $e^\star(\beta)\approx
+0.0816+0.274\,\beta$ with residual s.d. 0.0015 — and that residual is single-run
+training noise, not structure: $\beta=0.2267$ came out *below* its neighbour at
+0.2233. A gap measured against one run's reference would inherit 0.0015 of noise
+that has nothing to do with the method; measured against the fitted line it does
+not. **Proposed:** report gaps against the linear fit, with the 13 points drawn
+for honesty. The alternative — several reference seeds per level — costs 13 more
+CPU-minutes per seed and buys the same thing less cleanly.
