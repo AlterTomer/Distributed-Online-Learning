@@ -17,16 +17,16 @@ right and this is stale.
 
 ## 1. What is being estimated
 
-The filter never represents $\bm\theta_t$. It represents a Gaussian belief about
-it: a mean $\bm m_{t|s}$ and covariance $\bm P_{t|s}$, where the first index is
+The filter never represents $\boldsymbol\theta_t$. It represents a Gaussian belief about
+it: a mean $\boldsymbol m_{t|s}$ and covariance $\boldsymbol P_{t|s}$, where the first index is
 the time of the *state* and the second the time up to which *data* have been
-used (eq 10). Two instances matter per step: $(\bm m_{t-1|t-1},\bm P_{t-1|t-1})$
-left by the previous update, and $(\bm m_{t|t-1},\bm P_{t|t-1})$ after the
+used (eq 10). Two instances matter per step: $(\boldsymbol m_{t-1|t-1},\boldsymbol P_{t-1|t-1})$
+left by the previous update, and $(\boldsymbol m_{t|t-1},\boldsymbol P_{t|t-1})$ after the
 prediction step but before the new data.
 
 The parameters are a slowly varying latent state (eq 9):
 
-$$\bm\theta_t = \bm F_t\bm\theta_{t-1} + \bm w_t,\qquad \bm w_t\sim\mathcal N(\bm 0,\bm Q_t)$$
+$$\boldsymbol\theta_t = \boldsymbol F_t\boldsymbol\theta_{t-1} + \boldsymbol w_t,\qquad \boldsymbol w_t\sim\mathcal N(\boldsymbol 0,\boldsymbol Q_t)$$
 
 All the nonlinearity is in the observation map; the dynamics are
 linear-Gaussian.
@@ -35,30 +35,30 @@ linear-Gaussian.
 
 ### The γ family — `transition: scalar`
 
-$\bm F_t=\gamma\bm I$ with $0<\gamma\le1$ (eq 11–12):
+$\boldsymbol F_t=\gamma\boldsymbol I$ with $0<\gamma\le1$ (eq 11–12):
 
-$$\bm m_{t|t-1}=\gamma\,\bm m_{t-1|t-1},\qquad \bm P_{t|t-1}=\gamma^{2}\bm P_{t-1|t-1}+\bm Q_t$$
+$$\boldsymbol m_{t|t-1}=\gamma\,\boldsymbol m_{t-1|t-1},\qquad \boldsymbol P_{t|t-1}=\gamma^{2}\boldsymbol P_{t-1|t-1}+\boldsymbol Q_t$$
 
 **γ is not a forgetting factor**, and the paper is emphatic about this.
 Forgetting means loosening the prior so new data count for relatively more, and
 $\gamma^2\le1$ *contracts* the covariance. All the loosening comes from
-$\bm Q_t$, with γ working against it. What γ actually does is shrink the mean
+$\boldsymbol Q_t$, with γ working against it. What γ actually does is shrink the mean
 toward the origin — $L_2$ weight decay in state-space form.
 
-**So the γ family requires $\bm Q_t\succ\bm 0$.** With $\bm Q_t=\bm 0$ the
+**So the γ family requires $\boldsymbol Q_t\succ\boldsymbol 0$.** With $\boldsymbol Q_t=\boldsymbol 0$ the
 covariance contracts monotonically and the filter stops learning (remark on
 covariance collapse).
 
 ### The λ family — `transition: identity`
 
-$\bm F_t=\bm I$, $\bm Q_t=\bm 0$, and the second moment is inflated directly
+$\boldsymbol F_t=\boldsymbol I$, $\boldsymbol Q_t=\boldsymbol 0$, and the second moment is inflated directly
 (eq 13–14):
 
-$$\bm m_{t|t-1}=\bm m_{t-1|t-1},\qquad \bm P_{t|t-1}=\lambda^{-1}\bm P_{t-1|t-1},\qquad 0<\lambda\le1$$
+$$\boldsymbol m_{t|t-1}=\boldsymbol m_{t-1|t-1},\qquad \boldsymbol P_{t|t-1}=\lambda^{-1}\boldsymbol P_{t-1|t-1},\qquad 0<\lambda\le1$$
 
 Now λ governs adaptivity alone. The mean passing through is **not** the estimate
 freezing: it is the correct one-step forecast for a driftless random walk, since
-$\mathbb E[\bm w_t]=\bm 0$. The estimate moves in the *measurement* update.
+$\mathbb E[\boldsymbol w_t]=\boldsymbol 0$. The estimate moves in the *measurement* update.
 Between two data points the best guess is unchanged while confidence decays —
 the parameters are believed to drift, but in no known direction, so the mean
 cannot anticipate it and only the covariance records that it happened.
@@ -69,8 +69,8 @@ The families differ in **two** ways, and γ = 1 separates them:
 
 | | mean | covariance loosening |
 |---|---|---|
-| γ < 1 | shrunk toward origin | **additive** ($+\bm Q$) |
-| **γ = 1** (random walk) | unchanged | **additive** ($+\bm Q$) |
+| γ < 1 | shrunk toward origin | **additive** ($+\boldsymbol Q$) |
+| **γ = 1** (random walk) | unchanged | **additive** ($+\boldsymbol Q$) |
 | λ < 1 | unchanged | **multiplicative** ($\lambda^{-1}\times$) |
 
 So γ = 1 is *not* a third model — it is the boundary of the γ grid, and
@@ -82,7 +82,7 @@ the sweep gives two clean comparisons for free:
 * **γ = 1 against λ** — additive against multiplicative loosening, both on two
   hyperparameters, a matched-budget comparison.
 
-**Exactly one of λ < 1 and $\bm Q\succ\bm 0$ may be active.** They are two
+**Exactly one of λ < 1 and $\boldsymbol Q\succ\boldsymbol 0$ may be active.** They are two
 parameterisations of one effect; tuning both makes the pair unidentifiable and a
 sweep would wander along a ridge rather than find an optimum.
 
@@ -91,31 +91,31 @@ are specific to networks. The origin is where a DNN computes approximately the
 constant zero map, so γ < 1 pulls toward a degenerate model rather than an
 uninformative one. And under the positive-rescaling symmetry of ReLU layers or
 the scale invariance of LayerNorm, multiplying all weights by γ can leave the
-computed function almost unchanged while moving $\bm\theta$ a long way — so the
+computed function almost unchanged while moving $\boldsymbol\theta$ a long way — so the
 strength of the shrinkage is not well defined as an operation on the function.
 
 ## 3. The observation model
 
 MNIST classification is case (b) of eq 21. The network outputs logits
-$\bm h_{v,t}$; then
+$\boldsymbol h_{v,t}$; then
 
-$$\bm\pi=\operatorname{softmax}(\bm h),\qquad \bm\nu=\bm y-\bm\pi,\qquad \bm\Lambda=\operatorname{diag}(\bm\pi)-\bm\pi\bm\pi^{\top}$$
+$$\boldsymbol\pi=\operatorname{softmax}(\boldsymbol h),\qquad \boldsymbol\nu=\boldsymbol y-\boldsymbol\pi,\qquad \boldsymbol\Lambda=\operatorname{diag}(\boldsymbol\pi)-\boldsymbol\pi\boldsymbol\pi^{\top}$$
 
-with $\bm y$ one-hot. $\bm\Lambda\succeq\bm 0$ and $\bm\Lambda\bm 1=\bm 0$, so
+with $\boldsymbol y$ one-hot. $\boldsymbol\Lambda\succeq\boldsymbol 0$ and $\boldsymbol\Lambda\boldsymbol 1=\boldsymbol 0$, so
 its rank is at most $K-1 = 9$ — that singularity encodes the shift invariance of
 the softmax and is a feature, not a defect.
 
-**Not a Gaussian surrogate.** Writing $\bm y=\operatorname{softmax}(\bm h)+\bm\varepsilon$
-with Gaussian $\bm\varepsilon$ and reusing the regression machinery fails three
+**Not a Gaussian surrogate.** Writing $\boldsymbol y=\operatorname{softmax}(\boldsymbol h)+\boldsymbol\varepsilon$
+with Gaussian $\boldsymbol\varepsilon$ and reusing the regression machinery fails three
 ways: the residual is bounded and cannot be Gaussian; its entries sum to zero so
-its covariance is singular and $\bm R^{-1}$ does not exist, making the
+its covariance is singular and $\boldsymbol R^{-1}$ does not exist, making the
 information increment *undefined* rather than approximate; and its variance is a
-deterministic function of $\bm\pi$, so a free $\bm R$ discards known
+deterministic function of $\boldsymbol\pi$, so a free $\boldsymbol R$ discards known
 heteroscedasticity. The exponential-family form avoids all three, and the update
 it produces is the GGN step for cross-entropy.
 
 **The Gaussian assumption lives in parameter space, not observation space.**
-What is taken to be Gaussian is the belief about $\bm\theta_t$, never $\bm y$.
+What is taken to be Gaussian is the belief about $\boldsymbol\theta_t$, never $\boldsymbol y$.
 The update consumes only the first two conditional moments of the likelihood, so
 the recursion is a Gaussian assumed-density filter.
 
@@ -124,8 +124,8 @@ the recursion is a Gaussian assumed-density filter.
 ### Batching: one stacked update per step
 
 The paper assumes one observation per agent per step; the benchmark serves
-$n = 4$. They are stacked into a single update — $\bar{\bm H}$ of shape
-$(nK)\times p$ with block-diagonal $\bar{\bm\Lambda}$ — which is eq 34 applied
+$n = 4$. They are stacked into a single update — $\bar{\boldsymbol H}$ of shape
+$(nK)\times p$ with block-diagonal $\bar{\boldsymbol\Lambda}$ — which is eq 34 applied
 within an agent rather than across agents.
 
 **Not four sequential rank-9 updates.** Those are not the same operation: they
@@ -137,16 +137,16 @@ the comparison is about.
 
 Agent $v$'s linearised likelihood contributes (eq 35)
 
-$$\Delta\bm\Omega_{v,t}=\bm H_{v,t}^{\top}\bm\Lambda_{v,t}\bm H_{v,t},\qquad \Delta\bm\xi_{v,t}=\bm H_{v,t}^{\top}\left[\bm\nu_{v,t}+\bm\Lambda_{v,t}\bm H_{v,t}\bm m_{t|t-1}\right]$$
+$$\Delta\boldsymbol\Omega_{v,t}=\boldsymbol H_{v,t}^{\top}\boldsymbol\Lambda_{v,t}\boldsymbol H_{v,t},\qquad \Delta\boldsymbol\xi_{v,t}=\boldsymbol H_{v,t}^{\top}\left[\boldsymbol\nu_{v,t}+\boldsymbol\Lambda_{v,t}\boldsymbol H_{v,t}\boldsymbol m_{t|t-1}\right]$$
 
 and the centralised update is a sum (eq 36). Collecting terms gives the
 innovation form (eq 37):
 
-$$\bm m_{t|t}=\bm m_{t|t-1}+\bm P_{t|t}\sum_v \bm H_{v,t}^{\top}\bm\nu_{v,t}$$
+$$\boldsymbol m_{t|t}=\boldsymbol m_{t|t-1}+\boldsymbol P_{t|t}\sum_v \boldsymbol H_{v,t}^{\top}\boldsymbol\nu_{v,t}$$
 
 **This is a preconditioned gradient step.** The sum is exactly the negative
-gradient of the log-loss over agents, and $\bm P_{t|t}$ is a running inverse GGN
-— the sense in which the EKF is the online natural gradient. Constrain $\bm P$
+gradient of the log-loss over agents, and $\boldsymbol P_{t|t}$ is a running inverse GGN
+— the sense in which the EKF is the online natural gradient. Constrain $\boldsymbol P$
 to diagonal and it becomes an adaptive-gradient method structurally. That is a
 useful sanity check and also a caution: much of any benefit may come from the
 preconditioner rather than the Bayesian interpretation, which is why an ablation
@@ -154,13 +154,13 @@ against a tuned adaptive-gradient baseline is mandatory rather than optional.
 
 ### Woodbury, and why it is not optional
 
-The information increment is low rank: $\bm\Lambda=\bm G\bm G^{\top}$ with
-$\operatorname{rank}\bm\Lambda\le K-1$, so $\Delta\bm\Omega=\bm B\bm B^{\top}$
-with $\bm B=\bm H^{\top}\bm G\in\mathbb R^{p\times q'}$ (eq 38). Stacked over
+The information increment is low rank: $\boldsymbol\Lambda=\boldsymbol G\boldsymbol G^{\top}$ with
+$\operatorname{rank}\boldsymbol\Lambda\le K-1$, so $\Delta\boldsymbol\Omega=\boldsymbol B\boldsymbol B^{\top}$
+with $\boldsymbol B=\boldsymbol H^{\top}\boldsymbol G\in\mathbb R^{p\times q'}$ (eq 38). Stacked over
 $N=10$ agents and $n=4$ samples the total rank is $Nn(K-1)=360$ against
 $p = 2908$.
 
-Inverting $\bm P^{-1}$ directly is $O(p^3)\approx2.5\times10^{10}$ flops per
+Inverting $\boldsymbol P^{-1}$ directly is $O(p^3)\approx2.5\times10^{10}$ flops per
 step, about an hour of pure inversion per seed. Woodbury inverts a
 $360\times360$ instead and leaves $O(p^2q')$ as the dominant term. Same answer,
 three orders of magnitude cheaper.
@@ -173,7 +173,7 @@ together:
 * **float64.** In single precision the paper reports PD lost within a few
   hundred steps; the benchmark's runs are 1500. At $p=2908$ a covariance is
   68 MB in float64, which is affordable for one belief.
-* **Symmetrise every step**: $\bm P\leftarrow\tfrac12(\bm P+\bm P^{\top})$.
+* **Symmetrise every step**: $\boldsymbol P\leftarrow\tfrac12(\boldsymbol P+\boldsymbol P^{\top})$.
   Without it the recursion drifts out of symmetry within a few hundred steps.
 * **A per-step $O(p)$ guard** on the mean staying finite and the variances
   staying positive, so divergence stops the run instead of reaching the metrics
@@ -182,18 +182,18 @@ together:
 **The Joseph form is not among them, and the reason is worth stating.** Written
 the usual way,
 
-$$\bm P^+ = (\bm I-\bm K\bar{\bm B}^{\top})\,\bm P\,
-            (\bm I-\bm K\bar{\bm B}^{\top})^{\top} + \bm K\bm K^{\top},$$
+$$\boldsymbol P^+ = (\boldsymbol I-\boldsymbol K\bar{\boldsymbol B}^{\top})\,\boldsymbol P\,
+            (\boldsymbol I-\boldsymbol K\bar{\boldsymbol B}^{\top})^{\top} + \boldsymbol K\boldsymbol K^{\top},$$
 
-it forms the $p\times p$ matrix $\bm I-\bm K\bar{\bm B}^{\top}$ and multiplies it
-by $\bm P$ — which is $O(p^3)$, exactly the cost §4 used Woodbury to avoid.
+it forms the $p\times p$ matrix $\boldsymbol I-\boldsymbol K\bar{\boldsymbol B}^{\top}$ and multiplies it
+by $\boldsymbol P$ — which is $O(p^3)$, exactly the cost §4 used Woodbury to avoid.
 Expanding the product instead keeps every term $O(p^2q')$, but the expansion
 telescopes:
 
-$$\bm P - \bm K\bm A^{\top} - \bm A\bm K^{\top} + \bm K\bm S\bm K^{\top}
-  = \bm P - \bm A\bm S^{-1}\bm A^{\top},$$
+$$\boldsymbol P - \boldsymbol K\boldsymbol A^{\top} - \boldsymbol A\boldsymbol K^{\top} + \boldsymbol K\boldsymbol S\boldsymbol K^{\top}
+  = \boldsymbol P - \boldsymbol A\boldsymbol S^{-1}\boldsymbol A^{\top},$$
 
-with $\bm A=\bm P\bar{\bm B}$ and $\bm K=\bm A\bm S^{-1}$ — the short form again.
+with $\boldsymbol A=\boldsymbol P\bar{\boldsymbol B}$ and $\boldsymbol K=\boldsymbol A\boldsymbol S^{-1}$ — the short form again.
 That is not a coincidence; the two are algebraically identical and always were.
 The Joseph form's value is **numerical**, and it comes precisely from evaluating
 the un-expanded product, which is the version that costs $O(p^3)$. So the choice
@@ -225,25 +225,25 @@ keep by having failed:
 | Woodbury vs a direct $p\times p$ information-form inverse | 1.6e-15 | — |
 | linear probe + Gaussian vs an exact Kalman filter, in **gain** form | 2.3e-14 mean, 3.6e-15 covariance | the score/innovation bug (D60) |
 | Cholesky over 1500 steps at $p=2908$, five hyperparameter corners | holds throughout | — |
-| $\bm P-\bm P^+\succeq\bm0$ | $>-10^{-9}$ | — |
+| $\boldsymbol P-\boldsymbol P^+\succeq\boldsymbol0$ | $>-10^{-9}$ | — |
 | $\gamma=1$ vs `transition: identity` | bitwise equal | — |
-| $\bm\Lambda=\operatorname{Cov}(\bm s)$, sampled | 5e-3 at $2\times10^5$ draws | — |
+| $\boldsymbol\Lambda=\operatorname{Cov}(\boldsymbol s)$, sampled | 5e-3 at $2\times10^5$ draws | — |
 
 The exactness check is the filter's analogue of X0, and it is worth being
-precise about why it has teeth. A linear probe makes $\bm h(\bm\theta)=\bm
-H\bm\theta$ **exactly**, so the linearisation has no remainder; with Gaussian
+precise about why it has teeth. A linear probe makes $\boldsymbol h(\boldsymbol\theta)=\boldsymbol
+H\boldsymbol\theta$ **exactly**, so the linearisation has no remainder; with Gaussian
 observations the model is precisely the one the Kalman filter is derived for, and
 the two must agree to floating point. The reference is written in the *gain* form
-$\bm K=\bm P\bm H^\top\bm S^{-1}$, which shares no algebra with the Woodbury
+$\boldsymbol K=\boldsymbol P\boldsymbol H^\top\boldsymbol S^{-1}$, which shares no algebra with the Woodbury
 update — so agreement means both are right, not that one echoes the other.
 
 ### 5.2 $\sigma_0^2$ is a trust region
 
-The mean update is a Gauss–Newton step and $\bm P$ bounds its size, so too large
+The mean update is a Gauss–Newton step and $\boldsymbol P$ bounds its size, so too large
 a prior does not converge slowly — it **diverges**, on the first step, while the
 covariance stays perfectly well conditioned. Measured at $p=2908$:
 
-| $\sigma_0^2$ | first $\lVert\Delta\bm m\rVert$ | ÷ $\lVert\bm\theta_0\rVert$ | outcome |
+| $\sigma_0^2$ | first $\lVert\Delta\boldsymbol m\rVert$ | ÷ $\lVert\boldsymbol\theta_0\rVert$ | outcome |
 |---|---|---|---|
 | 1.0   | 7.91  | 1.29  | diverges by step 25; $10^{113}$ by step 100 |
 | 0.1   | 1.51  | 0.25  | stable |
@@ -265,7 +265,7 @@ as NaN (design note D61).
 | `process_noise_q` | swept, $>0$ | 0 |
 | `prior_scale` | swept | swept |
 
-$\bm P_0=\sigma_0^2\bm I$ acts as an initial learning rate and the paper calls
+$\boldsymbol P_0=\sigma_0^2\boldsymbol I$ acts as an initial learning rate and the paper calls
 it **the most sensitive hyperparameter of the method**. It is swept exactly as
 the SGD learning rates were, because D39 exists precisely because an untuned
 comparison invalidated a headline once already.
@@ -274,7 +274,7 @@ comparison invalidated a headline once already.
 
 The predictive covariance (eq 47):
 
-$$\bm\Sigma^{\mathrm{pred}}_{v,t}\approx\bm H_{v,t}\bm P_{t|t}\bm H_{v,t}^{\top}+\bm R_{v,t}$$
+$$\boldsymbol\Sigma^{\mathrm{pred}}_{v,t}\approx\boldsymbol H_{v,t}\boldsymbol P_{t|t}\boldsymbol H_{v,t}^{\top}+\boldsymbol R_{v,t}$$
 
 Logged from the first implementation alongside the ECE, Brier and
 overconfidence the protocol already computes for every learner. It is a
@@ -302,7 +302,7 @@ the variant it asked for:
 
   ⚠ Eq 46 is **not** covariance intersection, and an earlier version of this
   document and of the research note both said it was. CI combines in the
-  *information* domain, $\bm P^{-1}=\sum_i\omega_i\bm P_i^{-1}$, and weights the
+  *information* domain, $\boldsymbol P^{-1}=\sum_i\omega_i\boldsymbol P_i^{-1}$, and weights the
   fused mean by the information matrices; eq 46 averages covariances under the
   same $a_{vu}$ that weight the mean. The conservativeness CI was being cited for
   holds anyway and is proved directly — a convex combination of consistent
@@ -313,7 +313,7 @@ the variant it asked for:
 
 * **The adapt scope.** `local` (no communication) or `one_hop` (neighbours
   exchange their raw labelled batches, $n(d+1)$ scalars, and each receiver
-  rebuilds $(\bm B_{u,t},\bm H_{u,t}^{\top}\bm s_{u,t})$ itself — 32× cheaper
+  rebuilds $(\boldsymbol B_{u,t},\boldsymbol H_{u,t}^{\top}\boldsymbol s_{u,t})$ itself — 32× cheaper
   than shipping the pair, D92).
   Complete-graph exactness — the filter's analogue of X0 — holds **only** for
   one-hop, because on $K_N$ that makes the measurement set the whole vertex set,
@@ -329,10 +329,10 @@ the variant it asked for:
   graph was measured from X20 on; see `docs/results.md`.
 
 * **The linearisation point** (one-hop only; D93, D94). A receiver can rebuild
-  a neighbour's block at the *sender's* predictive mean $\bm\theta_{u,t}^-$ —
+  a neighbour's block at the *sender's* predictive mean $\boldsymbol\theta_{u,t}^-$ —
   `sender`, what X20–X26 ran, which sums blocks from different points into one
-  update and needs $\bm\theta_{u,t}^-$ in the first message, 6 604 scalars per
-  link per direction — or at its *own* $\bm\theta_{v,t}^-$ — `receiver`, one
+  update and needs $\boldsymbol\theta_{u,t}^-$ in the first message, 6 604 scalars per
+  link per direction — or at its *own* $\boldsymbol\theta_{v,t}^-$ — `receiver`, one
   point per update, the textbook diffusion \ac{ekf}, and 3 696. They coincide
   whenever the agents' predictive means agree, so on a complete graph both pass
   the exactness gate and only a sparse graph separates them. The `*_receiver`
@@ -340,8 +340,8 @@ the variant it asked for:
 
 **Memory, not compute, is what binds.** Each agent holds a $p\times p$
 covariance: 64.5 MiB at $p=2908$ in float64, so ten agents cost 645 MiB, and full
-sharing needs a second set live during the mix because every $\bm P^{\psi}_u$ must
-survive until the last $\bm P_{v,t|t}$ is written. A measured run carrying both
+sharing needs a second set live during the mix because every $\boldsymbol P^{\psi}_u$ must
+survive until the last $\boldsymbol P_{v,t|t}$ is written. A measured run carrying both
 diffusion variants and the centralised filter peaked at **3.3 GiB**. Compute is
 **not** centralised-equal, as this section used to say: measured per agent per
 step (RTX 4070, float64; D93), a local adapt takes 14.0 ms against 64.7 ms for
