@@ -426,3 +426,20 @@ Collected because each cost us a result before it became a rule.
   sweep by 4×.
 - **A null result at a mild condition is not a null result.** Two claims have
   been withdrawn for exactly this (D72 → D73 → D76).
+- **A seed's parquet appears when that seed *starts*, not when it finishes.** The
+  runner rewrites the file as it goes, so five files present means the fifth seed
+  is *running*. Size is the progress signal; the `_complete` marker is the only
+  finish signal. This misread cost a wrong ETA three separate times on 2026-09-20,
+  each about 35 minutes early, after first being learnt on M4.
+- **Do not do backslash work through the shell.** On 2026-09-20 a `\bm` →
+  `\boldsymbol` sweep took five attempts because every shell route mangled the
+  backslash *and returned a plausible wrong answer rather than an error*: `grep`
+  read `\b` as a word boundary (so a census of `\bm` counted every word starting
+  with "m" — reported as 3,499 occurrences when the true figure was 794), a
+  quoted heredoc collapsed `\\` to `\` (Python then saw a backspace), `sed`'s
+  replacement side dropped the backslash entirely and silently corrupted a file,
+  a `for` loop over `"\\$m"` expanded to the literal `$m`, and `awk -v` applied
+  escape processing before `index()` saw the string. The working method is a
+  Python file written to disk and invoked by path, with `[\]` bracket classes for
+  any grep that must match a backslash. Verify counts before *and* after, and
+  gate the write on an invariant check.
