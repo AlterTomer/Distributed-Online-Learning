@@ -4235,6 +4235,44 @@ target keeps returning and barely damages anyone.
    $e^\star$'s 4 000. Raising `series.eval_blocks` would tighten the headline, at
    the cost of re-running the battery.
 
+**Amended 2026-09-21: gap 1 is closed.** `scripts/run_m6_isolated.py`, three cells
+× five seeds, 1 h GPU, zero divergences. `diffusion_ekf` on an edgeless graph
+(`disconnected` at `n_components = N`, where Metropolis weighting gives
+$a_{vv}=1$, so the combination matrix is $\boldsymbol I$) is a per-agent EKF that
+never communicates — the same learner, settings and seeds as its connected twin,
+so the paired difference is the communication and nothing else.
+
+| paired, isolation minus connected | stationary | linear | abrupt |
+|---|---|---|---|
+| communication alone | $+0.0038$ | $+0.0031$ | $+0.0028$ |
+| whole deployable design | $+0.0073$ | $+0.0083$ | $+0.0085$ |
+| *for scale:* SGD family | $+0.0120$ | $+0.0137$ | $+0.0118$ |
+| *for scale:* AdamW family | $+0.0111$ | $+0.0131$ | $+0.0146$ |
+
+**The decomposition is exactly additive, in all three conditions**, against the
+adapt-scope gaps this note measured independently: $0.0038+0.0035=0.0073$,
+$0.0031+0.0052=0.0083$, $0.0028+0.0057=0.0085$. Communication and adapt scope
+contribute separately.
+
+**And they dissociate under drift.** The adapt-scope term widens
+($+0.0035\to+0.0057$) while the communication term *narrows*
+($+0.0038\to+0.0028$) — the reverse of what was predicted for the second of them.
+**Sharing estimates helps less when the target moves; sharing data helps more.**
+That favours the receiver-point one-hop design specifically, whose first message
+is the raw batch rather than a belief.
+
+**The headline is now causal rather than merely true.** At $\beta=0.22$ the
+isolated filter scores 0.1480 — *above* $e^\star$'s 0.1433 — while the one-hop
+form scores 0.1408, below it. So it is the communication that carries the online
+filter past a Transformer trained to convergence, not the filtering alone.
+
+Two framings survive together, and the second is the stronger. Cooperation buys
+the filter about 60–65% of what it buys a gradient method. But the filter's
+*non-communicating* form (0.1480–0.1538) beats the best *communicating* gradient
+baseline (0.1628–0.1694) in every condition, by more than cooperation is worth to
+either. The method dominates the cooperation; the cooperation then clears
+$e^\star$.
+
 ### ✅ D105. M5: the tie-break that could not break the tie, and the image task's $q$ pattern inverts
 
 `scripts/run_m5_diffusion.py` (16 cells × 2 seeds, ≈4.3 h GPU), its `--tie-break`
