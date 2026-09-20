@@ -50,6 +50,13 @@ DIFFUSION_EKF_VARIANTS = {
     # update, and no theta_u^- in the first message (D93, D94).
     "diffusion_ekf_onehop_receiver": ("one_hop", "full"),
     "diffusion_ekf_onehop_mean_receiver": ("one_hop", "local"),
+    # The carried variant's shrinking-transition twin, for the same reason the
+    # centralized filter carries `walk` beside `gamma` (D71): two entries in one
+    # run need two names, and M5 chose gamma = 1 on a grid where gamma = 0.9995
+    # lost by 0.0104 -- a selection, not a measurement, until it is re-run at the
+    # reporting seed count beside its twin (D83). It is a *reference line*, not a
+    # method: D77's floor rule applies and it is not ranked against the baselines.
+    "diffusion_ekf_onehop_mean_receiver_gamma": ("one_hop", "local"),
 }
 
 #: Where a one-hop agent linearises its neighbours' batches. A separate mapping
@@ -58,6 +65,7 @@ DIFFUSION_EKF_VARIANTS = {
 LINEARIZATION_POINT = {
     "diffusion_ekf_onehop_receiver": "receiver",
     "diffusion_ekf_onehop_mean_receiver": "receiver",
+    "diffusion_ekf_onehop_mean_receiver_gamma": "receiver",
 }
 
 #: Every learner a config may name. `diffusion_sgd_atc_plain` shares the ATC
@@ -75,6 +83,7 @@ BUILDERS = {
     "diffusion_ekf_onehop_mean": DiffusionEKF,
     "diffusion_ekf_onehop_receiver": DiffusionEKF,
     "diffusion_ekf_onehop_mean_receiver": DiffusionEKF,
+    "diffusion_ekf_onehop_mean_receiver_gamma": DiffusionEKF,
     # Two names, one class. The gamma and lambda families are the same recursion
     # under different transition models, and the config picks which by setting
     # `transition` -- so a run that names both gets a genuine comparison rather

@@ -18,6 +18,23 @@ cells: not for memory here -- $\bm P$ is 41 MB per agent at $p=2273$, an order
 below the image task -- but so that a cell's learners share one process's fate, and
 a divergence in the expensive variant cannot cost the cheap ones their run.
 
+**Two reference lines, carried at $\gamma=0.9995$** (`GAMMA_ARMS`, plan item P5.24).
+Every filter number here sits at an argmin someone spent GPU-hours finding, and a
+reader cannot tell from it whether the method is good or the tuning is. M4 and M5
+both selected $\gamma=1$; X23 selected $\gamma=0.9995$ on the image task, so a
+reviewer will ask. Each tuned filter therefore runs beside a twin differing in
+$\gamma$ **and nothing else** -- `centralized_ekf_walk` beside
+`centralized_ekf_gamma`, and `diffusion_ekf_onehop_mean_receiver` beside
+`..._receiver_gamma` -- in the same cells, on the same seeds. Two entries in one run
+need two names (D71), which is why `centralized_ekf_walk` carries the $\gamma=1$ arm
+here: the builder pins it there, leaving the `gamma` name free for the twin.
+
+The pairing must be a re-run at the reporting seed count, never the tuning grid's
+own cell (D83): a grid's minimum is a *selection*, and quoting it against an
+unselected arm overstates the gap by the winner's curse. Both arms are **reference
+lines, not methods** -- D77's floor rule applies and they are not ranked against the
+baselines.
+
 ``--smoke`` runs a short horizon at one seed with placeholder settings. It proves
 the path end to end -- every learner builds, the regression scoring and the
 predictive calibration produce rows, nothing runs out of memory -- and its numbers
@@ -43,9 +60,18 @@ from dekf_bench.utils.config import load_config  # noqa: E402
 
 CONDITIONS = {"stationary": "m_stationary", "linear": "m_linear", "abrupt": "m_abrupt"}
 
-#: Mean-only filters and every gradient baseline share a cell.
-GROUP_A_FILTERS = ["centralized_ekf_gamma", "diffusion_ekf",
+#: Mean-only filters and every gradient baseline share a cell. `centralized_ekf_walk`
+#: rather than `centralized_ekf_gamma` for the gamma = 1 arm: the walk is what the
+#: name asserts and the builder pins it, which leaves `centralized_ekf_gamma` free to
+#: carry the shrinking transition beside it -- the pairing D71 exists for.
+GROUP_A_FILTERS = ["centralized_ekf_walk", "diffusion_ekf",
                    "diffusion_ekf_onehop_mean_receiver"]
+#: The shrinking-transition twins, carried at GAMMA_REFERENCE. Reference lines, not
+#: methods (P5.24): they answer "is gamma = 1 right for this task?" inside the
+#: comparison rather than only in the tuning grid, and D77's floor rule applies.
+GAMMA_REFERENCE = 0.9995
+GAMMA_ARMS = {"centralized_ekf_gamma": "centralised",
+              "diffusion_ekf_onehop_mean_receiver_gamma": "diffusion"}
 #: Full sharing gets its own cell (see the module docstring).
 GROUP_B_FILTERS = ["diffusion_ekf_full", "diffusion_ekf_onehop_receiver"]
 
@@ -92,8 +118,16 @@ def load_settings(smoke: bool):
 def entries(group: str, condition: str, centralised, diffusion, rates) -> list[dict]:
     if group == "b":
         return [{"name": n, **diffusion, "combine_exponent": 1.0} for n in GROUP_B_FILTERS]
-    learners = [{"name": "centralized_ekf_gamma", **centralised}]
+    # Named explicitly rather than by position in GROUP_A_FILTERS: an earlier version
+    # gave element 0 the centralised settings and the rest the diffusion ones, which
+    # would silently mis-assign the moment a second centralised arm was added.
+    settings = {"centralised": centralised, "diffusion": diffusion}
+    learners = [{"name": "centralized_ekf_walk", **centralised}]
     learners += [{"name": n, **diffusion} for n in GROUP_A_FILTERS[1:]]
+    # The shrinking-transition twins: the same tuned settings, gamma alone changed,
+    # so the difference is attributable to gamma and nothing else.
+    learners += [{"name": name, **settings[which], "gamma": GAMMA_REFERENCE}
+                 for name, which in GAMMA_ARMS.items()]
     learners += [{"name": n, "lr": rates[condition][n], **o} for n, o in SGD_FAMILY.items()
                  if n in rates[condition]]
     learners += [{"name": n, "lr": rates[condition][n], **o} for n, o in ADAMW_FAMILY.items()
@@ -166,11 +200,13 @@ def main(argv: list[str] | None = None) -> int:
 
 def report(smoke: bool = False) -> None:
     suffix = "_smoke" if smoke else ""
-    every = [*GROUP_A_FILTERS, *GROUP_B_FILTERS, *SGD_FAMILY, *ADAMW_FAMILY]
+    every = [*GROUP_A_FILTERS, *GAMMA_ARMS, *GROUP_B_FILTERS, *SGD_FAMILY, *ADAMW_FAMILY]
     print("  settled RMSE on the held-out current set")
-    print(f"    {'learner':<34}" + "".join(f"{c:>13}" for c in CONDITIONS))
+    # 44, not 34: `diffusion_ekf_onehop_mean_receiver_gamma` is 40 characters and
+    # overran the old width, pushing its row's numbers out of alignment.
+    print(f"    {'learner':<44}" + "".join(f"{c:>13}" for c in CONDITIONS))
     for learner in every:
-        row = f"    {learner:<34}"
+        row = f"    {learner:<44}"
         for condition in CONDITIONS:
             values = [settled(cell_name(condition, g) + suffix, learner) for g in ("a", "b")]
             values = [v for v in values if v != float("inf")]

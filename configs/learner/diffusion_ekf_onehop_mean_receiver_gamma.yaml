@@ -1,0 +1,42 @@
+# The carried variant's shrinking-transition twin: identical in every respect
+# except gamma, which contracts here rather than being pinned at 1.
+#
+# **A reference line, not a method** (plan item P5.24). Every filter number the
+# paper reports sits at an argmin someone spent GPU-hours finding, and a reader
+# has no way to tell whether the method is good or the tuning is. M5 selected
+# gamma = 1 on a grid where gamma = 0.9995 scored 0.1562 against 0.1458 -- but a
+# tuning grid's own cells are a *selection*, not a measurement (D83), and the
+# losing arm there was unbiased while the winner carried winner's curse. Carrying
+# both at the reporting seed count, in the same cells on the same seeds, is the
+# only way to quote what gamma costs on this task honestly.
+#
+# D77's floor rule applies to it as to anything else: it is not ranked against
+# the baselines as though it were a competing method.
+#
+# Why this is worth an arm at all. gamma acts on the *mean*, not the covariance
+# (D26): P <- gamma^2 P + Q contracts, so gamma < 1 is L2 weight decay written in
+# state-space form, and over 1500 steps at 0.9995 it multiplies the parameter
+# norm by roughly 0.47. On the image task X23 chose gamma = 0.9995 *at
+# q = 6e-4*, and M5's grid reproduces that interaction -- gamma < 1 wins at high
+# q, gamma = 1 at low -- so the two tasks agree about the surface and differ only
+# in where their optimum sits on it. A reviewer who knows X23 will ask why
+# Mackey-Glass uses gamma = 1; this arm answers inside the comparison rather than
+# in a design note.
+#
+# Settings copied from diffusion_ekf_onehop_mean_receiver so that a difference
+# between the two is attributable to gamma and to nothing else. M6 overwrites the
+# tuned fields from m5_selection.json and sets gamma from GAMMA_REFERENCE; the
+# value below is what the name asserts when the file is used directly.
+name: diffusion_ekf_onehop_mean_receiver_gamma
+
+adapt_scope: one_hop             # M_v = N^c_v union {v}
+covariance_sharing: local        # P_v <- P^psi_v
+linearization_point: receiver    # every batch at theta_v^-
+
+transition: scalar               # required: F_t = gamma*I, and the name agrees
+gamma: 0.9995                    # the shrinking transition -- what this name asserts
+forgetting: process_noise
+process_noise_q: 1.0e-5
+lambda_forget: 1.0               # must stay 1: two inflation mechanisms at once
+                                 # make neither hyperparameter interpretable
+prior_scale: 0.01
