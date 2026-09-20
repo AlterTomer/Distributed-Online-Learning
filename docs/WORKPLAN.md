@@ -53,13 +53,13 @@ Q5 is the point of the whole exercise. Q1–Q4 exist to build an instrument that
 
 ## 3. The learning methods
 
-All agents share one parameter vector $\bm\theta\in\mathbb R^p$ and one architecture. Every method is expressed as an **adapt** step (use local data) followed by a **combine** step (use neighbours), so that Diff-EKF later differs from distributed SGD *only* in the adapt step.
+All agents share one parameter vector $\boldsymbol\theta\in\mathbb R^p$ and one architecture. Every method is expressed as an **adapt** step (use local data) followed by a **combine** step (use neighbours), so that Diff-EKF later differs from distributed SGD *only* in the adapt step.
 
 ### 3.1 Centralized online SGD (upper reference)
 
 A single logical learner sees the pooled batch $\mathcal D_t=\bigcup_v\mathcal D_t^v$ at every step and takes one optimizer step:
 
-$$\bm\theta_t=\bm\theta_{t-1}-\eta\,\nabla L(\bm\theta_{t-1};\mathcal D_t)$$
+$$\boldsymbol\theta_t=\boldsymbol\theta_{t-1}-\eta\,\nabla L(\boldsymbol\theta_{t-1};\mathcal D_t)$$
 
 This is the upper reference *for the online setting*. It is not the same thing as the offline reference classifier of §5.1, which sees the whole dataset many times.
 
@@ -67,14 +67,14 @@ This is the upper reference *for the online setting*. It is not the same thing a
 
 **Primary: adapt-then-combine (ATC) diffusion.**
 
-$$\bm\psi_t^{v}=\bm\theta_{t-1}^{v}-\eta\,\nabla L\!\left(\bm\theta_{t-1}^{v};\mathcal D_t^{v}\right),\qquad
-\bm\theta_t^{v}=\sum_{j\in\mathcal N_v\cup\{v\}}a_{vj}\,\bm\psi_t^{j},\qquad \sum_j a_{vj}=1$$
+$$\boldsymbol\psi_t^{v}=\boldsymbol\theta_{t-1}^{v}-\eta\,\nabla L\!\left(\boldsymbol\theta_{t-1}^{v};\mathcal D_t^{v}\right),\qquad
+\boldsymbol\theta_t^{v}=\sum_{j\in\mathcal N_v\cup\{v\}}a_{vj}\,\boldsymbol\psi_t^{j},\qquad \sum_j a_{vj}=1$$
 
 Each agent takes one gradient step on its own data, then averages the result with its one-hop neighbours. **Parameters are mixed, not gradients** — that is what drives the agents toward agreement. Communication is one $p$-vector per link per step.
 
 **Secondary: combine-then-adapt (CTA).** Olshevskyi et al. [1], their eq. (17):
 
-$$\bm\theta^i(t+1)=\sum_{j\in\mathcal N^{+}(i)}\bm W_{ij}\,\bm\theta^j(t)\;-\;\alpha_t\, f\!\left(\bigl\{\widehat{\nabla J_i(\bm\theta)}(b)\bigr\}_{b=1}^{B}\right)$$
+$$\boldsymbol\theta^i(t+1)=\sum_{j\in\mathcal N^{+}(i)}\boldsymbol W_{ij}\,\boldsymbol\theta^j(t)\;-\;\alpha_t\, f\!\left(\bigl\{\widehat{\nabla J_i(\boldsymbol\theta)}(b)\bigr\}_{b=1}^{B}\right)$$
 
 with Metropolis–Hastings weights, where the gradient is evaluated at the *pre-combine* parameters. This is the Nedić–Ozdaglar consensus-plus-local-gradient form [2].
 
@@ -163,11 +163,11 @@ $N$ agents on a fixed, connected, undirected communication graph $\mathcal G^{\m
 
 Topologies: complete, ring, path, 2-D grid, star, Erdős–Rényi, Watts–Strogatz, plus disconnected as a negative control.
 
-The relevant scalar summary is the **spectral gap** $1-\rho$, with $\rho=\|\bm A-\tfrac1N\mathbf 1\mathbf 1^{\mathsf T}\|_2$. It is the natural x-axis for Q1: the complete graph has $\rho=0$ and should reproduce centralized behaviour, while a path has $\rho$ near 1 and should be the worst case.
+The relevant scalar summary is the **spectral gap** $1-\rho$, with $\rho=\|\boldsymbol A-\tfrac1N\mathbf 1\mathbf 1^{\mathsf T}\|_2$. It is the natural x-axis for Q1: the complete graph has $\rho=0$ and should reproduce centralized behaviour, while a path has $\rho$ near 1 and should be the worst case.
 
-**This definition requires $\bm A$ to be doubly stochastic, and that condition is load-bearing.** The term $\tfrac1N\mathbf1\mathbf1^{\mathsf T}$ is the projector onto the consensus direction only when $\mathbf 1$ is a *left* eigenvector of $\bm A$ as well as a right one. Metropolis weights satisfy this; relative-degree and uniform weights do so only on a **regular** graph. Off that case $\rho>1$ and the "gap" comes out negative — on a 10-agent star with relative-degree weights it is $-1.56$, while the star in fact mixes faster than a ring because the hub aggregates the network in one hop. The quantity is then wrong in sign and in ranking, not merely imprecise.
+**This definition requires $\boldsymbol A$ to be doubly stochastic, and that condition is load-bearing.** The term $\tfrac1N\mathbf1\mathbf1^{\mathsf T}$ is the projector onto the consensus direction only when $\mathbf 1$ is a *left* eigenvector of $\boldsymbol A$ as well as a right one. Metropolis weights satisfy this; relative-degree and uniform weights do so only on a **regular** graph. Off that case $\rho>1$ and the "gap" comes out negative — on a 10-agent star with relative-degree weights it is $-1.56$, while the star in fact mixes faster than a ring because the hub aggregates the network in one hop. The quantity is then wrong in sign and in ranking, not merely imprecise.
 
-The benchmark therefore reports two numbers. The **spectral gap** above is used wherever it is defined, which includes all of X3 since that sweep uses Metropolis weights. The **mixing gap** $1-\mathrm{SLEM}$, where SLEM is the second-largest eigenvalue modulus of $\bm A$, is valid for any row-stochastic matrix and coincides with the spectral gap whenever both exist. `env/graph.py` raises rather than returning the undefined value, so a non-Metropolis sweep fails loudly instead of producing a plausible figure.
+The benchmark therefore reports two numbers. The **spectral gap** above is used wherever it is defined, which includes all of X3 since that sweep uses Metropolis weights. The **mixing gap** $1-\mathrm{SLEM}$, where SLEM is the second-largest eigenvalue modulus of $\boldsymbol A$, is valid for any row-stochastic matrix and coincides with the spectral gap whenever both exist. `env/graph.py` raises rather than returning the undefined value, so a non-Metropolis sweep fails loudly instead of producing a plausible figure.
 
 A second graph $\mathcal G^{\mathrm d}$ (data coupling, over which a predictor's forward pass would exchange information) is **empty for this phase**. MNIST with an MLP is Class L in the research note's terms: every agent's forward pass is purely local. $\mathcal G^{\mathrm d}$ becomes non-trivial only when the project moves to GNNs.
 
@@ -228,7 +228,7 @@ Two further schedules answer questions linear drift cannot:
 - **piecewise** — abrupt jumps at known times. An abrupt change makes the *adaptation transient* measurable, which is the cleanest possible test of tracking (Q3). Jump size is $15°$, well inside the well-posed range.
 - **sinusoidal** — the distribution returns to previously seen states, exposing forgetting. Amplitude $\pm30°$, so that the extremes are still comfortably inside the cap and the return to a previously seen state is a genuine return rather than a wrap-around.
 
-**Global vs per-node drift.** Start global: all agents rotate identically, so a single shared model remains the correct object. Per-node drift — agents rotating at different rates — is harder and more interesting, and is where a single shared $\bm\theta$ starts to be the wrong assumption and the hierarchical shared/local extension becomes motivated. Keep it configurable; default global.
+**Global vs per-node drift.** Start global: all agents rotate identically, so a single shared model remains the correct object. Per-node drift — agents rotating at different rates — is harder and more interesting, and is where a single shared $\boldsymbol\theta$ starts to be the wrong assumption and the hierarchical shared/local extension becomes motivated. Keep it configurable; default global.
 
 ### 4.4 Data partition
 
@@ -236,7 +236,7 @@ IID across agents by default, so drift is the only source of non-stationarity an
 
 ### 4.5 Shared initialization
 
-All agents start from the *same* $\bm\theta_0$. Diff-EKF requires a common prior — independently initialized agents do not represent the same Bayesian model — and for SGD it removes a confound from the comparison. One seed, broadcast.
+All agents start from the *same* $\boldsymbol\theta_0$. Diff-EKF requires a common prior — independently initialized agents do not represent the same Bayesian model — and for SGD it removes a confound from the comparison. One seed, broadcast.
 
 ### 4.6 Input representation and the parameter budget
 
@@ -266,7 +266,7 @@ Each run reports whether the selected epoch was inside the budget. At a 20-epoch
 
 Two further choices are configurable rather than fixed, so the comparison can be measured (`design_notes.md` D33):
 
-- **How the per-rotation models relate.** `shared_seed` (default) trains each level independently from a common $\bm\theta_0$; `independent_seeds` uses a different $\bm\theta_0$ per level; `warm_start` initialises each level from the previous, which is ~3× cheaper but makes $e^\star(45°)$ depend on having passed through $40°$.
+- **How the per-rotation models relate.** `shared_seed` (default) trains each level independently from a common $\boldsymbol\theta_0$; `independent_seeds` uses a different $\boldsymbol\theta_0$ per level; `warm_start` initialises each level from the previous, which is ~3× cheaper but makes $e^\star(45°)$ depend on having passed through $40°$.
 - **The train/validation split**, via `reference.validation_size`, and the epoch budget via `reference.epochs`.
 
 Under drift it must be recomputed per rotation level, otherwise the measured gap conflates *decentralization cost* with *drift cost*.
@@ -292,8 +292,8 @@ reported against $e^\star$. The **headline number is the gap** $\bar e_t-e^\star
 **Also reported, because they are cheap and diagnose failures the mean hides:**
 
 - **Spread across agents:** $\max_v e_{v,t}-\min_v e_{v,t}$, and the standard deviation. Good mean with terrible spread is not a working method.
-- **Parameter disagreement:** $\frac1N\sum_v\|\bm\theta^v_t-\bar{\bm\theta}_t\|^2$. This is $E_{\text{agree}}$ from the research note and is the direct check on whether the combine step is doing its job.
-- **Deviation from the centralized learner:** $E_{\text{cent}}(t)=\frac1N\sum_v\|\bm\theta^v_t-\bm\theta^{\mathrm C}_t\|^2$, where $\bm\theta^{\mathrm C}_t$ is the centralized run *on the same stream*. This is $E_{\text{cent}}$ of the research note §7.3, and it is the phase-1 analogue of the quantity the Diff-EKF will be judged on. It is only well defined if both learners see an identical stream, which is why §6.1 runs them together in one process rather than matching them by seed.
+- **Parameter disagreement:** $\frac1N\sum_v\|\boldsymbol\theta^v_t-\bar{\boldsymbol\theta}_t\|^2$. This is $E_{\text{agree}}$ from the research note and is the direct check on whether the combine step is doing its job.
+- **Deviation from the centralized learner:** $E_{\text{cent}}(t)=\frac1N\sum_v\|\boldsymbol\theta^v_t-\boldsymbol\theta^{\mathrm C}_t\|^2$, where $\boldsymbol\theta^{\mathrm C}_t$ is the centralized run *on the same stream*. This is $E_{\text{cent}}$ of the research note §7.3, and it is the phase-1 analogue of the quantity the Diff-EKF will be judged on. It is only well defined if both learners see an identical stream, which is why §6.1 runs them together in one process rather than matching them by seed.
 - **Communication:** cumulative scalars transmitted and rounds of exchange. Every curve is plotted against this as well as against $t$ — a method that sends more per step wins any per-step plot for uninteresting reasons.
 - **Adaptation transient** (drift runs): steps to return within $\epsilon$ of the pre-shift gap after an abrupt change.
 
@@ -377,17 +377,17 @@ These are what make a result trustworthy, and they come before any experiment is
 
 On a **complete** graph with uniform weights $a_{vu}=1/N$ and plain SGD, ATC diffusion is algebraically identical to centralized SGD on the pooled batch:
 
-$$\sum_v \tfrac1N\Bigl(\bm\theta_{t-1}-\eta\nabla L(\bm\theta_{t-1};\mathcal D^v_t)\Bigr)
-=\bm\theta_{t-1}-\eta\,\tfrac1N\sum_v\nabla L(\bm\theta_{t-1};\mathcal D^v_t)$$
+$$\sum_v \tfrac1N\Bigl(\boldsymbol\theta_{t-1}-\eta\nabla L(\boldsymbol\theta_{t-1};\mathcal D^v_t)\Bigr)
+=\boldsymbol\theta_{t-1}-\eta\,\tfrac1N\sum_v\nabla L(\boldsymbol\theta_{t-1};\mathcal D^v_t)$$
 
-given a common $\bm\theta_{t-1}$. In float64 the two runs must agree to about $10^{-12}$.
+given a common $\boldsymbol\theta_{t-1}$. In float64 the two runs must agree to about $10^{-12}$.
 
 **The identity has preconditions, and they must be pinned in the X0 config rather than left to chance.** The right-hand side is the centralized step only if the pooled gradient equals the average of the per-agent gradients, and that requires:
 
 - **equal batch sizes across agents** — the average of per-agent means equals the pooled mean only when every $|\mathcal D^v_t|$ is the same, so $\pi_{\text{lab}}=1$ and uniform $n$ are mandatory, not defaults;
 - **`mean` loss reduction at every agent**, with the centralized learner reducing over all $Nn$ pooled samples;
 - **plain SGD**, no momentum and no weight decay — any optimizer state makes the two trajectories diverge legitimately;
-- **a common $\bm\theta_{t-1}$**, which holds at $t=0$ by shared initialization and is then preserved inductively by the identity itself.
+- **a common $\boldsymbol\theta_{t-1}$**, which holds at $t=0$ by shared initialization and is then preserved inductively by the identity itself.
 
 Violating the first of these produces a small, plausible, non-zero residual rather than an obvious failure, which is precisely the failure mode the test exists to catch.
 
@@ -427,7 +427,7 @@ Effort figures assume one person working part-time; treat them as relative sizes
 |---|---|---|
 | Sparse arrival makes online SGD too noisy to learn | X1 shows nothing | Sweep $n$ early in phase 3, not phase 4; consider a small local replay buffer as an option |
 | MLP too large for a phase-5 dense covariance | Phase 5 stalls or needs a different model | **Resolved (§4.6):** $14\times14$ inputs, $196$–$14$–$10$ MLP, $p=2908$, carried through all phases |
-| Drift too fast relative to learning | Every method fails, no signal | **Resolved (§4.3):** total rotation capped at $45°$, $\alpha$ derived from $T$. Still confirm in a short pilot that reference-at-$t$ accuracy stays high while a frozen $\bm\theta_0$ degrades measurably |
+| Drift too fast relative to learning | Every method fails, no signal | **Resolved (§4.3):** total rotation capped at $45°$, $\alpha$ derived from $T$. Still confirm in a short pilot that reference-at-$t$ accuracy stays high while a frozen $\boldsymbol\theta_0$ degrades measurably |
 | Horizon silently exceeds the shard budget | Samples reused without `allow_epochs`; "exactly once" violated | $NnT\le60000$ asserted in `test_stream`; defaults chosen to satisfy it with margin (§4.2) |
 | Evaluation-set mismatch under drift | Silently wrong conclusions | Three-eval-set design (§5.3) plus an explicit test |
 | Adaptive-optimizer state diverges across agents | Distributed runs look worse than they are | Resolved: mix the moments (§3.4). Plain SGD for X0 |

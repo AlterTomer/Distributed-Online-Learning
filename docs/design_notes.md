@@ -277,7 +277,7 @@ and its diagonal is **zero**; `Graph.weights` is $a_{vu}$ and its diagonal is
 
 **Why.** An agent does not send itself a message, but it certainly keeps its own
 estimate — it just computed that estimate from its own data. Conflating the two
-gives two distinct failures. A zero diagonal in $\bm A$ makes an agent discard
+gives two distinct failures. A zero diagonal in $\boldsymbol A$ makes an agent discard
 the update it just produced. A non-zero diagonal in the adjacency bills the
 communication ledger for $N$ vectors per step that nobody transmitted, which
 inflates the denominator of every accuracy-versus-communication plot — the
@@ -298,13 +298,13 @@ diagonal. `_ring` now falls back to `path_graph` below three nodes.
 ### 🔄 D16. The spec's spectral gap is undefined for non-doubly-stochastic weights
 
 **Decision.** `spectral_gap` implements `WORKPLAN.md` §4.1's
-$1 - \lVert\bm A - \tfrac1N\mathbf1\mathbf1^{\mathsf T}\rVert_2$ but **raises**
+$1 - \lVert\boldsymbol A - \tfrac1N\mathbf1\mathbf1^{\mathsf T}\rVert_2$ but **raises**
 unless the weights are doubly stochastic. A new `mixing_gap` $= 1 - \text{SLEM}$
 is always defined and equals the spectral gap whenever both are.
 
 **Why.** The $\tfrac1N\mathbf1\mathbf1^{\mathsf T}$ term is the projector onto
 the consensus direction only when the all-ones vector is a *left* eigenvector as
-well as a right one — that is, only for doubly stochastic $\bm A$. Metropolis
+well as a right one — that is, only for doubly stochastic $\boldsymbol A$. Metropolis
 weights are; relative-degree and uniform weights are doubly stochastic only on a
 *regular* graph. Off that case the norm exceeds 1 and the formula returns a
 negative number:
@@ -336,7 +336,7 @@ stochasticity condition. It has been amended.
 ### ✅ D17. Dirichlet skew holds shard *sizes* equal and skews only composition
 
 **Decision.** `balance_sizes=True` by default. Each agent draws a class
-preference $\bm q_v \sim \mathrm{Dir}(\beta\bm 1_K)$ and is then filled to
+preference $\boldsymbol q_v \sim \mathrm{Dir}(\beta\boldsymbol 1_K)$ and is then filled to
 exactly $60000/N$ samples, taking as much of each class as its preference asks
 for and the pool can supply.
 
@@ -506,7 +506,7 @@ shard entries consumed, and its offset does not advance.
 
 *No learner here can use an unlabelled sample.* Every method in the project is
 fully supervised, and the Diff-EKF adapt step needs an innovation
-$\bm\nu = \bm y - \bm\mu$; with no $\bm y$ there is no measurement, and
+$\boldsymbol\nu = \boldsymbol y - \boldsymbol\mu$; with no $\boldsymbol y$ there is no measurement, and
 Algorithm 1 line 8 passes the prediction through unchanged. So the sample is
 discarded on arrival — and since shards are disjoint and finite, consuming it
 destroys it permanently. At $\pi_{\text{lab}} = 0.25$ that is 4 500 of each
@@ -584,24 +584,24 @@ from a previous seed.
 
 ## 2026-08-02 — Phase 2, the state model
 
-### ✅ D26. $\bm F$ and the forgetting rule are two axes, and both are selectable
+### ✅ D26. $\boldsymbol F$ and the forgetting rule are two axes, and both are selectable
 
 **Decision.** The phase-5 state model exposes two independent choices:
 
 | Field | Values | Acts on |
 |---|---|---|
-| `transition` | `identity`, `scalar` ($\bm F_t = \gamma\bm I$) | the **mean** |
-| `forgetting` | `lambda` ($\bm P \mathbin{{*}{=}} \lambda^{-1}$), `process_noise` ($\bm P \mathbin{{+}{=}} \bm Q$) | the **covariance** |
+| `transition` | `identity`, `scalar` ($\boldsymbol F_t = \gamma\boldsymbol I$) | the **mean** |
+| `forgetting` | `lambda` ($\boldsymbol P \mathbin{{*}{=}} \lambda^{-1}$), `process_noise` ($\boldsymbol P \mathbin{{+}{=}} \boldsymbol Q$) | the **covariance** |
 
 Defaults `identity` + `lambda`. All four combinations are legal, so which state
 model performs better is measured rather than assumed.
 
 **The conflation this exists to prevent.** $\gamma$ is routinely called a
 "forgetting factor", but propagating the moments gives
-$\bm P_{t|t-1} = \gamma^2\bm P_{t-1|t-1} + \bm Q_t$ — and $\gamma^2 \le 1$
+$\boldsymbol P_{t|t-1} = \gamma^2\boldsymbol P_{t-1|t-1} + \boldsymbol Q_t$ — and $\gamma^2 \le 1$
 **contracts** the covariance. Forgetting means *loosening* the prior so a new
 sample counts for relatively more, so $\gamma$ works against it. What $\gamma$
-actually does is $\bm m_{t|t-1} = \gamma\bm m_{t-1|t-1}$: it pulls the estimate
+actually does is $\boldsymbol m_{t|t-1} = \gamma\boldsymbol m_{t-1|t-1}$: it pulls the estimate
 toward the origin, which is $L_2$ weight decay written in state space. The two
 knobs are orthogonal and were treated as one in the first config draft.
 
@@ -613,21 +613,21 @@ also argues from ReLU positive-rescaling and LayerNorm scale invariance; that
 argument is weak *here*, since we use GELU and no normalization layers, and it is
 recorded as not load-bearing for us.) `scalar` remains available because $\gamma$
 does buy something real: it makes the state a mean-reverting AR(1) with a proper
-stationary prior $\tfrac{q}{1-\gamma^2}\bm I$, where a random walk's prior
+stationary prior $\tfrac{q}{1-\gamma^2}\boldsymbol I$, where a random walk's prior
 variance grows without bound.
 
-**Why `lambda` is the default.** With $\bm F=\bm I$, multiplicative inflation in
-the information domain is $\bm\Omega_{t|t-1} = \lambda\bm\Omega_{t-1|t-1}$ —
-*exactly* structure-preserving, where $(\bm\Omega^{-1}+\bm Q)^{-1}$ is dense even
-for diagonal $\bm Q$. That is decisive once the covariance is structured.
+**Why `lambda` is the default.** With $\boldsymbol F=\boldsymbol I$, multiplicative inflation in
+the information domain is $\boldsymbol\Omega_{t|t-1} = \lambda\boldsymbol\Omega_{t-1|t-1}$ —
+*exactly* structure-preserving, where $(\boldsymbol\Omega^{-1}+\boldsymbol Q)^{-1}$ is dense even
+for diagonal $\boldsymbol Q$. That is decisive once the covariance is structured.
 
 **Why `process_noise` is nonetheless offered.** The objection above is stated in
-the *information* domain. While the covariance is carried as a dense $\bm P$ —
+the *information* domain. While the covariance is carried as a dense $\boldsymbol P$ —
 which is the whole of phase 5 at $p = 2908$ — both rules are one line and the
-same cost, since the measurement update goes through Woodbury either way. $\bm Q$
+same cost, since the measurement update goes through Woodbury either way. $\boldsymbol Q$
 also buys anisotropy a scalar $\lambda$ cannot express ("the read-out drifts, the
 feature extractor does not"). The cost only appears if the project later adopts
-the (S4) diagonal-plus-low-rank structure, which is defined on $\bm P^{-1}$.
+the (S4) diagonal-plus-low-rank structure, which is defined on $\boldsymbol P^{-1}$.
 
 ### 🔄 D27. `lambda_forget` default 0.9999 → 0.997
 
@@ -654,7 +654,7 @@ degrees:
 better but inflates *unexcited* directions harder — in an unexcited direction
 nothing balances $\lambda^{-t}$. There is such a direction here: adding a
 constant to every output bias shifts all logits equally, which softmax cannot
-see. It is the $\bm\Lambda\mathbf 1 = \bm 0$ null direction reappearing in
+see. It is the $\boldsymbol\Lambda\mathbf 1 = \boldsymbol 0$ null direction reappearing in
 parameter space, and its variance grows ~90× over a run at $\lambda = 0.997$.
 
 The right *scaling* is $W \propto T$, since $\alpha = \text{total}/T$ — the same
@@ -663,8 +663,8 @@ against tracking error in X2 first (WORKPLAN §9 calibrates $\alpha$ the same
 way), and building the machinery before knowing whether it matters would be
 speculative.
 
-**Diagnostics this obliges.** Record $\operatorname{cond}(\bm P)$ and
-$\lambda_{\min}(\bm\Omega)$ from the first filter run: null-direction growth is
+**Diagnostics this obliges.** Record $\mathrm{cond}(\boldsymbol P)$ and
+$\lambda_{\min}(\boldsymbol\Omega)$ from the first filter run: null-direction growth is
 the failure mode this choice risks, and it is invisible to the innovation-based
 checks, which only probe directions the data excites.
 
@@ -679,8 +679,8 @@ transmits, including optimizer state. X1 runs **two** ATC variants:
 $p$-vector per link per step". That is true of the payload-matched variant. But §3.4 makes the
 primary configuration for X1–X6 *SGD with momentum, momentum also mixed* — and a
 neighbour cannot mix a momentum buffer it was never sent. The primary baseline
-therefore broadcasts $(\bm\psi, \bm m) = 2p$, while Diff-EKF broadcasts
-$\bm\psi$ alone.
+therefore broadcasts $(\boldsymbol\psi, \boldsymbol m) = 2p$, while Diff-EKF broadcasts
+$\boldsymbol\psi$ alone.
 
 Measured at $N{=}10$, ring, $p{=}2908$:
 
@@ -724,13 +724,13 @@ fusion centre are. Better to have that in the ledger than to be asked about it.
 **Guarded by.** `test_pooling_is_cheaper_than_ring_diffusion`,
 `test_centralized_is_not_on_the_communication_axis`.
 
-### ✅ D31. $E_{\text{cent}}$ shares $\bm\theta_0$ and runs its own trajectory
+### ✅ D31. $E_{\text{cent}}$ shares $\boldsymbol\theta_0$ and runs its own trajectory
 
 **Decision.** The centralized reference for $E_{\text{cent}}$ starts from the
-*same* $\bm\theta_0$ as the agents and runs its own trajectory from $t=0$.
+*same* $\boldsymbol\theta_0$ as the agents and runs its own trajectory from $t=0$.
 
 **Why.** The research note asks for an "independently initialised" centralized
-run. Read literally — a different $\bm\theta_0$ — the metric acquires an
+run. Read literally — a different $\boldsymbol\theta_0$ — the metric acquires an
 irreducible floor that never vanishes even for a perfect method, and there is no
 value of $E_{\text{cent}}$ meaning "these coincide". Reading it as *runs its own
 trajectory rather than being re-anchored to the agents each step* gives
@@ -738,7 +738,7 @@ $E_{\text{cent}}(0) = 0$ exactly, so the metric measures algorithmic divergence
 alone. It is also what `WORKPLAN.md` §4.5 mandates for every learner in a run.
 
 **Also decided.** $E_{\text{agree}}$ and $E_{\text{cent}}$ are logged
-**unnormalised**, with $\lVert\bar{\bm\theta}_t\rVert^2$ alongside, so any
+**unnormalised**, with $\lVert\bar{\boldsymbol\theta}_t\rVert^2$ alongside, so any
 normalisation — per-parameter, or relative to the mean's own size — is derivable
 at plot time without a re-run. `max_pairwise_distance` is logged too, since
 $E_{\text{agree}}$ is a mean and can stay small while one agent drifts far off.
@@ -797,7 +797,7 @@ separates them.
 Each combination caches to its own file.
 
 **Why all three.** They differ in what $e^\star(\varphi)$ *means*.
-`shared_seed` trains each level independently from a common $\bm\theta_0$, so
+`shared_seed` trains each level independently from a common $\boldsymbol\theta_0$, so
 $e^\star$ is genuinely "best achievable at this rotation" while the curve stays
 smooth in $\varphi$. `independent_seeds` is honest about run-to-run variance but
 puts jitter into the subtrahend of the headline gap. `warm_start` is ~3× cheaper
@@ -889,15 +889,15 @@ It breaks for AdamW. Measured, 30 steps, complete graph, float64:
 | AdamW | all | 5.24 | **breaks** |
 
 **Why.** Averaging commutes with *linear* maps. Heavy-ball is linear in the
-gradients — $\bm m \leftarrow \beta\bm m + \bm g$, $\bm\theta \leftarrow
-\bm\theta - \eta\bm m$ — so
+gradients — $\boldsymbol m \leftarrow \beta\boldsymbol m + \boldsymbol g$, $\boldsymbol\theta \leftarrow
+\boldsymbol\theta - \eta\boldsymbol m$ — so
 
-$$\tfrac1N\textstyle\sum_v \bm m_v = \beta\,\tfrac1N\sum_v \bm m_v^{\text{old}} + \tfrac1N\sum_v \bm g_v$$
+$$\tfrac1N\textstyle\sum_v \boldsymbol m_v = \beta\,\tfrac1N\sum_v \boldsymbol m_v^{\text{old}} + \tfrac1N\sum_v \boldsymbol g_v$$
 
 is exactly the centralized momentum recursion. On a complete graph every agent
 evaluates its gradient at the same point, so the *average* trajectory matches
 centralized whether or not the buffers are exchanged. Adam's second moment
-carries $\bm g^2$, which is not linear, and the identity fails immediately.
+carries $\boldsymbol g^2$, which is not linear, and the identity fails immediately.
 
 **Three consequences.**
 
@@ -925,15 +925,15 @@ The unmixed row also stopped being constructible when D36 added the guard, and i
 now reproduced by relaxing the field after validation.
 
 **Note the limit of the result.** This holds on a *complete* graph, where every
-agent linearises at the same $\bm\theta$. It says nothing about a ring, where
+agent linearises at the same $\boldsymbol\theta$. It says nothing about a ring, where
 the agents differ and $\nabla L_v$ is evaluated at different points — and
 nothing about the D-Adam divergence the plan cites, which is an
 adaptive-optimizer phenomenon over many steps on a sparse graph.
 
 ### ✅ D36. Momentum mixing treats the whole learner state as one object
 
-**Decision.** `mix_optimizer_state: momentum` averages $\bm m$ with the *same*
-weights as $\bm\theta$, in one exchange of $(\bm\psi, \bm m)$ costing $2p$ per
+**Decision.** `mix_optimizer_state: momentum` averages $\boldsymbol m$ with the *same*
+weights as $\boldsymbol\theta$, in one exchange of $(\boldsymbol\psi, \boldsymbol m)$ costing $2p$ per
 link.
 
 **Why.** Olshevskyi et al. (Fig. 2a): **D-Adam**, which mixes parameters and
@@ -944,12 +944,12 @@ open question, and the config rejects it.
 
 Structurally, mixing makes combine a single operator on the whole state:
 
-$$\begin{pmatrix}\bm\theta_v \\ \bm m_v\end{pmatrix} \leftarrow \sum_u a_{vu}\begin{pmatrix}\bm\psi_u \\ \bm m_u\end{pmatrix}$$
+$$\begin{pmatrix}\boldsymbol\theta_v \\ \boldsymbol m_v\end{pmatrix} \leftarrow \sum_u a_{vu}\begin{pmatrix}\boldsymbol\psi_u \\ \boldsymbol m_u\end{pmatrix}$$
 
-so every property established for $\bm A$ covers all of it — row-stochasticity
+so every property established for $\boldsymbol A$ covers all of it — row-stochasticity
 keeps the result inside the neighbours' convex hull, double stochasticity
-preserves the network average. Unmixed, $\bm\theta$ gets those guarantees and
-$\bm m$, the part that diverges, gets none.
+preserves the network average. Unmixed, $\boldsymbol\theta$ gets those guarantees and
+$\boldsymbol m$, the part that diverges, gets none.
 
 **What was not a reason.** An earlier draft justified this by analogy to the
 filter, which "treats its state uniformly". That is wrong: Diff-EKF's default
@@ -963,7 +963,7 @@ payload-matched baseline as well as a stronger one (D29).
 
 ### ✅ D37. The combine step reads all messages before writing any
 
-**Decision.** `_combine_states` stacks every $\bm\psi_u$, applies the weight
+**Decision.** `_combine_states` stacks every $\boldsymbol\psi_u$, applies the weight
 matrix once, and only then writes the results back.
 
 **Why.** The obvious loop — update agent 0, then agent 1, … — would let agent 1
@@ -972,7 +972,7 @@ ordering, and on a complete graph it would break the X0 identity while still
 producing a plausible curve. Stacking makes the step a genuine matrix product,
 which is also what the algebra says it is.
 
-**Related.** `init()` clones $\bm\theta_0$ per agent rather than sharing one
+**Related.** `init()` clones $\boldsymbol\theta_0$ per agent rather than sharing one
 tensor. Sharing would make the first in-place update change every agent at once,
 and the run would show perfect consensus for a reason unconnected to the combine
 step.
@@ -1052,7 +1052,7 @@ steps, varying only the optimizer:
 | 0.005 | 0.9 | 2 | 0.188 |
 | 0.05 | 0.9 | 20 | 0.188 |
 
-It is not divergence — $\|\bm\theta\|^2$ stays comparable to the other methods —
+It is not divergence — $\|\boldsymbol\theta\|^2$ stays comparable to the other methods —
 but the model settles into a near-uniform output, mean confidence 0.154 against
 a floor of 0.1. Averaging over $N=10$ agents cuts the gradient noise like a
 tenfold batch increase, which is exactly why the diffusion methods survive the
@@ -1451,7 +1451,7 @@ the model than rotation does, which makes the pair a stronger benchmark than
 either alone.
 
 **The implementation turned out to be a permutation.** The obvious design —
-sample a class per step from $\bm q_v(t)$ — would make the stream stateful, and
+sample a class per step from $\boldsymbol q_v(t)$ — would make the stream stateful, and
 `stream.py` is deliberately a *pure function of (agent, step)* so that step 900
 can be answered without walking steps 0..899. Instead the whole $(N, T, n)$
 table of classes is drawn up front, exactly as the label-availability mask
@@ -1527,7 +1527,7 @@ outcome, carried alongside `max_rate_probed` so "did not break" is interpretable
 
 *Compare across runs.* The frozen baseline rides inside the same experiment as
 the learners it is compared with, so it shares one environment and one
-$\bm\theta_0$ (D4) and the comparison is paired by construction. A missing
+$\boldsymbol\theta_0$ (D4) and the comparison is paired by construction. A missing
 baseline raises rather than falling back to a separate run.
 
 **The frozen baseline stops transmitting, not only stepping.** Averaging
@@ -1680,7 +1680,7 @@ errors differ by a factor of seven on X8: 3 s.e.m. of **0.0013** paired against
 **0.0110** unpaired. The unpaired estimate called a real −0.0070 shrinkage noise.
 
 The paired version is correct because the two runs share a seed, hence the same
-graph and the same $\bm\theta_0$; the subtraction cancels variation the unpaired
+graph and the same $\boldsymbol\theta_0$; the subtraction cancels variation the unpaired
 comparison leaves in. Both are printed, the weaker one labelled as such, because
 the size of the discrepancy is itself worth seeing.
 
@@ -1726,8 +1726,8 @@ centralised filter has one processor and one belief and sends nothing. So the
 centralised filter has only the state-model axis, and the four variants appear
 when the combine step does.
 
-**γ = 1 is not a third model.** It gives $\bm F=\bm I$ and
-$\bm P\leftarrow\bm P+\bm Q$ — the random walk — so it is the boundary of the γ
+**γ = 1 is not a third model.** It gives $\boldsymbol F=\boldsymbol I$ and
+$\boldsymbol P\leftarrow\boldsymbol P+\boldsymbol Q$ — the random walk — so it is the boundary of the γ
 grid, and `transition: identity` is already how the config expresses it. Putting
 it *in* the sweep is worth doing, because it separates the γ family's two
 effects and yields two clean comparisons: γ=1 against γ<1 isolates whether
@@ -1738,17 +1738,17 @@ That last point dissolves a concern about fairness. γ<1 needs three knobs
 (σ₀, γ, **Q**) against λ's two (σ₀, λ), but not because the comparison is
 rigged — it is asking a strictly additional question. At γ=1 the budgets match.
 
-**The γ family requires $\bm Q\succ\bm 0$**, which follows from the algebra
-rather than from taste: γ² *contracts* the covariance, so with $\bm Q=\bm 0$ the
+**The γ family requires $\boldsymbol Q\succ\boldsymbol 0$**, which follows from the algebra
+rather than from taste: γ² *contracts* the covariance, so with $\boldsymbol Q=\boldsymbol 0$ the
 filter's confidence grows monotonically and it stops learning. Only one of
-λ<1 and $\bm Q\succ\bm 0$ may be active at a time; both together are
+λ<1 and $\boldsymbol Q\succ\boldsymbol 0$ may be active at a time; both together are
 unidentifiable.
 
 ### ✅ D57. A step's samples are stacked, not applied sequentially
 
 **Decision.** The $n=4$ samples an agent receives at step $t$ enter as one
-update, $\bar{\bm H}$ of shape $(nK)\times p$ with block-diagonal
-$\bar{\bm\Lambda}$ — equation 34 applied within an agent.
+update, $\bar{\boldsymbol H}$ of shape $(nK)\times p$ with block-diagonal
+$\bar{\boldsymbol\Lambda}$ — equation 34 applied within an agent.
 
 **Why not four sequential rank-9 updates.** They are not the same operation:
 sequential updates relinearise between samples, which would give the filter four
@@ -1776,7 +1776,7 @@ which is worth more than the memory.
 
 ### ✅ D59. Woodbury is required, not an optimisation
 
-$\bm\Lambda=\operatorname{diag}(\bm\pi)-\bm\pi\bm\pi^\top$ has rank at most
+$\boldsymbol\Lambda=\mathrm{diag}(\boldsymbol\pi)-\boldsymbol\pi\boldsymbol\pi^\top$ has rank at most
 $K-1=9$, so stacked over ten agents and four samples the information increment
 has rank 360 against $p=2908$. Inverting directly is $O(p^3)\approx2.5\times
 10^{10}$ flops per step — roughly an hour of inversion per seed, before any
@@ -1788,16 +1788,16 @@ method rather than of one avoidable choice.
 
 ### ✅ D60. The mean update takes the score, not the innovation
 
-The filter's mean update is $\bm m^+ = \bm m^- + \bm P^+\sum_v\bm H_v^\top\bm s_v$
-where $\bm s = \partial\log p/\partial\bm h$. Under softmax the logits *are* the
-natural parameter, so $\bm s = \bm y-\bm\pi = \bm\nu$ and the two words name one
+The filter's mean update is $\boldsymbol m^+ = \boldsymbol m^- + \boldsymbol P^+\sum_v\boldsymbol H_v^\top\boldsymbol s_v$
+where $\boldsymbol s = \partial\log p/\partial\boldsymbol h$. Under softmax the logits *are* the
+natural parameter, so $\boldsymbol s = \boldsymbol y-\boldsymbol\pi = \boldsymbol\nu$ and the two words name one
 vector. Under a Gaussian the logits are the *mean* parameter and
-$\bm s = \bm R^{-1}(\bm y-\bm h) = \bm\nu/\sigma^2$.
+$\boldsymbol s = \boldsymbol R^{-1}(\boldsymbol y-\boldsymbol h) = \boldsymbol\nu/\sigma^2$.
 
-Using $\bm\nu$ throughout is therefore correct for every experiment X0–X6 and
+Using $\boldsymbol\nu$ throughout is therefore correct for every experiment X0–X6 and
 wrong by $\sigma^{-2}$ the moment a regression likelihood appears. Gradient
 training cannot detect the difference — a constant factor on the gradient is
-absorbed by the learning rate — but the filter can, because $\bm P$ carries
+absorbed by the learning rate — but the filter can, because $\boldsymbol P$ carries
 absolute units and has no step size to absorb it into.
 
 `score()` is now on the likelihood protocol, `innovation()` keeps its own
@@ -1813,20 +1813,20 @@ linear-Gaussian exactness test found the mean off by a factor of $\sigma^{-2}$
 on the first run, with the covariance already correct to $4\times10^{-15}$ —
 a discrepancy the categorical likelihood is structurally incapable of exposing.
 
-The two quantities are tied by $\bm\Lambda = \operatorname{Cov}(\bm s)$, which
+The two quantities are tied by $\boldsymbol\Lambda = \mathrm{Cov}(\boldsymbol s)$, which
 holds in both families and is now tested by sampling.
 
 ### ✅ D61. $\sigma_0^2$ is a trust region, and too large a value diverges
 
-The EKF mean update is a Gauss–Newton step whose trust region is $\bm P$ itself.
-At $\sigma_0^2=1$ and $p=2908$, the **first** step moves $\lVert\bm m\rVert$ by
-7.9 against $\lVert\bm\theta_0\rVert=6.1$ — more than doubling the parameter
+The EKF mean update is a Gauss–Newton step whose trust region is $\boldsymbol P$ itself.
+At $\sigma_0^2=1$ and $p=2908$, the **first** step moves $\lVert\boldsymbol m\rVert$ by
+7.9 against $\lVert\boldsymbol\theta_0\rVert=6.1$ — more than doubling the parameter
 norm in one jump. That lands far outside the region the linearisation describes,
 so the next linearisation is taken somewhere worse, and the run reaches
 $10^{113}$ by step 100 with the covariance still perfectly well conditioned
 (condition number $2.2\times10^3$). Measured on the same data at smaller priors:
 
-| $\sigma_0^2$ | first step $\lVert\Delta\bm m\rVert$ | relative to $\lVert\bm\theta_0\rVert$ | outcome |
+| $\sigma_0^2$ | first step $\lVert\Delta\boldsymbol m\rVert$ | relative to $\lVert\boldsymbol\theta_0\rVert$ | outcome |
 |---|---|---|---|
 | 1.0   | 7.91  | 1.29  | diverges by step 25 |
 | 0.1   | 1.51  | 0.25  | stable, NLL flat |
@@ -1841,7 +1841,7 @@ diverged cell is reported as diverged rather than reaching the metrics as NaN
 and averaging into a seed mean.
 
 The useful diagnostic is the **first step's relative jump**
-$\lVert\Delta\bm m\rVert/\lVert\bm\theta_0\rVert$: it is computable before
+$\lVert\Delta\boldsymbol m\rVert/\lVert\boldsymbol\theta_0\rVert$: it is computable before
 committing to a run, and it separates the stable settings from the divergent one
 cleanly at this model size.
 
@@ -1850,10 +1850,10 @@ cleanly at this model size.
 D58 committed to "float64, Joseph form, per-step symmetrisation" as the three
 numerical defences. The Joseph form does not survive contact with D59.
 
-Written the usual way it forms $\bm I-\bm K\bar{\bm B}^\top$ at $p\times p$ and
-multiplies it by $\bm P$, which is $O(p^3)$ — the cost Woodbury exists to avoid.
+Written the usual way it forms $\boldsymbol I-\boldsymbol K\bar{\boldsymbol B}^\top$ at $p\times p$ and
+multiplies it by $\boldsymbol P$, which is $O(p^3)$ — the cost Woodbury exists to avoid.
 Expanding the product keeps every term $O(p^2q')$, but the expansion telescopes
-back to $\bm P-\bm A\bm S^{-1}\bm A^\top$: the short form. The two are
+back to $\boldsymbol P-\boldsymbol A\boldsymbol S^{-1}\boldsymbol A^\top$: the short form. The two are
 algebraically the same matrix, and the Joseph form's entire value is the
 numerical behaviour of the *un-expanded* product, which is the $O(p^3)$ one.
 
@@ -1867,13 +1867,13 @@ magnitude, or been silently untrue.
 ### ✅ D63. Both predictive approximations are reported, because the gap is the finding
 
 The filter's posterior is Gaussian over logits; the metrics need a distribution
-over classes. The integral $\int\operatorname{softmax}(\bm h)\,\mathcal N(\bm h;
-\bm h(\bm m),\bm\Sigma)\,\mathrm d\bm h$ has no closed form, and two
+over classes. The integral $\int\mathrm{softmax}(\boldsymbol h)\,\mathcal N(\boldsymbol h;
+\boldsymbol h(\boldsymbol m),\boldsymbol\Sigma)\,\mathrm d\boldsymbol h$ has no closed form, and two
 approximations are standard:
 
-* **Probit**, $\operatorname{softmax}\bigl(\bm h/\sqrt{1+\tfrac\pi8\bm\sigma^2}\bigr)$
-  — free, deterministic, uses only $\operatorname{diag}\bm\Sigma$.
-* **Monte Carlo** over the full $\bm\Sigma$ — keeps the correlations the probit
+* **Probit**, $\mathrm{softmax}\bigl(\boldsymbol h/\sqrt{1+\tfrac\pi8\boldsymbol\sigma^2}\bigr)$
+  — free, deterministic, uses only $\mathrm{diag}\boldsymbol\Sigma$.
+* **Monte Carlo** over the full $\boldsymbol\Sigma$ — keeps the correlations the probit
   form discards, costs $S$ softmaxes and a sampling seed.
 
 Reporting both, rather than picking one, because the distance between them is
@@ -1896,8 +1896,8 @@ that keeps the bound honest. If the filter's calibration advantage over SGD ever
 turns out to be the same size as the row above it, that is a result about the
 approximation and not about the filter.
 
-**Sampling uses a symmetric eigendecomposition, not a Cholesky.** $\bm H\bm P\bm
-H^{\mathsf T}$ is positive semi-definite, not definite — nothing makes $\bm H$'s
+**Sampling uses a symmetric eigendecomposition, not a Cholesky.** $\boldsymbol H\boldsymbol P\boldsymbol
+H^{\mathsf T}$ is positive semi-definite, not definite — nothing makes $\boldsymbol H$'s
 rows independent — and Cholesky requires strict definiteness. Rescuing it by
 jittering the diagonal injects spread the belief does not contain, which is
 visible at an exactly-zero covariance as a prediction that is not quite the
@@ -1942,10 +1942,10 @@ $\gamma=1$ in **all four** $\sigma_0^2$ blocks (+0.0020, +0.0008, +0.0035,
 of $\gamma$ as weight decay, since shrinking the mean offsets a looser prior.
 
 **$\sigma_0^2$ is flat for the $\gamma$ family and monotone for the $\lambda$
-family**, which is mechanistic rather than incidental. $\bm P\leftarrow\bm
-P/\lambda$ is scale-preserving, so $\bm P_0$ never washes out and small is
+family**, which is mechanistic rather than incidental. $\boldsymbol P\leftarrow\boldsymbol
+P/\lambda$ is scale-preserving, so $\boldsymbol P_0$ never washes out and small is
 better (0.0694 → 0.0751 as $\sigma_0^2$ goes 0.003 → 0.1 at $\lambda=0.997$);
-additive $Q$ erases $\bm P_0$ within a few hundred steps, so it cannot matter.
+additive $Q$ erases $\boldsymbol P_0$ within a few hundred steps, so it cannot matter.
 
 **The $\lambda$ family's 0.0074 deficit is not yet a fair result.** Its optimum
 was a tie between the two *lowest* $\lambda$ tested with $\sigma_0^2$ pinned at
@@ -2135,7 +2135,7 @@ one you were not watching.
 
 **A second bug surfaced while fixing it.** `CentralizedEKF.state()` built a fresh
 `LearnerState` per call, but `recorder.resume()` restores by *mutating* the object
-`state(node)` hands back — so a resumed filter silently kept $\bm\theta_0$ while
+`state(node)` hands back — so a resumed filter silently kept $\boldsymbol\theta_0$ while
 the recorder skipped to the checkpoint step. Every arithmetic test passed, because
 the defect only exists across an interruption. The filter now holds one stable
 state object. This is the same failure as the sweep harness's poisoned-cell bug
@@ -2222,8 +2222,8 @@ The consistency argument was suggestive and the extra seeds did not confirm it �
 which is the honest outcome of having made the prediction explicitly.
 
 The $\sigma_0^2$ asymmetry **did** survive: flat for $\gamma$, real for $\lambda$,
-exactly as the mechanism predicts. $\bm P\leftarrow\bm P/\lambda$ is
-scale-preserving so $\bm P_0$ never washes out; additive $Q$ erases it.
+exactly as the mechanism predicts. $\boldsymbol P\leftarrow\boldsymbol P/\lambda$ is
+scale-preserving so $\boldsymbol P_0$ never washes out; additive $Q$ erases it.
 
 **The $\lambda$ family loses fairly now.** Given its own bracketed axes it reaches
 0.0683 against the $\gamma$ family's 0.0630 — a gap of 0.0054, down from the
@@ -2232,7 +2232,7 @@ pilot's less-well-tuned 0.0074, and still four times the threshold.
 **One divergence**: $\lambda=0.993$ at $\sigma_0^2=0.01$, seed 4, step 860. The
 grid bracketed the stability edge correctly. It also exposed a misleading error
 message — the singular-covariance path blamed `prior_scale`, which at 0.01 was
-mid-range and blameless, when the culprit was $\lambda$ inflating $\bm P$ by 0.7%
+mid-range and blameless, when the culprit was $\lambda$ inflating $\boldsymbol P$ by 0.7%
 a step for 860 steps. The message now reports the realised variance and names
 both mechanisms.
 
@@ -2278,7 +2278,7 @@ should have to carry and re-tune in deployment.
 learner names: the config refuses duplicates, loudly, which is how this was
 caught rather than by one setting silently overwriting the other in a dict keyed
 on name. `centralized_ekf_walk` is that second name, and it asserts $\gamma=1$
-exactly as `centralized_ekf_lambda` asserts $\bm F=\bm I$ — the naming convention
+exactly as `centralized_ekf_lambda` asserts $\boldsymbol F=\boldsymbol I$ — the naming convention
 of D56 applied one level down. It is **not** the same as
 `centralized_ekf_lambda` at $\lambda=1$, which also forces $Q=0$ and so cannot
 express a random walk that is actually driven.
@@ -2304,9 +2304,9 @@ So the finding is not "$\gamma$ fits slightly better". It is that multiplicative
 inflation buys **essentially no tracking advantage over SGD**, while additive
 process noise halves the damage — and that both reach the same place when there
 is nothing to track. That is a statement about the mechanism rather than about
-the tuning: $\bm P\leftarrow\bm P/\lambda$ preserves the covariance's shape,
-scaling confident and unconfident directions alike, while $\bm P\leftarrow\bm
-P+Q\bm I$ compresses toward isotropy and so re-opens precisely the directions
+the tuning: $\boldsymbol P\leftarrow\boldsymbol P/\lambda$ preserves the covariance's shape,
+scaling confident and unconfident directions alike, while $\boldsymbol P\leftarrow\boldsymbol
+P+Q\boldsymbol I$ compresses toward isotropy and so re-opens precisely the directions
 the data had pinned down. Under drift it is those directions that need to move.
 
 Worth stating carefully because it was invisible until the control ran: on
@@ -2494,16 +2494,16 @@ is pinned to 3.13 to avoid a `scipy-stubs` parse error.
 unambiguous — agent $v$ takes a gradient on its own batch, and using a
 neighbour's batch would mean shipping data, which the setting forbids. The EKF
 has a genuine second option, because its measurement update consumes
-$(\bm H, \bm R, \bm y)$ rather than raw samples, and a neighbour can send those
+$(\boldsymbol H, \boldsymbol R, \boldsymbol y)$ rather than raw samples, and a neighbour can send those
 without sending an image.
 
 **`local`.** Agent $v$ updates on its own measurement only, then combines:
 
-$$\bm\theta_v^+ = \bm\theta_v + \bm K_v(\bm y_v - h(\bm\theta_v)),
-\qquad \bm\theta_v \leftarrow \sum_u a_{uv}\bm\theta_u^+$$
+$$\boldsymbol\theta_v^+ = \boldsymbol\theta_v + \boldsymbol K_v(\boldsymbol y_v - h(\boldsymbol\theta_v)),
+\qquad \boldsymbol\theta_v \leftarrow \sum_u a_{uv}\boldsymbol\theta_u^+$$
 
 **`one_hop`.** Agent $v$ additionally assimilates its neighbours' measurements,
-stacking $\{(\bm H_u, \bm R_u, \bm y_u)\}_{u \in \mathcal N_v}$ (or applying them
+stacking $\{(\boldsymbol H_u, \boldsymbol R_u, \boldsymbol y_u)\}_{u \in \mathcal N_v}$ (or applying them
 sequentially) before combining.
 
 | | `local` | `one_hop` |
@@ -2607,15 +2607,15 @@ own optimum against its own paired stationary twin.
 
 | | selected | twin | under drift | damage |
 |---|---|---|---|---|
-| \ac{ekf}, $\gamma<1$ | $q=2\times10^{-4}$ | 0.0619 | 0.1127 | **0.0508** |
-| \ac{ekf}, $\lambda$ | $\lambda=0.996$ | 0.0562 | 0.1514 | **0.0951** |
-| diffusion \ac{atc} | lr 0.05 | 0.0798 | 0.1746 | **0.0947** |
+| EKF, $\gamma<1$ | $q=2\times10^{-4}$ | 0.0619 | 0.1127 | **0.0508** |
+| EKF, $\lambda$ | $\lambda=0.996$ | 0.0562 | 0.1514 | **0.0951** |
+| diffusion ATC | lr 0.05 | 0.0798 | 0.1746 | **0.0947** |
 
 **The gap does not close — it widens, 0.0376 → 0.0443**, against a 0.0013
 threshold. And the decisive number is the last column: *$\lambda$'s damage is
 ATC's damage.* At its own optimum the multiplicative filter delivers **no
 tracking advantage over a tuned gradient method at all**; everything by which it
-beats \ac{atc} is fitting. Decomposed, $\gamma$ splits 0.0179 fitting against
+beats ATC is fitting. Decomposed, $\gamma$ splits 0.0179 fitting against
 0.0439 tracking, and $\lambda$ 0.0236 against $-0.0004$.
 
 **Why it could not be tuned to the condition.** The re-tune kept $\lambda=0.996$
@@ -2624,18 +2624,18 @@ the filter worse (0.99 → 0.2011) and then made it diverge: 0.98 at steps 943 a
 963, 0.95 at 211 and 313, at both priors tested. The useful half of the axis is
 unreachable.
 
-In information coordinates the recursion is $\bm\Omega_{t|t}=\lambda
-\bm\Omega_{t-1|t-1}+\bm\Delta_{v,t}$: a fixed **fraction** $(1-\lambda)$ of
+In information coordinates the recursion is $\boldsymbol\Omega_{t|t}=\lambda
+\boldsymbol\Omega_{t-1|t-1}+\boldsymbol\Delta_{v,t}$: a fixed **fraction** $(1-\lambda)$ of
 everything known is discarded each step, so the sustainable level is
-$\bm\Delta/(1-\lambda)$ — bounded *only if* $\bm\Delta=\bm H^{\trans}
-\bm\Lambda\bm H$ is bounded below. That is exactly \cref{as:noise}'s
+$\boldsymbol\Delta/(1-\lambda)$ — bounded *only if* $\boldsymbol\Delta=\boldsymbol H^{\mathsf T}
+\boldsymbol\Lambda\boldsymbol H$ is bounded below. That is exactly the noise assumption's
 $c_{\min}>0$, and D-note `rem:cmin_fails` shows the softmax denies it: as the
-classifier grows confident $\bm\Lambda\to\zero$ in *every* direction, so the
-forgetting outruns the information arriving and $\bm P\to\infty$. Measured
+classifier grows confident $\boldsymbol\Lambda\to\boldsymbol 0$ in *every* direction, so the
+forgetting outruns the information arriving and $\boldsymbol P\to\infty$. Measured
 against pure unopposed inflation $\sigma_0^2\lambda^{-t}$, the divergences land
 within a factor of 2–5 — the arriving information was barely resisting at all.
 
-The additive recursion has no such exposure. $\gamma^{2}\bm P+\bm Q$ is bounded
+The additive recursion has no such exposure. $\gamma^{2}\boldsymbol P+\boldsymbol Q$ is bounded
 by $q/(1-\gamma^{2})\approx0.06$ **with no data whatsoever**, and even
 $\gamma=1$ grows linearly rather than geometrically. *$\lambda$'s stability is
 conditional on a likelihood property the softmax does not provide; $\gamma$'s is
@@ -2654,14 +2654,14 @@ re-tuned — so $\lambda$'s optimum may move there and it may genuinely track
 better at moderate rates. The recommendation does not turn on it: one setting
 must be committed to before the drift is known, $\lambda$'s best margin over
 $\gamma$ anywhere in the sweep is $+0.0083$ against a worst of $-0.0376$, and
-only one of the two families can diverge. **"$\gamma<1$ with additive $\bm Q$ is
+only one of the two families can diverge. **"$\gamma<1$ with additive $\boldsymbol Q$ is
 the right commitment" is supported; "$\gamma$ dominates everywhere" is not.**
 
 **Consequences.** The $\lambda$ convention is removed from the note's machinery —
 symbol table, time update, algorithm, the `as:noise` remedies — and survives only
 as a recorded rejection plus one live caveat: `sec:closure` keeps it as the
 simplest way to preserve matrix structure through the prediction step *above* the
-scale at which $\bm P$ must be structured, which is a regime we have not reached
+scale at which $\boldsymbol P$ must be structured, which is a regime we have not reached
 and where the same shape-preserving property that loses here would win.
 
 ### ✅ D77. Label skew does not reach the filter, and a broken baseline looks robust
@@ -2680,23 +2680,23 @@ X6's settled error across $\beta\in\{0.1,1,100\}$:
 
 | | $\beta=0.1$ | $1$ | $100$ | spread |
 |---|---|---|---|---|
-| centralized \ac{sgd} (pooled) | 0.0788 | 0.0777 | 0.0797 | 0.0020 |
-| \ac{atc} (per-agent) | 0.1021 | 0.0812 | 0.0809 | 0.0212 |
+| centralized SGD (pooled) | 0.0788 | 0.0777 | 0.0797 | 0.0020 |
+| ATC (per-agent) | 0.1021 | 0.0812 | 0.0809 | 0.0212 |
 | local only (per-agent) | 0.6301 | 0.2757 | 0.1419 | 0.4882 |
 
 So it was run for two sharper questions instead.
 
 **(a) The curvature hypothesis, and it is refuted.** Under skew the per-step
 pooled batch has higher variance in its label *composition* even though the
-marginal is right. \ac{sgd} averages gradients and cannot see that; the filter
-estimates $\bm H^{\trans}\bm\Lambda\bm H$ from the same batch, and $\bm\Lambda$
+marginal is right. SGD averages gradients and cannot see that; the filter
+estimates $\boldsymbol H^{\mathsf T}\boldsymbol\Lambda\boldsymbol H$ from the same batch, and $\boldsymbol\Lambda$
 depends on the predicted class distribution — so it *could* be more
 skew-sensitive despite seeing the same marginal. It is **less**:
 
 | | $\beta=0.1$ | $1$ | $100$ | spread |
 |---|---|---|---|---|
-| \ac{ekf} $\gamma<1$ | 0.0557 | 0.0568 | 0.0560 | **0.0011** |
-| centralized \ac{sgd} | 0.0766 | 0.0779 | 0.0758 | 0.0021 |
+| EKF $\gamma<1$ | 0.0557 | 0.0568 | 0.0560 | **0.0011** |
+| centralized SGD | 0.0766 | 0.0779 | 0.0758 | 0.0021 |
 
 0.0011 is below the 0.0013 threshold; the pooled baseline's 0.0021 is not. And it
 holds under drift: at `every25_jump15` the filter is damaged **0.0350 at
@@ -2709,9 +2709,9 @@ steps against 0.6° every step. Damage, all four learners:
 
 | | abrupt | smooth |
 |---|---|---|
-| \ac{ekf} | 0.0350 | 0.0011 |
-| centralized \ac{sgd} | 0.0509 | 0.0041 |
-| \ac{atc} | 0.0805 | 0.0086 |
+| EKF | 0.0350 | 0.0011 |
+| centralized SGD | 0.0509 | 0.0041 |
+| ATC | 0.0805 | 0.0086 |
 | local only | 0.0321 | 0.0015 |
 
 Continuous motion at that rate is nearly free; the same average delivered as
@@ -2744,9 +2744,9 @@ mis-tuned baseline can invert an ordering**.
 *And repairing it did not remove the compression, only the pathology.* At 0.0321
 `local_only` is still the smallest damage in the (b) table, and that is still not
 robustness. X11 shows it without a new run: `x11_every25_jump15` is this exact
-drift under an \ac{iid} partition, and there `local_only` is damaged **0.0709**,
+drift under an IID partition, and there `local_only` is damaged **0.0709**,
 the largest of the three learners the two sweeps share — against 0.0505 for
-centralized \ac{sgd} and 0.0518 for \ac{atc}. Adding skew *lowered* its damage,
+centralized SGD and 0.0518 for ATC. Adding skew *lowered* its damage,
 0.0709 → 0.0321, while the drift was held fixed. What moved was its floor,
 0.1379 → 0.6266.
 
@@ -2761,7 +2761,7 @@ never fit.
 
 **No normalisation fixes this, which is why the claim is kept negative.**
 Dividing by headroom to chance inverts the ordering one way (`local_only` 0.118,
-\ac{atc} 0.100, \ac{sgd} 0.062, \ac{ekf} 0.042); the ratio drifting/stationary
+ATC 0.100, SGD 0.062, EKF 0.042); the ratio drifting/stationary
 inverts it the other (`local_only` 1.05$\times$ against 1.6–1.8$\times$). Error
 rate carries no scale that makes one of the three canonical. So the rule is
 narrower than "normalise it": **damage is comparable only between learners whose
@@ -2771,11 +2771,11 @@ under each bar for that reason.
 
 The rest of the (b) table is consistent with this once read that way.
 `centralized_sgd` pools, so skew never reaches it and its damage is unchanged
-from \ac{iid}, 0.0505 → 0.0509. \ac{atc} is per-agent, so skew does reach it —
-stationary 0.0775 → 0.0974, damage 0.0518 → 0.0805. \ac{atc} and `local_only` are
-both hurt by skew and differ only in that \ac{atc} still has room to degrade.
+from IID, 0.0505 → 0.0509. ATC is per-agent, so skew does reach it —
+stationary 0.0775 → 0.0974, damage 0.0518 → 0.0805. ATC and `local_only` are
+both hurt by skew and differ only in that ATC still has room to degrade.
 
-*Correcting it strengthened the claim.* Against \ac{atc} at the abrupt cell the
+*Correcting it strengthened the claim.* Against ATC at the abrupt cell the
 total advantage fell from +0.1143 to +0.0873 — but the whole of that came out of
 the *fitting* term (+0.0713 → +0.0418), exactly where a too-large step size would
 put it, while tracking rose slightly (+0.0430 → +0.0455). The tracking share went
@@ -2806,7 +2806,7 @@ So X18 was pointed at a mechanism instead, and the mechanism was about the
 $1/(1-\beta)\approx10$ steps of velocity. On a monotone stretch that is an asset:
 the velocity points where the distribution is going, so the method effectively
 anticipates. At a reset it is maximally wrong and must unwind before it helps
-again. A filter carries no directional state at all: $\bm Q=q\bm I$ is isotropic
+again. A filter carries no directional state at all: $\boldsymbol Q=q\boldsymbol I$ is isotropic
 and the covariance says "I am uncertain", never "I was moving that way". Hence a
 falsifiable prediction that does not mention the filter:
 
@@ -2829,7 +2829,7 @@ $P\in\{300,100,50,30,20\}$.
 **The result is a null.** Ten seeds, one shared stationary twin, damage against
 that twin:
 
-| period | ramp °/step | \ac{ekf} | centralized \ac{sgd} | \ac{atc} ($\beta$=0.9) | \ac{atc} plain | gap |
+| period | ramp °/step | EKF | centralized SGD | ATC ($\beta$=0.9) | ATC plain | gap |
 |---|---|---|---|---|---|---|
 | 300 | 0.15 | **0.0236** | 0.0317 | 0.0327 | 0.0323 | −0.0004 |
 | 100 | 0.45 | **0.0260** | 0.0343 | 0.0356 | 0.0346 | −0.0009 |
@@ -2854,8 +2854,8 @@ which is a different experiment, not more seeds of this one.
 
 **Faster resets cost everyone a little, and nobody differentially.** From $P=300$
 to $P=20$ — a 15× rate change, 4 resets against 74 — every learner moves the same
-way: \ac{ekf} +0.0036 ($p=0.002$), plain +0.0039 ($p=0.007$), centralized
-\ac{sgd} +0.0026 ($p=0.15$), \ac{atc} +0.0019 ($p=0.31$). Two clear
+way: EKF +0.0036 ($p=0.002$), plain +0.0039 ($p=0.007$), centralized
+SGD +0.0026 ($p=0.15$), ATC +0.0019 ($p=0.31$). Two clear
 significance, two do not, but the *spread* between them is smaller than the
 common movement. The filter holds its ≈0.008 lead across the entire axis,
 unchanged, which is what a null here was defined in advance to mean: its
@@ -2863,9 +2863,9 @@ advantage is structural, not sawtooth-specific.
 
 **⚠ The five-seed reading of this experiment was wrong in two ways, and both
 were confident.** At $n=5$ the slope was +0.00112 ± 0.00045 ($p=0.068$) and read
-as a near-significant *reversal*; \ac{atc} appeared **immune** to the axis
+as a near-significant *reversal*; ATC appeared **immune** to the axis
 (−0.0007, $p=0.82$), which invited the story that momentum buffers the reset. Five
-more seeds halved the slope and moved $p$ to 0.19, and \ac{atc}'s immunity became
+more seeds halved the slope and moved $p$ to 0.19, and ATC's immunity became
 +0.0019 ($p=0.31$) — an ordinary member of the common upward move. The per-seed
 slopes show why: seeds 0–3 gave +0.0018, +0.0009, +0.0019, +0.0015 and the five
 added seeds averaged −0.00009. **A four-of-five sign agreement at $n=5$ was not
@@ -2879,14 +2879,14 @@ bit-for-bit, so only the new five carried information).
 And nothing about directional memory in general — only that at
 $\beta=0.9$, with a monotone stretch never shorter than twice its horizon, it
 neither helps nor hurts. See [[D74]] for the coupled-axis bind this shares, and
-[[D77]] for why the gap here *is* rankable: the two \ac{atc} floors differ by
+[[D77]] for why the gap here *is* rankable: the two ATC floors differ by
 1.09× (0.0790 against 0.0863), nothing like the compression that made
 `local_only`'s damage unreadable.
 
 ### ✅ D79. Covariance sharing buys nothing; the adapt step is where the information is lost
 
 X19, the diffusion filter's first measurement: three conditions (stationary,
-linear 0.03°/step, `every25_jump15`) crossed with two graphs (complete, \ac{er}
+linear 0.03°/step, `every25_jump15`) crossed with two graphs (complete, ER
 $p=0.3$), five seeds, ten cells. Every diffusion cell lands between the
 centralised filter and `local_only`, which is the only ordering the design
 permits — each agent sees $1/N$ of the data and the drift is global, so a
@@ -2895,7 +2895,7 @@ diffusion filter that beat the centralised one would be a bug.
 **Result 1: the expensive variant buys nothing.** The gap `full` → `mean-only`,
 paired by seed:
 
-| condition | complete | \ac{er} |
+| condition | complete | ER |
 |---|---|---|
 | stationary | +0.0003 | +0.0002 |
 | linear 0.03 | +0.0006 | +0.0005 |
@@ -2909,8 +2909,8 @@ that the gap "is worth knowing before deciding whether to pay it". It is: the
 price of not shipping covariances is nothing, and `eq:cov_local` is not a
 compromise but simply the right choice.
 
-**Result 2: sparsity is nearly free too.** \ac{er} minus complete is +0.0002 to
-+0.0003 for both diffusion variants, against +0.0010 to +0.0023 for \ac{atc},
+**Result 2: sparsity is nearly free too.** ER minus complete is +0.0002 to
++0.0003 for both diffusion variants, against +0.0010 to +0.0023 for ATC,
 across a drop from 45 edges to 11. The filter is *less* sensitive to connectivity
 than the gradient baseline. (The centralised filter and `local_only` are
 identical across topologies to the last digit, neither being able to see the
@@ -2919,42 +2919,42 @@ graph — a harness check passing.)
 **Result 3, and the problem: the centralised filter's advantage does not survive
 decentralisation.**
 
-| condition | centralised | diff-\ac{ekf} full | \ac{atc} (mom. 0.9) |
+| condition | centralised | diff-EKF full | ATC (mom. 0.9) |
 |---|---|---|---|
 | stationary | **0.0561** | 0.0789 | 0.0785 |
 | linear 0.03 | **0.0656** | 0.0948 | 0.0951 |
 | `every25_jump15` | **0.0931** | 0.1341 | **0.1289** |
 
 Diffusing the belief costs +0.0228 → +0.0293 → +0.0411 as the condition hardens,
-every one at $p<0.001$. The filter ties \ac{atc} when still and under linear
+every one at $p<0.001$. The filter ties ATC when still and under linear
 drift and **loses to it under abrupt drift**, on level and on damage (0.0553
-against 0.0504) — while the centralised filter beats \ac{atc} by 0.036 in that
+against 0.0504) — while the centralised filter beats ATC by 0.036 in that
 same cell.
 
-**The mechanism, which the derivation already implied.** With $\bm\Omega=\bm
-P^{-1}$, the centralised filter does $\bm\Omega\mathrel{+}=\sum_{v}\bm\Delta_v$
-while a local adapt does $\bm\Omega_v\mathrel{+}=\bm\Delta_v$. The combine then
+**The mechanism, which the derivation already implied.** With $\boldsymbol\Omega=\boldsymbol
+P^{-1}$, the centralised filter does $\boldsymbol\Omega\mathrel{+}=\sum_{v}\boldsymbol\Delta_v$
+while a local adapt does $\boldsymbol\Omega_v\mathrel{+}=\boldsymbol\Delta_v$. The combine then
 averages *covariances*, and an average of $N$ covariances each carrying one
 agent's information still carries about one agent's information. So the diffusion
 filter accumulates information at $1/N$ the centralised rate — permanently, not
 as a transient — and its belief is roughly $N$ times too diffuse. Two
 consequences, and the second matches the observed pattern:
 
-* the gain $\bm K=\bm P\bm H^{\trans}(\cdot)^{-1}$ is too large, so each update
+* the gain $\boldsymbol K=\boldsymbol P\boldsymbol H^{\mathsf T}(\cdot)^{-1}$ is too large, so each update
   over-corrects on four samples of noise;
 * **$q$ is mis-scaled.** It was tuned so the process noise added per step
-  balances the centralised influx $N\bm\Delta$; against $\bm\Delta$ alone the
+  balances the centralised influx $N\boldsymbol\Delta$; against $\boldsymbol\Delta$ alone the
   filter forgets about $N$ times too fast *relative to what it learns*. That
   predicts a penalty growing with drift severity, which is what +0.0228 →
   +0.0293 → +0.0411 is.
 
 **⚠ No combine rule can repair this, and that is the structural point.** Not
-`eq:cov_combine`, not \ac{ci}, not anything: \ac{ci} computes $\bm\Omega=\sum_u
-\omega_u\bm\Omega_u$, a weighted *average* of information rather than a sum, so
+`eq:cov_combine`, not CI, not anything: CI computes $\boldsymbol\Omega=\sum_u
+\omega_u\boldsymbol\Omega_u$, a weighted *average* of information rather than a sum, so
 it recovers none of the missing factor $N$ and costs an inverse per fusion
 besides. **You cannot fuse your way to information nobody gathered.** The fix has
 to be in the adapt step, which is exactly why `prop:complete_graph` is stated for
-$\mathcal M_{v,t}=\V$ and holds for no local-adapt variant.
+$\mathcal M_{v,t}=\mathcal V$ and holds for no local-adapt variant.
 
 So X19 measured the wrong axis as its ceiling. The combine axis is the cheap one
 — it buys nothing, and the deployable variant is therefore free. The axis that
@@ -2962,7 +2962,7 @@ matters is `adapt_scope`, and `diffusion_ekf_onehop` already implements it.
 
 **⚠ Two things make these numbers provisional, and both were errors of mine.**
 
-*The baseline was not payload-matched.* X19's \ac{atc} carries momentum 0.9 with
+*The baseline was not payload-matched.* X19's ATC carries momentum 0.9 with
 `mix_optimizer_state: momentum`, so it transmits $2p$ per link while
 `diffusion_ekf` transmits $p$. D29 exists to prevent exactly this, and X1 carries
 `diffusion_sgd_atc_plain` so that phase 5 can state the claim against the matched
@@ -2979,7 +2979,7 @@ ten times the data". [[D77]]'s lesson, arrived at from the other side.
 
 > ⚠ **The direction was wrong, and the re-tune says so.** The steady-state
 > argument above predicted $q\approx q_{\text{cent}}/N=6\times10^{-6}$. X20's
-> first grid, at `every25_jump15` on \ac{er} over three seeds, finds the error
+> first grid, at `every25_jump15` on ER over three seeds, finds the error
 > falling **monotonically as $q$ rises**, at every $\sigma_0^2$ --- 0.4557 at
 > $6\times10^{-8}$ down to 0.1173 at $6\times10^{-4}$, the top of the grid --- so
 > the optimum is at least an order of magnitude *above* the centralised value
@@ -2988,8 +2988,8 @@ ten times the data". [[D77]]'s lesson, arrived at from the other side.
 > this note's prediction is withdrawn pending the widened grid.
 >
 > Two observations while it re-runs. The re-tuned error of **0.1173** is below
-> X19's `diffusion_ekf` at 0.1351 *and* below \ac{atc}'s 0.1312 in that same
-> cell, so the headline above --- that the filter loses to \ac{atc} under abrupt
+> X19's `diffusion_ekf` at 0.1351 *and* below ATC's 0.1312 in that same
+> cell, so the headline above --- that the filter loses to ATC under abrupt
 > drift --- is looking like the tuning artefact this note warned it might be. And
 > the selected point has $q$ at 60% of $\sigma_0^2$ per step: a filter that
 > almost entirely discards its own history. Tuning is compensating for a
@@ -2999,8 +2999,8 @@ ten times the data". [[D77]]'s lesson, arrived at from the other side.
 **A costing correction, found while checking the above.** The note prices the
 one-hop adapt step at $O(pq')$ per link. At $p=2908$, $q=10$, $n=4$ that is
 122 136 scalars — but the raw measurements it is derived from are $n(d+1)=788$,
-and the receiver already gets $\bm\psi_u=\bm m_{u,t|t-1}$ in the same message, so
-it can recompute $\bm H_u,\bm G_u,\bm s_u$ itself. **Exchanging the measurements
+and the receiver already gets $\boldsymbol\psi_u=\boldsymbol m_{u,t|t-1}$ in the same message, so
+it can recompute $\boldsymbol H_u,\boldsymbol G_u,\boldsymbol s_u$ itself. **Exchanging the measurements
 is 155× cheaper than exchanging their information factors, and exactly
 equivalent.** ⚠ *Superseded in part by [[D92]]: the one-hop combine needs a
 second message, so the whole-step saving is 18×, not 155×.* This is not an
@@ -3014,34 +3014,34 @@ neighbours' data too) and privacy (raw data leaves the node) — not bandwidth.
 Every run since phase 1 has logged `nll`, `brier`, `ece`, `overconfidence` and
 `mean_confidence`, alongside `e_agree` and `theta_mean_norm_sq`. **Nobody had
 read them.** X19's numbers were sitting on disk the whole time, and the first
-look at them is uncomfortable. Settled values at `every25_jump15` on \ac{er}:
+look at them is uncomfortable. Settled values at `every25_jump15` on ER:
 
-| | error | \ac{ece} | overconfidence | mean conf. | $\lVert\bm\theta\rVert^2$ | $E_{\text{agree}}$ |
+| | error | ECE | overconfidence | mean conf. | $\lVert\boldsymbol\theta\rVert^2$ | $E_{\text{agree}}$ |
 |---|---|---|---|---|---|---|
-| centralised \ac{ekf} | 0.0931 | 0.0310 | −0.0299 | 0.877 | 84.8 | 0 |
-| diff-\ac{ekf}, full | 0.1345 | 0.0842 | −0.0839 | 0.782 | 34.9 | 0.0114 |
-| diff-\ac{ekf}, mean-only | 0.1351 | 0.0854 | −0.0851 | 0.780 | 34.8 | 0.0118 |
-| \ac{atc} | 0.1312 | **0.0148** | −0.0028 | 0.866 | 79.6 | 0.0124 |
+| centralised EKF | 0.0931 | 0.0310 | −0.0299 | 0.877 | 84.8 | 0 |
+| diff-EKF, full | 0.1345 | 0.0842 | −0.0839 | 0.782 | 34.9 | 0.0114 |
+| diff-EKF, mean-only | 0.1351 | 0.0854 | −0.0851 | 0.780 | 34.8 | 0.0118 |
+| ATC | 0.1312 | **0.0148** | −0.0028 | 0.866 | 79.6 | 0.0124 |
 | local only | 0.2097 | 0.0340 | +0.0269 | 0.817 | 63.7 | 18.1 |
 
-**\Ac{atc} is the best-calibrated method here and the diffusion filter is the
-worst** — six times \ac{atc}'s \ac{ece} — which is an uncomfortable result for a
+**ATC is the best-calibrated method here and the diffusion filter is the
+worst** — six times ATC's ECE — which is an uncomfortable result for a
 Bayesian method to have been sitting on. And the sign is the opposite of the one
 the note predicts: the filter is **under**-confident, claiming 0.78 where it
 delivers 0.87, not over-confident.
 
-**It is not disagreement.** The filter's agents agree as closely as \ac{atc}'s
+**It is not disagreement.** The filter's agents agree as closely as ATC's
 ($E_{\text{agree}}$ 0.0118 against 0.0124; max pairwise distance 0.245 against
 0.237), so "the agents have diverged and averaging blurs them" is ruled out.
 
 **It is the parameter norm, and $\gamma$ explains it.** Confidence tracks
-$\lVert\bm\theta\rVert^2$ monotonically across all five methods, and the
-diffusion filter's is 34.8 against \ac{atc}'s 79.6. Smaller weights give smaller
+$\lVert\boldsymbol\theta\rVert^2$ monotonically across all five methods, and the
+diffusion filter's is 34.8 against ATC's 79.6. Smaller weights give smaller
 logits, and a softmax on smaller logits is closer to uniform. At $\gamma=0.9995$
 the mean is multiplied by $\gamma^{1500}=0.47$ over a run *absent information* —
 D26's point that $\gamma$ is L2 weight decay written in state-space form, not
 forgetting. The centralised filter shrugs this off and reaches
-$\lVert\bm\theta\rVert^2=84.5$ because it gathers ten agents' information per step
+$\lVert\boldsymbol\theta\rVert^2=84.5$ because it gathers ten agents' information per step
 to push back; the diffusion filter, with $1/N$ of it, loses the tug-of-war.
 
 **Same $\gamma$, same shrinkage, different capacity to counteract it.** That is a
@@ -3054,8 +3054,8 @@ $\gamma$ at 0.9995, a value X13 chose for a filter seeing ten times the data. So
 the "re-tuned" setting is tuned in two of three dimensions.
 
 **⚠ But $\gamma=1$ is not obviously the answer, and the two knobs interact.**
-$\gamma$ acts on both moments: $\bm m\leftarrow\gamma\bm m$ and $\bm P\leftarrow
-\gamma^2\bm P+\bm Q$. So $\gamma^2<1$ is a *contraction on the covariance*, and
+$\gamma$ acts on both moments: $\boldsymbol m\leftarrow\gamma\boldsymbol m$ and $\boldsymbol P\leftarrow
+\gamma^2\boldsymbol P+\boldsymbol Q$. So $\gamma^2<1$ is a *contraction on the covariance*, and
 besides the information update it is the only one. Setting $\gamma=1$ removes it.
 X20's grid already located the divergence cliff at $q=6\times10^{-3}$ *with* that
 contraction present; without it the cliff moves down, and the selected
@@ -3063,7 +3063,7 @@ $q=6\times10^{-4}$ may land the wrong side of it. $\gamma$ and $q$ therefore hav
 to be swept **jointly**, which is X21.
 
 **⚠ And the whole table is plugin calibration.** `calibration.score` works from
-$\bm\mu(\text{logits})$ at the predictive mean; the covariance never enters. So
+$\boldsymbol\mu(\text{logits})$ at the predictive mean; the covariance never enters. So
 "the filter is badly calibrated" is a claim about its **point estimate**, which
 any method has, and says nothing yet about whether its *belief* is calibrated.
 `metrics/predictive.py` has `logit_variance`, `probit_probabilities` and
@@ -3071,7 +3071,7 @@ any method has, and says nothing yet about whether its *belief* is calibrated.
 belief is P5.11 proper and remains undone — which means the filter's central
 claim, that it knows what it does not know, is still unmeasured.
 
-### ✅ D81. The diffusion filter beats tuned \ac{atc} at half its bandwidth — X19's deficit was tuning
+### ✅ D81. The diffusion filter beats tuned ATC at half its bandwidth — X19's deficit was tuning
 
 X20: the same three conditions and two graphs as X19, five seeds, with the filter
 at the $(q,\sigma_0^2)$ its own grid selected rather than the centralised filter's.
@@ -3098,7 +3098,7 @@ baseline at half the bandwidth.**
 | linear 0.03 | −0.075 | −0.0120 |
 | 15° every 25 | −0.082 | **−0.0123** |
 
-every cell at $p\le0.011$. X19 reported the filter *losing* to \ac{atc} under
+every cell at $p\le0.011$. X19 reported the filter *losing* to ATC under
 abrupt drift, 0.1351 against 0.1312; it now wins, 0.1189 against 0.1312. The
 headline of D79 is withdrawn, and the mechanism that predicted it was a tuning
 artefact is what corrected it.
@@ -3111,7 +3111,7 @@ strongest tuned baseline while sending half as much*.
 
 **One-hop helps, and precisely where the theory says it should:**
 
-| | complete | \ac{er} |
+| | complete | ER |
 |---|---|---|
 | stationary | +0.0031 (ns) | −0.0022 |
 | linear | −0.0003 (ns) | −0.0059 |
@@ -3119,7 +3119,7 @@ strongest tuned baseline while sending half as much*.
 
 More on the sparse graph than the complete one, and more as the drift hardens. On
 a complete graph the mean combine already reaches every agent through the
-estimates, so exchanging measurements adds little; on \ac{er} it adds a lot.
+estimates, so exchanging measurements adds little; on ER it adds a lot.
 
 ⚠ `diffusion_ekf_onehop_mean` is **not** exact on a complete graph, and the
 reason matters: exactness needs a one-hop adapt *and a common predictive prior*,
@@ -3140,7 +3140,7 @@ artefact.
 
 The mechanism is the same arithmetic as everywhere else in this story, read
 forwards instead of backwards: **less accumulated information means a larger
-$\bm P$, a larger gain, and faster adaptation.** The centralised filter's data
+$\boldsymbol P$, a larger gain, and faster adaptation.** The centralised filter's data
 advantage makes it more confident and therefore more sluggish. That is a real
 trade rather than a defect, and it is the first thing measured here that a
 distributed method does *better* than its centralised reference.
@@ -3149,7 +3149,7 @@ distributed method does *better* than its centralised reference.
 error — the objective — the centralised filter wins all six cells. Damage is a
 derived statistic, not a performance measure, and nothing here overturns the
 expectation that pooling more data estimates better. The one qualification worth
-keeping is that the guarantee is not a theorem here: an \ac{ekf} is a linearised
+keeping is that the guarantee is not a theorem here: an EKF is a linearised
 approximation, not an optimal estimator, so data-richness does not formally force
 dominance on every statistic one might compute. On the one that matters, it does.
 
@@ -3160,10 +3160,10 @@ $6\times10^{-4}$ would *hurt* the centralised filter badly (0.0630 at its own
 choice, against 0.0939 by $10^{-3}$), so this is not a case of one arm carrying a
 stale setting.
 
-**And $\gamma$ matters less than [[D80]] expected.** $\lVert\bm\theta\rVert^2$
-went 34.8 → 58.1 for a local adapt and 139.3 for one-hop, against \ac{atc}'s 79.6;
-\ac{ece} fell 0.085 → 0.038 → **0.020**, so the one-hop filter is now better
-calibrated than the centralised one (0.031) and approaching \ac{atc}'s 0.0148. A
+**And $\gamma$ matters less than [[D80]] expected.** $\lVert\boldsymbol\theta\rVert^2$
+went 34.8 → 58.1 for a local adapt and 139.3 for one-hop, against ATC's 79.6;
+ECE fell 0.085 → 0.038 → **0.020**, so the one-hop filter is now better
+calibrated than the centralised one (0.031) and approaching ATC's 0.0148. A
 larger $q$ was already doing much of $\gamma$'s job, and gathering more
 information did the rest — which is D80's mechanism confirmed, and a reason to
 expect X21 to find less than D80 claimed it would.
@@ -3200,8 +3200,8 @@ ever varied both. And the argument that it does not matter is the argument X21
 already used about $\sigma_0^2$, which the table above disposes of.
 
 **Why this is not paranoia about a knob.** $\gamma$ and $\sigma_0^2$ act on the
-same object from opposite ends: $\sigma_0^2$ sets $\bm P_0$, and $\gamma^2$
-contracts $\bm P$ at every step thereafter. A large prior under a strong
+same object from opposite ends: $\sigma_0^2$ sets $\boldsymbol P_0$, and $\gamma^2$
+contracts $\boldsymbol P$ at every step thereafter. A large prior under a strong
 contraction and a small prior under none can reach the same steady-state
 covariance by different routes, so the two axes are coupled through the quantity
 that decides the gain. Whether that coupling is strong enough to move the argmin
@@ -3264,7 +3264,7 @@ Grid: $\gamma\in\{1,0.9999,0.9995,0.999\}$ × $q\in\{6\times10^{-4},6\times10^{-
 × $\sigma_0^2\in\{0.1,0.03,0.01,0.003,0.001\}$, 40 cells. The larger $q$ columns
 are excluded on measurement, not on taste: X21 found $q=6\times10^{-3}$ destroyed
 at *every* $\gamma$ — error 0.43 to 0.89 against a chance level of 0.9, with
-$\lVert\bm\theta\rVert^2$ reaching $1.3\times10^{7}$ — and only one of those four
+$\lVert\boldsymbol\theta\rVert^2$ reaching $1.3\times10^{7}$ — and only one of those four
 cells tripped the trust-region guard, so "diverged" understates it. $6\times10^{-6}$
 is uniformly poor at every $\gamma$. See [[D79]] for why the filter needs a $q$ ten
 times the centralised one at all.
@@ -3314,30 +3314,30 @@ reporting seed count, never the tuning grid's cell, for exactly this reason.
 
 ### ✅ D84. `adapt_rounds` stays at 1: the communication model is one hop
 
-**Decision.** $L=1$. Agent $v$'s adapt step sees $\mathcal M_v = \N_v^{\mathrm c}$
+**Decision.** $L=1$. Agent $v$'s adapt step sees $\mathcal M_v = \mathcal N_v^{\mathrm c}$
 and no further. `adapt_rounds` remains implemented and validated, but no
 experiment will sweep it.
 
 **Alternative rejected.** $L>1$, the $L$-hop neighbourhood by boolean
-reachability, up to $L \ge \operatorname{diam}(\G)$ where every agent holds every
+reachability, up to $L \ge \mathrm{diam}(\mathcal G)$ where every agent holds every
 measurement.
 
 **Why.** The setting is that an agent talks to its neighbours. $L>1$ quietly
 replaces that with $L$ rounds of communication per *time step* — $L$ times the
 latency before any agent may update, and a payload that grows with the
-neighbourhood it reaches. Bandwidth is the filter's claim against \ac{atc}
+neighbourhood it reaches. Bandwidth is the filter's claim against ATC
 (D29, D81); spending it $L$-fold to recover information is the trade the method
 exists to avoid.
 
 And the endpoint is a reductio, which P5.19 already recorded: at
-$L \ge \operatorname{diam}(\G)$ the algorithm *is* the centralised filter, reached
+$L \ge \mathrm{diam}(\mathcal G)$ the algorithm *is* the centralised filter, reached
 by flooding. "We match the centralised filter" is empty when the method has
 become it. On our own graphs that limit is not far away — ER $p=0.3$ at $N=10$
 has median diameter 4, and a star has diameter 2 — so the interesting range is
 short as well as expensive.
 
 **Consequence if undone.** P5.17 (multi-round flooding), P5.19 (source-tagged
-flooding at $\operatorname{diam}(\G)$) and P5.20 (channel filters on a spanning
+flooding at $\mathrm{diam}(\mathcal G)$) and P5.20 (channel filters on a spanning
 tree) become live again. They are now out of scope by decision rather than
 merely unrun, which is a different thing and should be stated as such if a
 reviewer asks why the ladder stops.
@@ -3347,7 +3347,7 @@ $L=1$ and is `adapt_scope: one_hop`, which D85 keeps.
 
 **⚠ Addendum (2026-09-15, [[D92]]).** One-hop is $L=1$ in evidence but already
 **two messages per step**: the sender's predictive mean with its raw batch before
-the update, then $\bm\psi$ for the combine. So the latency this note charges to
+the update, then $\boldsymbol\psi$ for the combine. So the latency this note charges to
 $L>1$ starts at the one-hop adapt itself — one-hop doubles it against the local
 adapt — and $L$ hops would need $L+1$ messages. The decision is unaffected; "one
 round per step" was only ever true of the local adapt.
@@ -3360,7 +3360,7 @@ round per step" was only ever true of the local adapt.
 differ in what crosses the link (a parameter vector against a parameter vector
 plus measurements), in compute, and in privacy — and the evidence does not
 separate them cleanly either, since one-hop wins on error (0.1066 against 0.1189)
-and on \ac{ece} (0.0200 against 0.0384) while carrying a parameter norm of 139.3
+and on ECE (0.0200 against 0.0384) while carrying a parameter norm of 139.3
 against the centralised filter's 84.8, i.e. it overshoots. Picking a default would
 assert a preference the measurements do not support.
 
@@ -3375,7 +3375,7 @@ else:
 ```
 
 $\beta$ scales the *covariance combine*, and under local sharing there is no
-covariance combine — each agent keeps its own $\bm P$. Both deployable learners
+covariance combine — each agent keeps its own $\boldsymbol P$. Both deployable learners
 (`diffusion_ekf`, `diffusion_ekf_onehop_mean`) are local-sharing, so sweeping
 $\beta$ over them would multiply runtime and return identical rows. Caught before
 X22 rather than after, which is the only reason it is cheap.
@@ -3399,8 +3399,8 @@ mix.
 
 ### ✅ D86. The parameter norm is a diagnostic, not a target
 
-**Decision.** $\lVert\bm\theta\rVert^2$ is tracked and reported; accuracy and
-\ac{ece} decide. No experiment optimises the norm, and no tuning selects on it.
+**Decision.** $\lVert\boldsymbol\theta\rVert^2$ is tracked and reported; accuracy and
+ECE decide. No experiment optimises the norm, and no tuning selects on it.
 
 **Why.** [[D80]] made the norm a load-bearing observable — confidence tracks it
 across every method measured — and X22 was framed partly as "does $\alpha$ close
@@ -3409,11 +3409,11 @@ the user's objection is the reason: **the centralised filter is not the correct
 teacher.** The diffusing agent genuinely holds less information, so a matching
 norm would mean it had become as confident as an estimator that has seen $N$ times
 the data — which is a defect, not a success. It would be claiming confidence it
-has not earned, and [[D80]] says \ac{ece} is exactly where that shows.
+has not earned, and [[D80]] says ECE is exactly where that shows.
 
 **How to read it.** The norm says whether a correction is doing mechanically what
 it was designed to do. It does not say whether doing that is good. A move from
-58.7 toward 84.8 confirms $\alpha$ bites; only error and \ac{ece} say whether the
+58.7 toward 84.8 confirms $\alpha$ bites; only error and ECE say whether the
 bite helps.
 
 ### ✅ D87. Multiplying by $N$ does not work: the deficit is information, not bookkeeping
@@ -3421,12 +3421,12 @@ bite helps.
 **The question, asked by the user several sessions before it could be answered.**
 "Can we multiply the diff-EKF by $N$ to fix this? An agent might not know all the
 agents, but it is fair to assume we can provide how many there are." It is the
-right question — [[D79]] says each agent accumulates $\bm\Delta_v$ where the
-centralised filter accumulates $\sum_v\bm\Delta_v$, and $N$ is exactly the missing
+right question — [[D79]] says each agent accumulates $\boldsymbol\Delta_v$ where the
+centralised filter accumulates $\sum_v\boldsymbol\Delta_v$, and $N$ is exactly the missing
 factor.
 
 `information_exponent` $\alpha$ implements it as a family:
-$c=(N/\lvert\mathcal M_v\rvert)^{\alpha}$ scaling $\bar{\bm B}$ by $\sqrt c$ and
+$c=(N/\lvert\mathcal M_v\rvert)^{\alpha}$ scaling $\bar{\boldsymbol B}$ by $\sqrt c$ and
 the score by $c$, with $\alpha=0$ claiming nothing and $\alpha=1$ claiming the
 whole network's worth. X22 swept it at five values on both adapt scopes.
 
@@ -3451,14 +3451,14 @@ against a chance level of 0.9.
 ⚠ **"$\alpha=1$ is multiplying by $N$" holds for the local adapt only.** The factor
 is $c=N/\lvert\mathcal M_v\rvert$ — what is still *missing*. A local adapt has
 $\lvert\mathcal M_v\rvert=1$, so $c=N=10$ and the phrase is literal. One-hop has
-already gathered $\approx3.7$ agents' worth on \ac{er} $p=0.3$, so $c\approx2.7$.
+already gathered $\approx3.7$ agents' worth on ER $p=0.3$, so $c\approx2.7$.
 The same $\alpha$ therefore means a different extrapolation on each scope — which
 is the reason the sweep carried both, and the reason the two columns are not
 comparable at fixed $\alpha$ the way a shared knob would be.
 
 **The mechanism is in the parameter norm.**
 
-| $\alpha$ | $\lVert\bm\theta\rVert^2$, local | $\lVert\bm\theta\rVert^2$, one-hop |
+| $\alpha$ | $\lVert\boldsymbol\theta\rVert^2$, local | $\lVert\boldsymbol\theta\rVert^2$, one-hop |
 |---|---|---|
 | 0 | 58.7 | 134.6 |
 | 0.5 | 86.7 | 177.8 |
@@ -3466,8 +3466,8 @@ comparable at fixed $\alpha$ the way a shared knob would be.
 | 1 | $3.81\times10^{6}$ | 262.1 |
 
 $\alpha$ does mechanically what it was designed to do — inflate the claimed
-information, shrink $\bm P$, raise the gain — and that is the whole problem.
-⚠ *"Raise the gain" has the direction wrong — a smaller $\bm P$ gives a smaller
+information, shrink $\boldsymbol P$, raise the gain — and that is the whole problem.
+⚠ *"Raise the gain" has the direction wrong — a smaller $\boldsymbol P$ gives a smaller
 gain. See [[D92]] for what actually makes the step grow.*
 Scaling one agent's information by $N$ does not manufacture $N$ agents' worth of
 *independent* evidence; it makes the filter confident about evidence it never
@@ -3482,10 +3482,10 @@ and no rescaling at either end of the step reaches it. What closes it is gatheri
 more: one-hop beats local at every $\alpha$, by 0.0096 to 0.76.
 
 **Calibration is the one place $\alpha$ helps, and not enough.** On the local
-adapt \ac{ece} falls 0.0379 → 0.0134 and overconfidence moves $-0.0362$ → $+0.0130$,
+adapt ECE falls 0.0379 → 0.0134 and overconfidence moves $-0.0362$ → $+0.0130$,
 so $\alpha$ genuinely cures the under-confidence [[D80]] identified — but the best
-\ac{ece} sits on a model at chance, and the $\alpha=0.5$ trade is $+0.0133$ error
-(ten times the threshold) for $-0.0102$ \ac{ece}. On one-hop \ac{ece} is flat
+ECE sits on a model at chance, and the $\alpha=0.5$ trade is $+0.0133$ error
+(ten times the threshold) for $-0.0102$ ECE. On one-hop ECE is flat
 across the whole range (0.0193–0.0209): $\alpha$ buys nothing and costs error. On
 all three criteria the user set in advance — accuracy, calibration, norm-matching
 as a diagnostic ([[D86]]) — the answer is $\alpha=0$.
@@ -3501,7 +3501,7 @@ and six times below this one.
 
 X22's cells are **not** re-run under the new guard. The $\alpha=1$ cell would now
 stop at a `_diverged` marker partway, and "error 0.8941 with
-$\lVert\bm\theta\rVert^2=3.8\times10^6$" is the more informative record of what
+$\lVert\boldsymbol\theta\rVert^2=3.8\times10^6$" is the more informative record of what
 $\alpha=1$ does. The numbers stand; only their marker would change.
 
 ### ✅ D88. The conservative bound is not wasteful — it is approximately tight
@@ -3509,7 +3509,7 @@ $\alpha=1$ does. The numbers stand; only their marker would change.
 **The suspicion.** X19 measured full covariance sharing against mean-only and
 found it buys nothing for 2909× the bandwidth, and [[D79]] concluded the combine
 axis is empty. But that rested on the covariance being *worth* having, and
-`eq:cov_combine` ships $\sum_u a_{vu}\bm P^{\psi}_u$ — `lem:conservative`, the
+`eq:cov_combine` ships $\sum_u a_{vu}\boldsymbol P^{\psi}_u$ — `lem:conservative`, the
 bound that holds for any cross-correlation precisely because it assumes the
 neighbours' errors **coincide**. A filter handed a worst-case covariance runs a
 smaller gain than its evidence deserves. So: was full sharing *wasted* rather than
@@ -3533,7 +3533,7 @@ $+0.2181$, at $t$ from 7.8 to **42.5**. Nothing marginal about it.
 conservative bound assumes and what makes it approximately tight. That is not a
 disappointment; it is a measurement of how little independent information
 diffusion actually moves. Ten agents mixing every step, all tracking the same
-$\bm\theta^{\star}$, end up with errors correlated closely enough that treating
+$\boldsymbol\theta^{\star}$, end up with errors correlated closely enough that treating
 them as independent is badly wrong. **This answers P5.14 from the side nobody
 expected** — the worry recorded there was that the bound might be "wildly loose",
 in which case the conservative framing would be doing less work than it appears.
@@ -3548,7 +3548,7 @@ $(\alpha=1,\beta=1)$ diverged in both variants, and $\beta\ge1.5$ **rescues** it
     diffusion_ekf_full     beta=1: DIV   beta=1.5: 0.1571   beta=2: 0.1652
     diffusion_ekf_onehop   beta=1: DIV   beta=1.5: 0.1450   beta=2: 0.1549
 
-$\beta>1$ shrinks $\bm P$, which shrinks the gain, which offsets $\alpha=1$'s
+$\beta>1$ shrinks $\boldsymbol P$, which shrinks the gain, which offsets $\alpha=1$'s
 tenfold score inflation. **A real interaction, and the justification for sweeping
 jointly after all**: an $\alpha$ line at $\beta=1$ reports a divergence that the
 other axis silently removes, and a $\beta$ line at $\alpha=1$ reports $\beta>1$ as
@@ -3558,8 +3558,8 @@ on a case where the mechanism was known in advance.
 *Second: I called $\beta=2$ "the overconfident end".* In *reported* covariance it
 is. In effect it is the reverse — overconfidence runs $-0.0354$ → $-0.3057$ as
 $\beta$ rises, i.e. the filter becomes far more **under**-confident. Shrinking
-$\bm P$ does not merely change what the filter claims; it changes how fast the
-filter learns. Smaller gain, sluggish tracking, a smaller $\lVert\bm\theta\rVert$,
+$\boldsymbol P$ does not merely change what the filter claims; it changes how fast the
+filter learns. Smaller gain, sluggish tracking, a smaller $\lVert\boldsymbol\theta\rVert$,
 and [[D80]] says confidence tracks the norm. The dynamic consequence dominates the
 static one, and both point the same way. **A covariance knob in a filter is never
 only a reporting knob** — it sits inside the gain, and anything that changes the
@@ -3602,10 +3602,10 @@ adapt, nothing for one-hop). Both were measured on **IID shards**.
 
 Thirty times the noise threshold, and larger than the entire
 centralised-versus-diffusion gap. **The mechanism is exchangeability.** On IID
-shards every agent's $\bm P$ is nearly the same matrix, so shipping it is
+shards every agent's $\boldsymbol P$ is nearly the same matrix, so shipping it is
 redundant — the mean already carries everything the neighbour knows. Under skew
 the agents hold different label distributions, so their Fisher information points
-in genuinely different directions, and $\bm P$ carries what $\bm\psi$ cannot.
+in genuinely different directions, and $\boldsymbol P$ carries what $\boldsymbol\psi$ cannot.
 
 ⚠ **And the two repairs are substitutes, not complements.** For the *one-hop*
 adapt, full sharing buys nothing even under severe skew ($+0.0009$, ns). One-hop
@@ -3638,30 +3638,30 @@ $\beta_{\mathrm{dir}}\in\{0.1,1,100\}$:
 | centralised EKF | 0.0019 |
 | centralised SGD | 0.0031 |
 | one-hop diffusion | 0.0163 |
-| \ac{atc} | 0.0171 |
+| ATC | 0.0171 |
 | **local-adapt diffusion** | **0.0395** |
 | local only | 0.4895 |
 
 [[D77]] is confirmed exactly as stated: the centralised filter barely moves, so
 X17 said nothing about a diffusion filter. And the diffusion filter is **more**
-skew-sensitive than \ac{atc}, which is not the direction one would guess for a
+skew-sensitive than ATC, which is not the direction one would guess for a
 method that mixes a whole belief rather than a point.
 
 **One-hop's value is almost entirely a skew effect** — $-0.0274$ ($t=-3.74$) at
 skew 0.1 against $-0.0042$ ($t=-4.96$) at skew 100, a 6.5× swing. Where the shards
 are exchangeable there is little to gather that the mean does not already carry.
 
-**⚠ Do not write "the filter" for these cells.** Against $2\psi$ \ac{atc} at severe
+**⚠ Do not write "the filter" for these cells.** Against $2\psi$ ATC at severe
 skew the two variants disagree in *sign* — the mean-only local adapt **loses** by
 $+0.0196$ ($t=3.01$) while one-hop **wins** by $-0.0078$ ($t=-8.22$):
 
-| $\beta_{\mathrm{dir}}$ | local vs \ac{atc} | one-hop vs \ac{atc} |
+| $\beta_{\mathrm{dir}}$ | local vs ATC | one-hop vs ATC |
 |---|---|---|
 | 0.1 | $+0.0196$, $t=+3.01$ | $-0.0078$, $t=-8.22$ |
 | 1 | $-0.0052$ (ns) | $-0.0086$, $t=-7.45$ |
 | 100 | $-0.0028$, $t=-2.87$ | $-0.0070$, $t=-14.03$ |
 
-X20's "all six cells" was measured with the mean-only variant on \ac{iid} data and
+X20's "all six cells" was measured with the mean-only variant on IID data and
 holds there. At severe skew it fails, and only the one-hop adapt carries the claim
 — the same conclusion this note reaches from the covariance side, since one-hop and
 full sharing turn out to be substitutes.
@@ -3674,7 +3674,7 @@ depend on how the labels were partitioned. Figure 38(a) therefore draws it as
 markers without a connecting line, with a seed-range band on every series.
 
 **Damage under drift at skew 0.1**, abrupt: centralised 0.0358 < one-hop 0.0431 <
-centralised \ac{sgd} 0.0513 < local diffusion 0.0604 ≈ \ac{atc} 0.0638.
+centralised SGD 0.0513 < local diffusion 0.0604 ≈ ATC 0.0638.
 ⚠ `local_only` shows the *lowest* damage of all, 0.0306, and is excluded: its floor
 is 0.6215, **11.4×** the centralised filter's, far outside [[D77]]'s 2.5× rule. The
 other five sit within 2.09× and are rankable.
@@ -3683,7 +3683,7 @@ other five sit within 2.09× and are rankable.
 
 **The defect.** X20 built its matched-bandwidth arm as
 `{**PLAIN, "lr": rates[BASELINE["name"]]}` — `atc_plain` carrying the *momentum*
-arm's selected rate. Plain \ac{sgd} at $\eta=0.01$ takes an effective step of
+arm's selected rate. Plain SGD at $\eta=0.01$ takes an effective step of
 0.01; momentum 0.9 at the same $\eta$ takes $\eta/(1-\beta)=0.10$. **Ten times
 larger.** `local_only` was given its own rate in the same cell, so the omission is
 inconsistent as well as wrong.
@@ -3698,13 +3698,13 @@ update travels, so they do not share an optimum — which is the whole reason
 and, to its credit, declined to headline that number: "`atc_plain` is weak enough
 that the matched margin flatters us", choosing the $2\psi$ comparison instead. The
 instinct was right and the diagnosis was wrong. `atc_plain` is not weak because
-plain \ac{sgd} is weak; it is weak because it was handed a rate chosen for a method
-with ten times its effective step. At abrupt/\ac{er} it scored 0.2007 against
+plain SGD is weak; it is weak because it was handed a rate chosen for a method
+with ten times its effective step. At abrupt/ER it scored 0.2007 against
 `local_only`'s 0.2097 — a *cooperating* method barely beating a lone agent, which
 should have been read as a tuning failure rather than as a property of the method.
 
 **What it does not affect.** The headline claim rests on the $2\psi$ comparison
-against momentum \ac{atc}, which is correctly tuned and unaffected. D81 stands.
+against momentum ATC, which is correctly tuned and unaffected. D81 stands.
 
 **What is now missing.** X25 carried no `atc_plain` at all, so the
 matched-bandwidth comparison **under skew** is unmeasured — and skew is where
@@ -3715,7 +3715,7 @@ matched bandwidth is the open question, and it is the one a reviewer will ask.
 attached — verified by X25's `lr` cells reproducing the main cells' baseline
 numbers to twelve decimals on shared seeds. So `atc_plain` can run in its own
 cells, at its own selected rate, and be compared paired against what already
-exists. \ac{sgd}-only cells are minutes.
+exists. SGD-only cells are minutes.
 
 ### ✅ D91. The matched-bandwidth claim survives, at half the margin, and only one-hop survives skew
 
@@ -3731,7 +3731,7 @@ the size was not obvious.
 | $15^{\circ}$ every 25 | 0.1408 | 0.2007 | 0.0600 |
 
 So the arm was 0.035 to 0.060 worse than the method is. Its "barely beats
-`local_only`" behaviour was a learning rate, not a property of plain \ac{sgd}, and
+`local_only`" behaviour was a learning rate, not a property of plain SGD, and
 [[D90]]'s diagnosis is closed.
 
 **The filter still wins at matched bandwidth --- and by *more* than against the
@@ -3746,7 +3746,7 @@ $2\psi$ arm.**
 This needs stating carefully, because two numbers move in opposite directions.
 X20's margin against `atc_plain` was 0.048--0.082 and was **inflated** --- the
 honest figure is 0.012--0.025. But that is *larger* than the margin against
-momentum \ac{atc} (0.0059--0.0125), because momentum genuinely helps \ac{atc}
+momentum ATC (0.0059--0.0125), because momentum genuinely helps ATC
 everywhere ($-0.005$ to $-0.021$). The $2\psi$ arm is the **stronger** baseline,
 not merely the more expensive one.
 
@@ -3766,8 +3766,8 @@ reason X20 gave and not the one it gave it for.
 | skew, smooth | $+0.0023$ | $0.38$ |
 
 [[D89]]'s loss was not an artefact of comparing against a $2\psi$ arm: the mean-only
-filter loses to diffusion \ac{sgd} at *equal communication* under severe skew.
-⚠ **But $t=1.66$ on three seeds is suggestive, not established.** The \ac{iid}
+filter loses to diffusion SGD at *equal communication* under severe skew.
+⚠ **But $t=1.66$ on three seeds is suggestive, not established.** The IID
 cells run $t=10$ to $24$; this one is not in that class and should not be written
 as a finding without more seeds.
 
@@ -3785,8 +3785,8 @@ benchmark --- at $-0.0493$ against `atc_plain` (⚠ not its matched arm: one-hop
 sends $2.27\psi$, see [[D92]]). That is the strongest case the
 one-hop variant has, and it is the cell nobody would have looked at first.
 
-**Net.** At equal communication the filter beats diffusion \ac{sgd} on every
-\ac{iid} condition and on mild skew; at severe skew only the one-hop adapt does.
+**Net.** At equal communication the filter beats diffusion SGD on every
+IID condition and on mild skew; at severe skew only the one-hop adapt does.
 Combined with [[D89]] --- where covariance sharing pays 0.0314 under skew but
 nothing for one-hop --- the picture is consistent: **once the shards stop being
 exchangeable, the mean alone is not enough, and the two ways of fixing that are
@@ -3795,22 +3795,22 @@ substitutes.**
 ### ✅ D92. One-hop sends two messages a step, and its payload was short by one ψ
 
 **Found by the user**, reviewing the deck's payload column: the 788-scalar increment
-was labelled as neighbours sending $(\bm H,\bm R,\bm y)$, which it is not — it is the
+was labelled as neighbours sending $(\boldsymbol H,\boldsymbol R,\boldsymbol y)$, which it is not — it is the
 raw batch. Tracing what a receiver needs to rebuild a block from a raw batch turned
 up the larger error.
 
 **The code defers the one-hop update.** `adapt` returns the *predictive* mean
-$\bm\theta_u^-$ ("what travels is the prior plus the information to act on it");
-`combine` then replaces $\bm\psi$ with each agent's *updated* mean from
+$\boldsymbol\theta_u^-$ ("what travels is the prior plus the information to act on it");
+`combine` then replaces $\boldsymbol\psi$ with each agent's *updated* mean from
 `_one_hop_update` and mixes those. In one process that is one call. On a network it
 is two messages:
 
-1. **before the update** — $\bm\theta_u^-$ with the raw batch, $n(d+1)=788$,
-   because the receiver rebuilds $u$'s block at $\bm\theta_u^-$, the linearisation
-   point the implementation uses. It cannot already hold it: $\bm\theta_u^-$ comes
+1. **before the update** — $\boldsymbol\theta_u^-$ with the raw batch, $n(d+1)=788$,
+   because the receiver rebuilds $u$'s block at $\boldsymbol\theta_u^-$, the linearisation
+   point the implementation uses. It cannot already hold it: $\boldsymbol\theta_u^-$ comes
    from $u$'s previous combine, which depends on $u$'s neighbours, not $v$'s.
-2. **after it** — $\bm\psi_u^+$ for the combine, which $v$ cannot compute without
-   $u$'s $\bm P$.
+2. **after it** — $\boldsymbol\psi_u^+$ for the combine, which $v$ cannot compute without
+   $u$'s $\boldsymbol P$.
 
 | variant | messages | payload | ×ψ |
 |---|---|---|---|
@@ -3820,19 +3820,19 @@ is two messages:
 | `diffusion_ekf_onehop` | **2** | **4 236 290** | **1 456.77** |
 | `diffusion_sgd_atc` (momentum) | 1 | 5 816 | 2.00 |
 
-The information-factor path was costed correctly all along — $\bm\psi+\bm B+\bm g$ =
-122 136, because a $\bm B$ block is already linearised and needs no
-$\bm\theta_u^-$. Only the raw-sample path lost a ψ. So raw samples are **32×**
+The information-factor path was costed correctly all along — $\boldsymbol\psi+\boldsymbol B+\boldsymbol g$ =
+122 136, because a $\boldsymbol B$ block is already linearised and needs no
+$\boldsymbol\theta_u^-$. Only the raw-sample path lost a ψ. So raw samples are **32×**
 cheaper than factors in the first message (3 696 against 119 228) and **18×** over a
 whole step — not 151× or 155×. The condition under which raw samples win,
-$n(d+1)<p\,nq$, is unchanged: the $\bm\theta_u^-$ that must accompany the batch is
-matched by the $\bm g$ that accompanies $\bm B$.
+$n(d+1)<p\,nq$, is unchanged: the $\boldsymbol\theta_u^-$ that must accompany the batch is
+matched by the $\boldsymbol g$ that accompanies $\boldsymbol B$.
 
-**What changes.** One-hop mean-only sends 14% more than momentum \ac{atc}, not 27%
-more than plain \ac{atc}. Its results survive, restated: its nearest baseline by
-bandwidth is momentum \ac{atc} at 2ψ, which it beats at every condition measured
-(0.1066 against 0.1312 on \ac{iid} abrupt; 0.0863 against 0.0941 at severe skew) —
-so "beats momentum \ac{atc} at 1.14× its bandwidth", not "at less bandwidth", and
+**What changes.** One-hop mean-only sends 14% more than momentum ATC, not 27%
+more than plain ATC. Its results survive, restated: its nearest baseline by
+bandwidth is momentum ATC at 2ψ, which it beats at every condition measured
+(0.1066 against 0.1312 on IID abrupt; 0.0863 against 0.0941 at severe skew) —
+so "beats momentum ATC at 1.14× its bandwidth", not "at less bandwidth", and
 not "beats the matched arm", since `atc_plain` at 1ψ is not one-hop's matched arm
 ([[D91]]). It also doubles one-hop's latency against the local adapt ([[D84]]).
 
@@ -3840,13 +3840,13 @@ not "beats the matched arm", since `atc_plain` at 1ψ is not one-hop's matched a
 The arithmetic above is right for the *sender* point, which is what one-hop meant
 when this note was written. [[D99]] adopted the receiver point and [[D100]]
 confirmed it, and there one-hop mean-only sends **3 696** scalars per link per step:
-$0.64\times$ momentum \ac{atc}'s 5 816, and $1.27\times$ `atc_plain`'s 2 908. Three
+$0.64\times$ momentum ATC's 5 816, and $1.27\times$ `atc_plain`'s 2 908. Three
 consequences, all favourable:
 
-* "beats momentum \ac{atc} at $1.14\times$ its bandwidth, **not** at less bandwidth"
+* "beats momentum ATC at $1.14\times$ its bandwidth, **not** at less bandwidth"
   becomes *beats it at $0.64\times$* — that is, at less. The phrasing this note
   explicitly ruled out is now the correct one.
-* **The nearest baseline by bandwidth flips** from momentum \ac{atc} to `atc_plain`:
+* **The nearest baseline by bandwidth flips** from momentum ATC to `atc_plain`:
   one-hop sits 788 scalars above the cheap arm and 2 120 below the costly one, where
   at the sender point it was above both.
 * [[D91]]'s "`atc_plain` is not one-hop's matched arm" weakens accordingly — still
@@ -3865,8 +3865,8 @@ this size — an estimated ~10⁶ flops against ~5×10⁹ for the Woodbury updat
 in [[D93]]: the Jacobians are 13% of the one-hop step, and one-hop costs 2.0×,
 not 3.8× — the estimate here was wrong on both counts.*
 
-**And from the same review: "a smaller $\bm P$ is a larger gain" was backwards.** A
-smaller $\bm P$ gives a smaller $\bm K$. What $\alpha$ does ([[D87]]) is scale the
+**And from the same review: "a smaller $\boldsymbol P$ is a larger gain" was backwards.** A
+smaller $\boldsymbol P$ gives a smaller $\boldsymbol K$. What $\alpha$ does ([[D87]]) is scale the
 score by $c$ while the covariance shrinks by much less than $c$ wherever the prior
 dominates, so the step grows roughly $c$-fold in exactly the directions with least
 data — where the linearisation is least trustworthy.
@@ -3877,10 +3877,10 @@ Two findings from a second external review of the deck, one about what one-hop
 computes and one about what it costs.
 
 **Mixed linearisation points.** A receiver rebuilds each neighbour's block at the
-*sender's* predictive mean $\bm\theta_u^-$, sums the blocks with its own, and applies
-the sum to its own prior $(\bm\theta_v^-,\bm P_v^-)$. For a nonlinear network,
+*sender's* predictive mean $\boldsymbol\theta_u^-$, sums the blocks with its own, and applies
+the sum to its own prior $(\boldsymbol\theta_v^-,\boldsymbol P_v^-)$. For a nonlinear network,
 blocks linearised at different points and summed into one update are **not** one
-\ac{ekf} update at a common point. It is exact when $\bm\theta_u^-=\bm\theta_v^-$
+EKF update at a common point. It is exact when $\boldsymbol\theta_u^-=\boldsymbol\theta_v^-$
 for every $u\in\mathcal M_v$ — consensus, which holds on a complete graph with a
 common predictive prior, i.e. `prop:complete_graph`'s condition — and exact for a
 linear observation model. Away from consensus it is a well-defined approximation.
@@ -3889,12 +3889,12 @@ The deck's "why one-hop evidence sharing is valid" overstated it.
 **And the choice was a simulation convenience that costs a ψ in deployment.** The
 sender forms its block once and every neighbour reuses it, which is cheap in one
 process. A deployment that ships raw batches re-linearises at the receiver anyway,
-so it could do so at the receiver's *own* $\bm\theta_v^-$: one linearisation point
-— the textbook diffusion \ac{ekf}, where neighbours send measurements and the
-receiver linearises its own model — and no $\bm\theta_u^-$ in the first message, so
-788 + 2 908 = 3 696 per link per step, below momentum \ac{atc} again. On a complete
+so it could do so at the receiver's *own* $\boldsymbol\theta_v^-$: one linearisation point
+— the textbook diffusion EKF, where neighbours send measurements and the
+receiver linearises its own model — and no $\boldsymbol\theta_u^-$ in the first message, so
+788 + 2 908 = 3 696 per link per step, below momentum ATC again. On a complete
 graph with a common prior the two coincide, so the exactness gate cannot tell them
-apart; on \ac{er} they differ, and X20–X26's one-hop numbers would not carry over.
+apart; on ER they differ, and X20–X26's one-hop numbers would not carry over.
 ❓ **Open:** whether to implement the receiver-point variant and re-run. ⚠ *Implemented
 in [[D94]], alongside the sender point rather than replacing it; the comparison is X27.*
 
@@ -3931,7 +3931,7 @@ only, and pinned by the learner name like the two axes:
 `diffusion_ekf_onehop_mean_receiver` and `diffusion_ekf_onehop_receiver` are the
 existing one-hop variants at the receiver's point. Every other name is `sender`,
 the default, so X20–X26 reproduce unchanged. A receiver pools every reachable
-batch and calls `information_pair` once at its own $\bm\theta_v^-$; that function
+batch and calls `information_pair` once at its own $\boldsymbol\theta_v^-$; that function
 sums over samples, so the result is the concatenation of per-agent blocks at one
 point — and on a complete graph it is the centralised filter's pooled call
 verbatim. `receiver` under a local adapt is refused: one batch has one point, so
@@ -3940,7 +3940,7 @@ the setting would name a variant that does not exist.
 **What the tests pin.** The complete-graph identity for all four one-hop variants,
 to 1e-10 in the unit test and 1e-12 through the runner. Both points pass, which is
 exactly why that gate cannot choose between them. On a ring the two agree at the
-first step — a common prior makes every $\bm\theta_u^-$ equal — and part from the
+first step — a common prior makes every $\boldsymbol\theta_u^-$ equal — and part from the
 second. The ledger per variant, and the refusal when a config contradicts the name.
 
 **How far apart, and at what cost.** A probe on the tests' small network ($p=349$,
@@ -3948,7 +3948,7 @@ second. The ledger per variant, and the refusal when a config contradicts the na
 after step 2 and 1.6e-4 by step 5, against an agent spread of 1e-2 to 3e-2 —
 about 1% of the disagreement that causes it, and not growing over five steps.
 Whether that is 1% of anything in the *error* is what X27 measures. Compute at
-$p=2908$, $N=10$, \ac{er} $p=0.3$ (one draw, mean $|\mathcal M_v|=5.0$), float64
+$p=2908$, $N=10$, ER $p=0.3$ (one draw, mean $|\mathcal M_v|=5.0$), float64
 on the RTX 4070, median of 15 network steps: sender 36.1 ms per agent, receiver
 37.6 (+4%). The receiver linearises $\sum_v|\mathcal M_v|$ batches where the
 *simulated* sender linearises $N$; a *deployed* sender re-linearises its
@@ -3958,9 +3958,9 @@ both.
 **The ledger, fixed.** `comm_scalars_per_step` counted $p$-vectors: full sharing
 at $p$ further vectors — all of $p^2$, lower triangle included — and one-hop at
 $q'+1=10$ further vectors, ignoring $n$ entirely. It now counts scalars per
-direction as a deployment sends them: $\bm\psi$, $p$; full sharing adds the upper
+direction as a deployment sends them: $\boldsymbol\psi$, $p$; full sharing adds the upper
 triangle, $p(p+1)/2$; one-hop adds the raw batch $n(d+1)$ — recorded from the
-data, since $n$ belongs to the environment — plus $\bm\theta_u^-$ under `sender`.
+data, since $n$ belongs to the environment — plus $\boldsymbol\theta_u^-$ under `sender`.
 At $p=2908$, $n=4$, $d=196$, per link per direction:
 
 | variant | before | now |
@@ -4009,9 +4009,9 @@ positions first, a learned embedding if order proves a problem; sensor gain/bias
 drift first, $\tau$ drift if time.
 
 Five quantities are deliberately left to the pilot (M0) rather than guessed: the
-noise level $\sigma$, the usable $\beta$ range, whether $\bm R$ is diagonal
+noise level $\sigma$, the usable $\beta$ range, whether $\boldsymbol R$ is diagonal
 ($|\rho_1|<0.2$, and watched throughout rather than settled once), whether it is
-per-position ($>2\times$ variance across positions), and the centre of the $\bm R$
+per-position ($>2\times$ variance across positions), and the centre of the $\boldsymbol R$
 grid. The pilot is also a hard gate: one agent alone must trail the pooled learner by
 more than three times the seed noise, or the task is hardened before anything else is
 built.
@@ -4043,10 +4043,10 @@ chose $10^{-2}$, **the top of its grid**, every time — M3's AdamW grid must re
 higher. Plain SGD passes but barely at low noise, which is the pilot's argument
 for having added AdamW (decision 19).
 
-**The residual structure decides whether the filter's $\bm R$ is right**, and it
+**The residual structure decides whether the filter's $\boldsymbol R$ is right**, and it
 depends on $\sigma$ (a converged offline model, 20 000 held-out blocks):
 
-| $\sigma$ | $\rho_1$ | variance ratio (from pos. 2) | $\bm R$ centre |
+| $\sigma$ | $\rho_1$ | variance ratio (from pos. 2) | $\boldsymbol R$ centre |
 |---|---|---|---|
 | 0.01 | **+0.372** | 51.6 (5.4) | $1.58\times10^{-3}$ |
 | 0.05 | **−0.206** | 6.4 (3.3) | $6.86\times10^{-3}$ |
@@ -4072,21 +4072,21 @@ The amplitude grows with $\beta$ (std 0.13 at 0.16, 0.30 at 0.24).
 **What this leaves open.** The noise level; how the drift is placed against a
 chaotic window only 0.04 wide — the provisional span of 0.04 fits it exactly
 upward from 0.2, but a recurring schedule jumps both ways and would leave it; and
-the $\bm R$ grid, whose centre and per-position shape now come from the table
+the $\boldsymbol R$ grid, whose centre and per-position shape now come from the table
 above at whichever $\sigma$ is chosen. ❓ **Open**, put to the user.
 
 **Decided 2026-09-15**, all three as recommended:
 
 1. **$\sigma=0.1$** — the only level meeting the diagonal rule, with the strongest
    separation (57.7× the seed noise) and the pooled learner still 1.52× above the
-   floor. Per-position $\bm R$ is needed regardless.
+   floor. Per-position $\boldsymbol R$ is needed regardless.
 2. **$\beta_0=0.22$, span 0.02.** Every cell sits at the centre of the chaotic
    window, the most chaotic point measured ($\lambda=0.0074$), and the full span
    reaches exactly its edges: linear drift runs 0.22→0.24, and recurring jumps of
    15 "degrees" (0.0067) reflect inside $[0.20,0.24]$. No condition leaves chaos,
    so a drift changes the law's parameters, never the kind of dynamics. The
    standardisation constants stay those of $\beta=0.2$ — fixed, never per run.
-3. **$\bm R$ = the pilot's per-position profile × one tuned scale.** The shape is
+3. **$\boldsymbol R$ = the pilot's per-position profile × one tuned scale.** The shape is
    measured, the level is tuned — one grid axis, not 31. ⚠ The pilot measured the
    profile at $\beta=0.2$; it is re-measured at the chosen law ($\beta=0.22$,
    $\sigma=0.1$), for the linear AR as well as the Transformer, before M4.
@@ -4094,17 +4094,120 @@ above at whichever $\sigma$ is chosen. ❓ **Open**, put to the user.
 **Re-measured at the chosen law** (`scripts/measure_r_profile.py`, four seeds'
 agents fitted, the fifth held out):
 
-| model | RMSE | $\bm R$ centre | per-position ratio | $\rho_1$ |
+| model | RMSE | $\boldsymbol R$ centre | per-position ratio | $\rho_1$ |
 |---|---|---|---|---|
 | Transformer (offline AdamW) | **0.1526** | $2.20\times10^{-2}$ | 3.69 | −0.118 |
 | linear AR(31) (least squares) | 0.1844 | $3.40\times10^{-2}$ | 3.13 | +0.017 |
 | persistence | 0.2265 | — | — | — |
 
-Both meet the diagonal rule at this law, and both need a per-position $\bm R$. The
+Both meet the diagonal rule at this law, and both need a per-position $\boldsymbol R$. The
 Transformer beats the linear AR's *optimum* by 0.032 — decision 11's question,
 whether the Transformer is needed at all, answered offline before any online run:
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
-in its own model config, as the centre of its $\bm R$ grid.
+in its own model config, as the centre of its $\boldsymbol R$ grid.
+
+### ✅ D105. M5: the tie-break that could not break the tie, and the image task's $q$ pattern inverts
+
+`scripts/run_m5_diffusion.py` (16 cells × 2 seeds, ≈4.3 h GPU), its `--tie-break`
+(2 cells × 5 seeds, ≈1.3 h), and `scripts/run_m5_linear_probe.py` (2 cells × 2
+learners × 2 seeds, ≈1 h). `results/m5_selection.json`. **Zero divergences in any
+of the twenty cells**, at every $q$ including the largest.
+
+**Selected: $\gamma=1$, $q=6\times10^{-7}$, $\sigma_0^2=0.01$** — settled RMSE
+0.1428 at five seeds on `m_abrupt`, for `diffusion_ekf_onehop_mean_receiver`, the
+variant D99 adopted. Carried unchanged to all four diffusion variants and all three
+conditions in M6, as X14's discipline requires.
+
+| $q$ | $\gamma=1,\sigma_0^2=0.01$ | $\gamma=1,10^{-3}$ | $0.9995,0.01$ | $0.9995,10^{-3}$ |
+|---|---|---|---|---|
+| $6\times10^{-7}$ | **0.1458** | 0.1508 | 0.1562 | 0.1662 |
+| $6\times10^{-6}$ | 0.1463 | 0.1486 | 0.1499 | 0.1518 |
+| $6\times10^{-5}$ | 0.1536 | 0.1548 | 0.1545 | 0.1546 |
+| $6\times10^{-4}$ | 0.2000 | 0.1970 | 0.1974 | 0.1938 |
+
+**The grid was extended downward, and the extension returned a null.** The first
+twelve cells put the argmin on the bottom row, so the discipline the docstring
+wrote for the upward case was applied symmetrically: one step down, not a blind
+decade. Per-decade gains were $0.046$, then $0.0073$, then **$0.0005$** — below
+`THRESHOLD`. The extrapolation had predicted $\approx0.001$, so the measurement
+was not needed to *guess* the answer; it was needed because M4's grid bottoms out
+at the same $q=6\times10^{-6}$, and extending M5's search without extending M4's
+would have searched the diffusion filter finer than the baseline it is measured
+against. The null is what keeps M6 like-for-like. M4 was therefore left alone.
+
+Note the extension also *narrowed* where the filter is safe: the spread across the
+four $\gamma\times\sigma_0^2$ cells widens from 0.0055 at $6\times10^{-6}$ to
+0.0204 at $6\times10^{-7}$. Only the best corner improved; the other three got
+worse by 0.0022, 0.0063 and 0.0144. That is an optimum flattening, not a trend
+with further to run, and it is the argument against a third decade.
+
+**The tie-break did not break the tie.** Two cells fell inside `THRESHOLD`, and at
+five seeds both moved by *exactly* $-0.0030$:
+
+| $\gamma$ | $q$ | $\sigma_0^2$ | 2 seeds | 5 seeds | moved |
+|---|---|---|---|---|---|
+| 1 | $6\times10^{-7}$ | 0.01 | 0.1458 | 0.1428 | $-0.0030$ |
+| 1 | $6\times10^{-6}$ | 0.01 | 0.1463 | 0.1433 | $-0.0030$ |
+
+Identical movement is a **seed effect, not a cell effect** — seeds 2–4 are kinder
+than 0–1 — and the gap is 0.0005 before and after. The two-seed winner agreed, but
+agreement at a resolution where the gap is a quarter of the threshold is not a
+separation. Five more seeds would buy nothing; the cells are the same.
+
+**A hypothesis, and its refutation.** The plateau made the choice ours, so it was
+argued on robustness: $6\times10^{-7}$ is the least adaptive setting in the grid,
+tuned on `m_abrupt` — whose schedule is `recurring`, which **reflects at the
+45-degree cap (D74)**, so the target keeps returning to where the filter already
+is. That is the condition least able to expose under-adaptation. The prediction was
+that on `m_linear`, which marches once to 45 degrees and never returns,
+$6\times10^{-7}$ would under-track; and that `diffusion_ekf` (local adapt) would
+suffer most, since by D87 an agent holding $1/N$ of the information should want
+*more* process noise.
+
+`run_m5_linear_probe.py` measured it. **Both halves were wrong:**
+
+| learner on `m_linear` | $6\times10^{-7}$ | $6\times10^{-6}$ | difference |
+|---|---|---|---|
+| `diffusion_ekf_onehop_mean_receiver` | 0.1460 | 0.1468 | $+0.0008$ |
+| `diffusion_ekf` (local adapt) | **0.1509** | 0.1596 | $+0.0088$ |
+
+The carried variant is tied, and the local-adapt filter — the one predicted to need
+more $q$ — prefers the **smaller** value by 0.0088, four times the threshold and
+the largest separation in the comparison. Overriding the selection on the
+robustness argument would have degraded M6's local-adapt arm by more than most of
+the differences M6 exists to measure. The selection stands unedited.
+
+**The finding that outlives the tuning decision: D87's pattern inverts here.** On
+the image task the diffusion filter wanted *ten times more* process noise than its
+centralised twin, because each agent holds $1/N$ of the information and must stay
+adaptive. M5's grid was built to test whether that transfers. It does not, and it
+does not merely fail — it reverses. M4's centralised filter chose
+$q=6\times10^{-6}$; the diffusion filter prefers $6\times10^{-7}$, and the
+local-adapt variant prefers it most strongly of all. The $1/N$ deficit does not
+translate into wanting a looser covariance on this task.
+
+**$\gamma=1$ is not a variance-explosion risk here, and that is measured too.**
+$\gamma$ acts on the mean, not the covariance (D26): $\boldsymbol P=\gamma^2\boldsymbol P+\boldsymbol Q$
+contracts. At the selected setting the filter is calibrated to three decimals —
+coverage 0.504/0.901/0.951 against nominal 0.50/0.90/0.95, variance ratio 0.9996 —
+and $\lVert\boldsymbol m\rVert^2$ grows 25% over 1500 steps with decelerating increments,
+against a trust-region guard at 50× that never fired. The inflation signature does
+appear in the grid, but at **large $q$**: at $6\times10^{-4}$ the variance ratio
+falls to 0.55 and coverage over-shoots to 0.65/0.97/0.99, and those are the
+worst-scoring cells. $\boldsymbol Q$ inflates $\boldsymbol P$; $\gamma$ does not.
+
+$\gamma=0.9995$ at the selected $q$ is both worse-scoring and slightly
+over-confident (ratio 1.124, under-covering at 0.882 and 0.935) — the contraction
+shrinking $\boldsymbol P$ below what the residuals support. Consistent with X23, which
+chose $\gamma=0.9995$ *at $q=6\times10^{-4}$*: both tasks show the same
+$\gamma$–$q$ interaction, and differ only in where their optimum sits along it.
+
+**Carried, with its limits stated.** One setting serves four variants and three
+conditions, so a shortfall in the local-adapt arm of M6 is attributable to the
+adapt scope rather than confounded with tuning — the trade the image task also
+made. The probe is the only evidence that the setting travels: the carried variant
+scores 0.1460 on `m_linear` against 0.1458 on `m_abrupt`. Nothing yet tests
+`m_stationary`, and M6 is where that shows.
 
 ### ✅ D104. The model protocol had no device contract, and exactly one model needed one
 
@@ -4114,16 +4217,16 @@ inside the Transformer's `forward`.
 
 **Why it surfaced only there.** Models here are *functional*: parameters arrive as
 an argument and carry their own placement, so a model that owns no tensors runs
-correctly wherever it was built. The \ac{mlp} and the linear AR own nothing — which
-is why every image-task run, P5.3 included, has used `device: auto` on a \ac{gpu}
+correctly wherever it was built. The MLP and the linear AR own nothing — which
+is why every image-task run, P5.3 included, has used `device: auto` on a GPU
 without trouble. The causal Transformer owns **two registered buffers**, the
 sinusoidal positions and the causal mask. Buffers travel with the module, and
 `functional_call` substitutes parameters without touching them, so device-resident
-parameters met a \ac{cpu}-resident encoding.
+parameters met a CPU-resident encoding.
 
-**Why it took until M5.** Every Mackey--Glass run before it was \ac{cpu}: M3 and
-M6's smoke by configuration, M4 deliberately, to leave the \ac{gpu} free for the
-image sweeps. M5 is the first \ac{mg} run ever to ask for a device.
+**Why it took until M5.** Every Mackey--Glass run before it was CPU: M3 and
+M6's smoke by configuration, M4 deliberately, to leave the GPU free for the
+image sweeps. M5 is the first MG run ever to ask for a device.
 
 **The gap was in the protocol.** `Model` declares twelve methods and not one of them
 mentions placement; `build_model_from_config` took only a dtype, and the runner moved
@@ -4138,47 +4241,47 @@ applied generically to `_module`, which every model wraps, so a buffer added to 
 future model is covered. It is a no-op for the models that hold nothing.
 
 **⚠ That fix then caused a second, different failure — and the test written for the
-first one hid it.** With the module on a \ac{gpu}, `init_params` split: its `*_like`
-constructions followed the module to \ac{cuda} while the generator-driven weights
-stayed on the \ac{cpu}, and `flatten`'s `cat` raised one line later in `run_one`.
-**The \ac{mlp} carried the identical mix**, so the same change broke the *image* path,
+first one hid it.** With the module on a GPU, `init_params` split: its `*_like`
+constructions followed the module to CUDA while the generator-driven weights
+stayed on the CPU, and `flatten`'s `cat` raised one line later in `run_one`.
+**The MLP carried the identical mix**, so the same change broke the *image* path,
 which had been working — undetected only because no image sweep had started since.
 
-`init_params` is now **\ac{cpu}-only by contract** in every model, and must stay so.
-A \ac{cuda} tensor needs a \ac{cuda} generator, which draws a different random stream;
-$\bm\theta_0$ would then depend on where it was built, breaking reproducibility and the
+`init_params` is now **CPU-only by contract** in every model, and must stay so.
+A CUDA tensor needs a CUDA generator, which draws a different random stream;
+$\boldsymbol\theta_0$ would then depend on where it was built, breaking reproducibility and the
 D9/D18 requirement that every agent start from the *same* vector. The runner moves the
 flat vector once, after assembly.
 
-The first version of the test moved every parameter to \ac{cuda} itself before using
+The first version of the test moved every parameter to CUDA itself before using
 it, which is exactly why it passed while the split existed — it asserted the fix it
-was meant to check. It now asserts the contract: `init_params` returns \ac{cpu}
-tensors whatever the module's device, $\bm\theta_0$ is bit-identical across devices,
+was meant to check. It now asserts the contract: `init_params` returns CPU
+tensors whatever the module's device, $\boldsymbol\theta_0$ is bit-identical across devices,
 and `forward`/`vjp` run through the runner's real path (`flatten` → `.to(device)` →
 `unflatten`) rather than by hand.
 
-**Verified.** Twelve device tests pass with the \ac{cuda} cases executing; one real M5
-cell runs end to end on the \ac{gpu} (`ok`, 40 steps, marker written); the suite is
+**Verified.** Twelve device tests pass with the CUDA cases executing; one real M5
+cell runs end to end on the GPU (`ok`, 40 steps, marker written); the suite is
 **1 433 passed, 1 skipped**, which is exactly the five added tests and no movement
 elsewhere; $p=2273$ is unchanged.
 
 **The lesson, which is the reason this note is long.** Both faults were device-only,
-and the suite never left the \ac{cpu}. The first was invisible because no \ac{mg} run
-had used a \ac{gpu}; the second because the test written for the first one worked
+and the suite never left the CPU. The first was invisible because no MG run
+had used a GPU; the second because the test written for the first one worked
 around it. A unit test that constructs the conditions it is checking for proves
 nothing — the verification that finally caught both was *running one real cell of the
 actual sweep on the actual device*, which takes sixteen seconds and should have
 preceded the first launch.
 
-⚠ **No result is affected.** Every completed \ac{mg} cell records `device=cpu`, and
+⚠ **No result is affected.** Every completed MG cell records `device=cpu`, and
 the image-task runs use a model with no buffers.
 
 ⚠ **The suite could not have caught either fault, which is why the device test now
 exists.** Every
 series test pinned `"device": "cpu"`, and the only `cuda.is_available()` in the suite
-guarded the \ac{cuda}-*refusal* test — the one that shows as skipped. No test ever
-placed a model on a \ac{gpu}. `tests/test_model_device.py` now asserts the contract in
-both directions, with the \ac{cuda} cases skipped where there is no device to fail on.
+guarded the CUDA-*refusal* test — the one that shows as skipped. No test ever
+placed a model on a GPU. `tests/test_model_device.py` now asserts the contract in
+both directions, with the CUDA cases skipped where there is no device to fail on.
 
 ⚠ **And the pre-flight missed it.** M5's report path, refusal guard, lint and output
 encoding were all exercised before launch, on empty data, and the chain was called
@@ -4188,7 +4291,7 @@ the sweep would actually use. Verifying the plumbing is not verifying the run.
 ### ✅ D103. P5.3: the sharing gap does not widen as connectivity falls, and one-hop's value is not monotone in degree
 
 `run_diffusion_topology.py`, 12.6 h over 8 cells × 5 seeds (plus 0.6 h tuning), on
-path, ring, \ac{er} $p=0.3$ and complete. The first sweep to run one-hop at the
+path, ring, ER $p=0.3$ and complete. The first sweep to run one-hop at the
 **receiver** point natively (D99). Gradient baselines re-tuned per topology (D39,
 D77); the filter carries X20's selection unchanged, which is the X14 discipline.
 
@@ -4211,7 +4314,7 @@ covariance sharing pay; heterogeneity is (D89, D101).
 
 *"One-hop's value should scale with degree"* — it is **non-monotone**, peaking at
 intermediate connectivity: −0.0006 (ns) on a path, −0.0038 ($t=-4.1$) on a ring,
-−0.0028 ($t=-2.7$) at \ac{er} 0.3, and **+0.0031 (ns)** on a complete graph, where
+−0.0028 ($t=-2.7$) at ER 0.3, and **+0.0031 (ns)** on a complete graph, where
 one combine step already reaches consensus. A path's degree-1 endpoints gather
 little, so more reach is not monotonically more value.
 
@@ -4235,10 +4338,10 @@ and it did not break at the ring or at the path either.
    point (results.md §1283); it did not flip.
 
 **At matched-ish bandwidth** one-hop beats `atc_plain` by −0.0152 to −0.0176
-($t=-9$ to $-15$) on path, ring and \ac{er} 0.3, and ties on complete (−0.0001, ns)
-where \ac{atc} reaches consensus in one step and *is* centralized.
+($t=-9$ to $-15$) on path, ring and ER 0.3, and ties on complete (−0.0001, ns)
+where ATC reaches consensus in one step and *is* centralized.
 
-⚠ **The sparse point was originally \ac{er} $p=0.15$, and that was my error.** At
+⚠ **The sparse point was originally ER $p=0.15$, and that was my error.** At
 $N=10$ the connectivity threshold is $\ln(n)/n=0.230$, so 0.15 sits below it: the
 builder resampled for a connected draw and gave up after 20 attempts, mid-sweep.
 The deeper fault is that a draw which *does* succeed is conditioned on a rare event
@@ -4248,16 +4351,16 @@ construction and genuinely sparser than a ring in spectral gap. The tuning pass 
 slipped through on a lucky draw at seeds 0–1, which is why it was not caught earlier.
 
 **Cost rises with degree**, as one-hop's mechanism predicts: 86, 96 and 138 min for
-the group-A cells at path, \ac{er} 0.3 and complete. The tuning pass showed the
+the group-A cells at path, ER 0.3 and complete. The tuning pass showed the
 reverse ordering, but that was machine contention rather than topology — it runs only
 the gradient baselines, which never re-linearise a neighbour's batch.
 
 ### ✅ D102. M4: the centralised filter's four knobs, and an axis that flattened rather than ran out
 
 `scripts/run_m4_centralised.py`, 336.6 min CPU: $\gamma\times q\times\sigma_0^2\times$
-the scale of $\bm R$, **crossed**, 24 cells × 2 seeds on the abrupt condition and
+the scale of $\boldsymbol R$, **crossed**, 24 cells × 2 seeds on the abrupt condition and
 carried everywhere (the X14 discipline). Selected: $\gamma=1$, $q=6\times10^{-6}$,
-$\sigma_0^2=0.01$, $\bm R\times1$, at settled RMSE **0.1429**.
+$\sigma_0^2=0.01$, $\boldsymbol R\times1$, at settled RMSE **0.1429**.
 
 **The $q$ argmin sits on the grid's bottom edge, and that is not a reason to extend
 it.** The axis flattened:
@@ -4277,7 +4380,7 @@ the same reasoning as the AdamW tie in [[D98]].
 **The axes do not separate, which is why the grid was crossed.** $\gamma$ interacts
 with $q$: at $q=6\times10^{-4}$ the contracting $\gamma=0.9995$ wins **all four**
 slices, while at $6\times10^{-5}$ and $6\times10^{-6}$ the random walk $\gamma=1$
-wins **all eight**. $\bm R$ interacts the same way — $\times2$ is better at high $q$,
+wins **all eight**. $\boldsymbol R$ interacts the same way — $\times2$ is better at high $q$,
 $\times1$ at low. X23 found coordinate descent sufficient on the image task; that was
 a measurement there and does not transfer, and here it would have missed the
 interaction.
@@ -4395,7 +4498,7 @@ Seven cells, five seeds, X25's conditions and settings, both linearisation point
 one run so every comparison is paired against the same data stream
 (`run_linearization_point.py`; 9 h on the RTX 4070).
 
-| cell | sender | receiver | receiver − sender | $t$ | \ac{atc} (2ψ) |
+| cell | sender | receiver | receiver − sender | $t$ | ATC (2ψ) |
 |---|---|---|---|---|---|
 | still, $\beta_{\mathrm{dir}}=0.1$ | 0.0840 | 0.0779 | **−0.0060** | −2.55 | 0.0941 |
 | still, $\beta_{\mathrm{dir}}=1$ | 0.0734 | 0.0728 | −0.0005 | −0.98 (ns) | 0.0831 |
@@ -4425,8 +4528,8 @@ from disagreement needs cells that vary one while holding the other — which th
 do not.
 
 **And it is the cheaper one**: 3 696 scalars per link per step against 6 604, since
-$\bm\theta_u^-$ need not travel (D94). Better *and* 1.8× cheaper, so the receiver
-point is the one to carry forward — the textbook diffusion \ac{ekf}, which is also
+$\boldsymbol\theta_u^-$ need not travel (D94). Better *and* 1.8× cheaper, so the receiver
+point is the one to carry forward — the textbook diffusion EKF, which is also
 what the note should have specified all along.
 
 **Three reproduction checks passed.** The sender arm reproduces X25 **exactly**

@@ -96,8 +96,8 @@ unmatched baseline and a filter tuned for ten times the data it has.
   decades either side of the predicted $6\times10^{-6}$ and including the
   centralised $6\times10^{-5}$ so "no change" is expressible. It refuses to
   select an argmin that lands on a grid edge. The mechanism in D79 names $q$ as the mis-scaled parameter
-  and gives the direction: it was chosen to balance an influx of $N\bm\Delta$ per
-  step and now faces $\bm\Delta$, so it should fall by roughly $N$. The grid spans
+  and gives the direction: it was chosen to balance an influx of $N\boldsymbol\Delta$ per
+  step and now faces $\boldsymbol\Delta$, so it should fall by roughly $N$. The grid spans
   wider than that argument, because a scaling argument that predicts the answer is
   the worst reason to only look where it points.
 - [x] **P5.1b** Matched bandwidth. **DONE** — the filter wins all six cells
@@ -116,7 +116,7 @@ unmatched baseline and a filter tuned for ten times the data it has.
   D79 shows the deficit is in the adapt step and no combine rule can reach it;
   one-hop is the only implemented thing that can. ⚠ Implement its exchange as
   **raw measurements, not information factors** — the sender's predictive mean
-  plus 788 scalars (3 696) against 119 228 for $(\bm B,\bm g)$, exactly
+  plus 788 scalars (3 696) against 119 228 for $(\boldsymbol B,\boldsymbol g)$, exactly
   equivalent because that mean travels with the batch and the receiver rebuilds
   the block at it. The combine then needs a second message, so one-hop costs
   $2\psi+788$ = 6 604 per link per step, slightly more than momentum ATC (D92).
@@ -180,26 +180,26 @@ Ordered by what each would change if it came out badly, not by experiment number
 
 ## Algorithmic paths out of the information deficit
 
-D79's finding is that a local adapt gathers $\bm\Delta_v$ where the centralised
-filter sums $\sum_v\bm\Delta_v$, and that **no combine rule reaches that** —
+D79's finding is that a local adapt gathers $\boldsymbol\Delta_v$ where the centralised
+filter sums $\sum_v\boldsymbol\Delta_v$, and that **no combine rule reaches that** —
 averaging information is not summing it. So every candidate below is a change to
 what an agent *gathers* or to how it *reports its confidence*, never to the fusion
 rule. Ordered by value per unit of work.
 
 - [ ] **P5.15 — the covariance is never told the mean was averaged.** ⭐ The
   cheapest idea on this page and the most directly aimed at the mechanism. After
-  $\bm m_v\leftarrow\sum_u a_{vu}\bm\psi_u$, the *estimate* has been averaged over
+  $\boldsymbol m_v\leftarrow\sum_u a_{vu}\boldsymbol\psi_u$, the *estimate* has been averaged over
   $|\mathcal M_v|$ agents but the *covariance* still describes one agent's
   evidence. Two extremes bracket the truth:
 
-  $$\bm P_v\leftarrow\sum_u a_{vu}\bm P^{\psi}_u \quad\text{(perfect correlation, what we do)}$$
-  $$\bm P_v\leftarrow\sum_u a_{vu}^2\,\bm P^{\psi}_u \quad\text{(independent errors)}$$
+  $$\boldsymbol P_v\leftarrow\sum_u a_{vu}\boldsymbol P^{\psi}_u \quad\text{(perfect correlation, what we do)}$$
+  $$\boldsymbol P_v\leftarrow\sum_u a_{vu}^2\,\boldsymbol P^{\psi}_u \quad\text{(independent errors)}$$
 
   The first is `lem:conservative`, tight exactly when the neighbours' errors
   coincide. The second is what independence gives, and is smaller by roughly
   $|\mathcal M_v|$ — which is the same factor D79 says the belief is inflated by.
   **It costs no extra communication at all**: one line in `combine`. Interpolate
-  with $\bm P_v\leftarrow\sum_u a_{vu}^{\beta}\bm P^{\psi}_u$, $\beta\in[1,2]$.
+  with $\boldsymbol P_v\leftarrow\sum_u a_{vu}^{\beta}\boldsymbol P^{\psi}_u$, $\beta\in[1,2]$.
 
   ⚠ The risk is real and is the reason to measure before adopting: the errors
   *are* correlated through shared history, so $\beta=2$ is over-confident and an
@@ -210,7 +210,7 @@ rule. Ordered by value per unit of work.
   ⚠⚠ **$\beta$ reaches only the full-sharing variants** ([[D85]], found
   2026-09-13 while deciding whether to fold it into X22). `combine_exponent` is
   read inside `if self.covariance_sharing == "full"`; under local sharing there is
-  no covariance combine, so each agent keeps its own $\bm P$ and $\beta$ does
+  no covariance combine, so each agent keeps its own $\boldsymbol P$ and $\beta$ does
   nothing. Both *deployable* learners are local-sharing, so this is not a free
   correction to the filter we report — it is a correction to
   `diffusion_ekf_full`, which costs 2909× the bandwidth.
@@ -233,7 +233,7 @@ rule. Ordered by value per unit of work.
   during the mix.
 
 - [ ] **P5.16 — LO-FI: diagonal-plus-low-rank precision.** Represent
-  $\bm\Lambda_v\approx\bm D_v+\bm W_v\bm W_v^{\trans}$, $\bm W_v\in\mathbb
+  $\boldsymbol\Lambda_v\approx\boldsymbol D_v+\boldsymbol W_v\boldsymbol W_v^{\mathsf T}$, $\boldsymbol W_v\in\mathbb
   R^{p\times L}$ (Chang et al., CoLLAs 2023). Memory $O(pL)$ instead of $O(p^2)$;
   the only dense inverse is $L\times L$.
 
@@ -241,20 +241,20 @@ rule. Ordered by value per unit of work.
   *represented*, not what enters it — and at $p=2908$ we do not yet have the
   memory problem it solves. Its value is elsewhere, and it is real:
 
-  * $\bm J^{\trans}\bm\Delta\bm J=\bm B\bm B^{\trans}$ is low-rank *before* any
-    approximation, and $\bm B$ is precisely what a one-hop exchange already ships.
-    The two compose: append received blocks to $\bm W$, compress. One-hop first is
+  * $\boldsymbol J^{\mathsf T}\boldsymbol\Delta\boldsymbol J=\boldsymbol B\boldsymbol B^{\mathsf T}$ is low-rank *before* any
+    approximation, and $\boldsymbol B$ is precisely what a one-hop exchange already ships.
+    The two compose: append received blocks to $\boldsymbol W$, compress. One-hop first is
     not wasted work.
-  * It reopens the **prior-corrected information combine**, $\bm\Omega_v\leftarrow
-    \sum_{u}\bm\Omega_u-(|\mathcal M|-1)\bm\Omega_{\text{prior}}$, which D79
+  * It reopens the **prior-corrected information combine**, $\boldsymbol\Omega_v\leftarrow
+    \sum_{u}\boldsymbol\Omega_u-(|\mathcal M|-1)\boldsymbol\Omega_{\text{prior}}$, which D79
     dismissed as $O(p^3)$. That is true only in dense form; in factored precision
-    form there is no $p\times p$ inverse anywhere. Shipping $\bm W_u$ costs $Lp
+    form there is no $p\times p$ inverse anywhere. Shipping $\boldsymbol W_u$ costs $Lp
     \approx 29\,000$ scalars at $L=10$ against a full covariance's 8.4 M.
   * It answers the obvious reviewer objection to an $O(p^2)$-per-agent method.
 
   ⚠ **The blocker is data incest, and it must be solved rather than assumed
   away.** Summing *accumulated* precisions double-counts evidence that already
-  travelled — which is why conservative fusion and \ac{ci} exist at all. Averaging
+  travelled — which is why conservative fusion and CI exist at all. Averaging
   is incest-safe and transfers nothing; summing transfers everything and
   double-counts. One-hop threads the needle because it sums *measurement*
   information, fresh each step and entering each neighbourhood exactly once, which
@@ -273,10 +273,10 @@ rule. Ordered by value per unit of work.
   so multi-round gathering is not on the table.
   Kept for the record rather than as work — the distinction matters if a
   reviewer asks why the ladder stops here. Original scope:
-  One round of one-hop gives $\mathcal M_v=\N_v\cup\{v\}$. $L$ rounds with
-  **source-tagged** blocks (so each $\bm\Delta_u$ is counted once) give the
-  $L$-hop neighbourhood, and at $L=\operatorname{diam}(\G)$ that is $\V$ — i.e.
-  **exactly the centralised filter**. Our \ac{er} $p=0.3$ graph has diameter 2–3,
+  One round of one-hop gives $\mathcal M_v=\mathcal N_v\cup\{v\}$. $L$ rounds with
+  **source-tagged** blocks (so each $\boldsymbol\Delta_u$ is counted once) give the
+  $L$-hop neighbourhood, and at $L=\mathrm{diam}(\mathcal G)$ that is $\mathcal V$ — i.e.
+  **exactly the centralised filter**. Our ER $p=0.3$ graph has diameter 2–3,
   so two or three rounds would close the deficit entirely, and with the raw-sample
   encoding the payload is a few $p$ per link.
 
@@ -309,7 +309,7 @@ in the precision domain, so preserving it means *summing*, and summing evidence
 that already travelled counts it twice — data incest. Every scheme below is
 distinguished by how it earns the right to sum.
 
-- [~] ⏹ **P5.19 — the ceiling: source-tagged flooding at $\operatorname{diam}(\G)$ rounds.**
+- [~] ⏹ **P5.19 — the ceiling: source-tagged flooding at $\mathrm{diam}(\mathcal G)$ rounds.**
   **OUT OF SCOPE by [[D84]]** (2026-09-13): $L=1$ is the communication model, so
   multi-round gathering is not on the table. Kept for the record rather than as
   work — the distinction matters if a reviewer asks why the ladder stops here.
@@ -325,14 +325,14 @@ distinguished by how it earns the right to sum.
   reviewer asks why the ladder stops here. Original scope:
   the strongest *genuinely decentralised* scheme that is exact. Each link carries a
   filter tracking the information already common to its two endpoints, and each
-  agent fuses $\bm\Lambda_v\leftarrow\bm\Lambda_v+\sum_u(\bm\Lambda_u-\bm\Lambda_{
+  agent fuses $\boldsymbol\Lambda_v\leftarrow\boldsymbol\Lambda_v+\sum_u(\boldsymbol\Lambda_u-\boldsymbol\Lambda_{
   \text{chan}(v,u)})$ — subtracting exactly what would otherwise be counted twice.
   **Exact on an acyclic network**, which is why the tree matters: on a graph with
   cycles the same evidence returns by two paths and the subtraction no longer
   accounts for it.
 
   Cost is why it was never considered here: one covariance per link, 64.5 MiB
-  each, 22 directed links on our \ac{er} graph — about 1.4 GB. **With P5.16's
+  each, 22 directed links on our ER graph — about 1.4 GB. **With P5.16's
   rank-$L$ factors that becomes $O(pL)$ per link, roughly 29 000 scalars**, and
   the scheme moves from infeasible to routine. This is the strongest reason to do
   LO-FI, and a better one than memory.
@@ -341,7 +341,7 @@ distinguished by how it earns the right to sum.
   buy exactness — a real trade to measure, not a technicality.
 
 - [ ] **P5.21 — consensus on the information *increments*, rescaled by $N$.**
-  Average consensus converges to $\frac1N\sum_u\bm\Delta_u$; multiplying by $N$
+  Average consensus converges to $\frac1N\sum_u\boldsymbol\Delta_u$; multiplying by $N$
   recovers the sum. **Incest-free by construction**, because what is averaged is
   this step's increment — fresh, and entering the average exactly once — rather
   than an accumulated precision. Works on any connected graph, no tree and no
@@ -355,11 +355,11 @@ distinguished by how it earns the right to sum.
 
 - [x] **P5.22 — one-hop with an $N/|\mathcal M_v|$ rescaling. BUILT** as
   `information_exponent`, $c=(N/|\mathcal M_v|)^{\alpha}$ with $\alpha\in[0,1]$.
-  Scales **both** the information and the score: shrinking $\bm P^{\psi}$ alone
+  Scales **both** the information and the score: shrinking $\boldsymbol P^{\psi}$ alone
   would make every update $c$ times too small, so the filter would report a
   confident belief it never moved toward. Default $\alpha=0$ changes nothing. The cheapest rung
-  and a one-line change: $\sum_{u\in\mathcal M_v}\bm\Delta_u$ is a sum over
-  $k$ agents, so $\frac{N}{k}\sum_{u\in\mathcal M_v}\bm\Delta_u$ is an unbiased
+  and a one-line change: $\sum_{u\in\mathcal M_v}\boldsymbol\Delta_u$ is a sum over
+  $k$ agents, so $\frac{N}{k}\sum_{u\in\mathcal M_v}\boldsymbol\Delta_u$ is an unbiased
   estimator of the network total under exchangeability.
 
   ⚠ It **claims confidence it has not gathered** — an extrapolation, not evidence
@@ -374,11 +374,11 @@ The diffusion LMS paper defines **two** combination matrices, and they are
 exactly our two axes: $c_{lk}$ "determine which nodes $l$ should share their
 **measurements** with node $k$" in the incremental step, and $a_{lk}$ determine
 which share their **intermediate estimates** in the diffusion step. So
-`adapt_scope` is $\bm C$ and the Metropolis weights are $\bm A$.
+`adapt_scope` is $\boldsymbol C$ and the Metropolis weights are $\boldsymbol A$.
 
 **Withdrawn:** the claim that our local adapt is a *deviation* from the canonical
-method. It is not. $\bm C=\bm I$ is an explicitly named and studied special case
-— "the \ac{atc} algorithm without measurement exchange" — noted as the mode
+method. It is not. $\boldsymbol C=\boldsymbol I$ is an explicitly named and studied special case
+— "the ATC algorithm without measurement exchange" — noted as the mode
 originally proposed for least-squares adaptive networks. `diffusion_ekf` is a
 recognised variant, not an idiosyncrasy.
 
@@ -386,12 +386,12 @@ recognised variant, not an idiosyncrasy.
 *proves* that measurement exchange is never worse. Under equal regressor
 covariance and noise variance across nodes and a stated weight choice, "the
 algorithm that uses measurement exchange will have equal or lower network
-\ac{msd} than the algorithm without measurement exchange". That is a theorem
+MSD than the algorithm without measurement exchange". That is a theorem
 about the population quantity, not a simulation result, and it is direct
 theoretical support for pursuing one-hop.
 
-**And one observation that sharpens D79.** The paper notes that with $\bm C=\bm
-I$, \ac{atc} still "uses measurements available at the *neighbors* of node $k$" —
+**And one observation that sharpens D79.** The paper notes that with $\boldsymbol C=\boldsymbol
+I$, ATC still "uses measurements available at the *neighbors* of node $k$" —
 because adapting locally and then averaging estimates carries the neighbours'
 measurement influence into the estimate. So even our local-adapt filter already
 gets neighbourhood information *into the mean*. What it does not get is that
@@ -405,16 +405,16 @@ actually points at. Four things it settles, and they change what the note may
 claim.
 
 **1. The incremental step loops over neighbours.** Algorithm 1's Step 1 reads
-"for every neighboring node $l\in\N_k$, repeat ... end". Algorithm 2, the
+"for every neighboring node $l\in\mathcal N_k$, repeat ... end". Algorithm 2, the
 information form, does the same. **So one-hop *is* the diffusion Kalman filter**,
 and `diffusion_ekf` with a local adapt is not the canonical algorithm — unlike
-the LMS case, where $\bm C=\bm I$ is a named variant. `diffusion_ekf_onehop_mean`
+the LMS case, where $\boldsymbol C=\boldsymbol I$ is a named variant. `diffusion_ekf_onehop_mean`
 should be read as the method and the local-adapt one as our reduction of it.
 
 **2. ⚠ The note's imported stability analysis is analysis of one-hop.** The
 detectability condition is stated as "if every node were to use a conventional
 Kalman filter on the measurements *from its neighborhood*, its estimate would
-converge". Section IV's Lyapunov recursion and steady-state \ac{msd} are derived
+converge". Section IV's Lyapunov recursion and steady-state MSD are derived
 for Algorithm 1. So `sec:assumptions`' appeal to this analysis does not currently
 describe the variant X19 measured — a correction the note needs.
 
@@ -430,14 +430,14 @@ out to be 0.023–0.041 and to grow with drift.
 ⚠ Corrected from an earlier claim here. Their eq. (32) is a Lyapunov recursion
 over the *augmented* error vector collecting every node: an $Np\times Np$ matrix,
 6.8 GB at our size, and it needs the true model matrices. It computes theoretical
-\ac{msd}; an agent cannot propagate it. So the interpolation
-$\sum_u a_{vu}^{\beta}\bm P^{\psi}_u$ stays the practical route, and what the
+MSD; an agent cannot propagate it. So the interpolation
+$\sum_u a_{vu}^{\beta}\boldsymbol P^{\psi}_u$ stays the practical route, and what the
 paper contributes here is confirmation of the phenomenon rather than a runnable
 correction.
 
-**5. Algorithm 1 exchanges raw measurements**, $\{\bm H_l,\bm R_l,\bm y_l\}$, plus
-$\bm\psi_l$ — not information factors. Algorithm 2 exchanges
-$\bm H^{\trans}\bm R^{-1}\bm H$ and $\bm H^{\trans}\bm R^{-1}\bm y$, which is what
+**5. Algorithm 1 exchanges raw measurements**, $\{\boldsymbol H_l,\boldsymbol R_l,\boldsymbol y_l\}$, plus
+$\boldsymbol\psi_l$ — not information factors. Algorithm 2 exchanges
+$\boldsymbol H^{\mathsf T}\boldsymbol R^{-1}\boldsymbol H$ and $\boldsymbol H^{\mathsf T}\boldsymbol R^{-1}\boldsymbol y$, which is what
 our one-hop implements. The paper treats them as alternatives and notes Algorithm
 1 can send a Cholesky factor to economise, which independently vindicates the
 finding that at $p\gg d$ the measurements are the cheaper encoding.
@@ -447,20 +447,20 @@ finding that at $p\gg d$ the measurements are the cheaper encoding.
 Two mechanisms, both landed with tests, both available to X20 and everything
 after it. Neither needed a new learner class: they are dials on `DiffusionEKF`.
 
-- [x] **`combine_exponent`** — `eq:combine_exponent`, $\bm P_v\leftarrow\sum_u
-  a_{vu}^{\beta}\bm P^{\psi}_u$ with $\beta\in[1,2]$. P5.15, implemented.
+- [x] **`combine_exponent`** — `eq:combine_exponent`, $\boldsymbol P_v\leftarrow\sum_u
+  a_{vu}^{\beta}\boldsymbol P^{\psi}_u$ with $\beta\in[1,2]$. P5.15, implemented.
   Verified numerically: on a complete graph with uniform weights, $\beta=2$
   divides the covariance by exactly $N$ — which is the factor D79 says the belief
   is inflated by, arrived at independently. **Costs no communication at all.**
   Default stays $\beta=1$, so nothing changes until it is asked for.
 - [x] **`adapt_rounds`** — the measurement set becomes the $L$-hop neighbourhood.
   $L=1$ is the canonical diffusion Kalman filter's incremental step; $L\ge
-  \operatorname{diam}(\G)$ makes it the whole vertex set, so the filter equals the
+  \mathrm{diam}(\mathcal G)$ makes it the whole vertex set, so the filter equals the
   centralised one on *any* connected graph. P5.19 and P5.21 collapse into this one
   parameter, and P5.22's rescaling is `combine_exponent` in the other domain.
 
   **Reachability is boolean, and that is the incest guard**: each agent's
-  $\bm\Delta_u$ enters once however many paths carry it, which is source-tagged
+  $\boldsymbol\Delta_u$ enters once however many paths carry it, which is source-tagged
   flooding expressed as a set rather than a sum along paths. Tested directly on a
   complete graph at three rounds, where the naive version would multiply-count
   everything.
@@ -483,7 +483,7 @@ Not forgotten — these are here so the decision is visible rather than implicit
   target.** Cattivelli & Sayed's eq. (32) is a Lyapunov recursion over the
   *augmented* error vector across all nodes: $Np\times Np$, which is 6.8 GB here,
   and it requires the true model matrices. It is an analysis tool for computing
-  theoretical \ac{msd}, not something an agent can propagate. An earlier note in
+  theoretical MSD, not something an agent can propagate. An earlier note in
   this file claimed we could "implement what the analysis says is correct" — that
   was wrong, and `combine_exponent` is the practical route instead.
 - **`diffusion_ekf_full` in future comparisons.** X19 priced covariance sharing
@@ -549,7 +549,7 @@ agent. They are the reason phase 5 is not just "the same experiments again".
   the most expensive variant, and belongs on the same axis. This is the claim the ledger was
   built for and the one a reviewer will press hardest.
 - [ ] **P5.14** **Is the conservative bound actually conservative?** `lem:
-  conservative` proves $\sum_u a_{vu}\bm P^{\psi}_u$ upper-bounds the combined
+  conservative` proves $\sum_u a_{vu}\boldsymbol P^{\psi}_u$ upper-bounds the combined
   estimate's error covariance for any cross-correlation, with equality when the
   errors coincide. Measurable: compare the reported variance against the realised
   squared error across seeds. If the bound is wildly loose the "conservative"
@@ -596,7 +596,7 @@ agent. They are the reason phase 5 is not just "the same experiments again".
 
   **Why it is the right second task rather than a second image set.** It changes
   three things at once: the likelihood (Gaussian, not softmax), the architecture
-  (causal Transformer, not \ac{mlp}), and the information geometry. A second
+  (causal Transformer, not MLP), and the information geometry. A second
   classification dataset would mostly re-measure what X1–X23 already say.
 
   It also unblocks two things that are built and unreachable. `gaussian.py` sat
@@ -609,7 +609,7 @@ agent. They are the reason phase 5 is not just "the same experiments again".
   softmax path.
 
   **Settled: the rank-1 problem, and the fix.** Scalar regression gives
-  $\bm J^{\trans}\bm R^{-1}\bm J$ rank **1** — one new information direction per
+  $\boldsymbol J^{\mathsf T}\boldsymbol R^{-1}\boldsymbol J$ rank **1** — one new information direction per
   observation, against the softmax Fisher's $q-1=9$. At $p\approx600$ that is
   ~600 steps before the filter has seen every direction once, and a diffusing
   agent gets $1/N$ of that; the deficit would be measured in a starved regime
@@ -617,9 +617,9 @@ agent. They are the reason phase 5 is not just "the same experiments again".
 
   The fix is the user's: predict at **every causal position**, not just the last.
   A decoder already computes $z_i=f(x_{\le i})$ for all $i$, so one pass yields
-  $L$ predictions and $L$ targets, and $\bm J\in\mathbb R^{L\times p}$ has rank up
+  $L$ predictions and $L$ targets, and $\boldsymbol J\in\mathbb R^{L\times p}$ has rank up
   to $\min(L,p)$. At $L=32$ that is rank 32 per step — *better* than the softmax
-  path, and it reuses the existing stacked-$\bm B$ machinery unchanged, only
+  path, and it reuses the existing stacked-$\boldsymbol B$ machinery unchanged, only
   wider (the Woodbury inner solve goes $9\times9 \to L\times L$, still trivial).
 
   ⚠ **Only with non-overlapping windows.** Sliding by one *and* scoring every
@@ -632,14 +632,14 @@ agent. They are the reason phase 5 is not just "the same experiments again".
 
   ⚠ **Two known mismatches, both measurable rather than fatal.** Within a window
   the $L$ innovations are *correlated* — consecutive predictions of a smooth
-  series share structure — so $\bm R=\sigma^2\bm I$ credits the filter with more
+  series share structure — so $\boldsymbol R=\sigma^2\boldsymbol I$ credits the filter with more
   independent evidence than it received. That is D79's error with the sign
   flipped, and it is the same question as P5.14. Separately, position $1$ predicts
   from one sample and position $L$ from $L$, so the innovation variance genuinely
-  differs by position; a position-dependent $\bm R$ is the principled answer and
+  differs by position; a position-dependent $\boldsymbol R$ is the principled answer and
   accepting the mismatch is the cheap one.
 
-  **Settled: size.** $p$ is not the constraint the \ac{mlp} made it. The
+  **Settled: size.** $p$ is not the constraint the MLP made it. The
   suggested config is far *under* budget, so the architecture can grow:
 
   | $L$ | $d_{\text{model}}$ | heads | $d_{\text{FF}}$ | blocks | $p$ | vs 2908 | steps to span $p$ |
@@ -651,9 +651,9 @@ agent. They are the reason phase 5 is not just "the same experiments again".
 
   The last column is with many-to-many at that $L$. The dense-covariance ceiling
   is unchanged at $p\approx3000$ for ten agents (D1), so $L=32$, $d=16$, one
-  block, $p=2273$ is the natural first config: comparable to the \ac{mlp}, spans
+  block, $p=2273$ is the natural first config: comparable to the MLP, spans
   its parameter space in 72 steps, and leaves `diffusion_ekf_full` affordable at
-  $2\,584$k scalars per link per step against the \ac{mlp}'s $4\,230$k.
+  $2\,584$k scalars per link per step against the MLP's $4\,230$k.
 
   ### ✅ Both blocking questions answered (revision 2, 2026-09-14)
 
@@ -679,34 +679,34 @@ agent. They are the reason phase 5 is not just "the same experiments again".
   Written up as `Mackey_Glass_Benchmark_Design_v3.tex` (Downloads, compiles
   standalone). Ordered by what each costs if ignored.
 
-  1. **⚠ Drift breaks the dataset model, not just the code.** On \ac{mnist}, drift
+  1. **⚠ Drift breaks the dataset model, not just the code.** On MNIST, drift
      is a transform over a *cached* dataset. Here it is in the generating law:
-     $\beta_t$ changes the trajectory, so each agent needs its own \ac{dde}
+     $\beta_t$ changes the trajectory, so each agent needs its own DDE
      integration, the data are a function of (schedule, seed) and cannot be cached
      once, and **a stationary twin is a separate integration** rather than the same
      data with the transform off. Cheap in compute — $\sim5\times10^5$ samples for a
      ten-agent run — and a different data layer in plumbing. Budget it.
 
   2. **⚠ It may be too easy, and that is the one that wastes the build.** One-step
-     prediction from a 32-sample context on \ac{mg} at $\tau=17$ is nearly
+     prediction from a 32-sample context on MG at $\tau=17$ is nearly
      deterministic. If every method reaches the noise floor in a few hundred
      rounds the benchmark separates nothing, and we learn that *after* building a
      Transformer, a generator and a drift channel. **Gate the build on a half-day
-     pilot**: one trajectory, plain online \ac{sgd}, prequential RMSE against the
+     pilot**: one trajectory, plain online SGD, prequential RMSE against the
      noise floor. If too easy, add observation noise at a chosen $\sigma$ (best —
-     headroom becomes a parameter, and $\sigma$ is what $\bm R$ needs anyway),
+     headroom becomes a parameter, and $\sigma$ is what $\boldsymbol R$ needs anyway),
      predict $x_{i+k}$ (next best), or shorten $L$ (worst — weakens the model
      rather than hardening the task, and gives back the rank the whole
      many-to-many design bought).
 
-  3. **⚠ The within-block innovations are correlated.** $\bm R=\sigma^2\bm I$
+  3. **⚠ The within-block innovations are correlated.** $\boldsymbol R=\sigma^2\boldsymbol I$
      asserts the $L-1$ residuals are independent; they come from one parameter
      vector on overlapping contexts. In a loss that is a mis-weighting; in a filter
-     $\bm R$ sizes the *gain*, so over-counting evidence shrinks $\bm P$ too fast —
+     $\boldsymbol R$ sizes the *gain*, so over-counting evidence shrinks $\boldsymbol P$ too fast —
      the failure X22 measured from the other direction, where an $N$-fold
-     over-count drove $\lVert\bm\theta\rVert^2$ to $3.8\times10^6$ and the error to
+     over-count drove $\lVert\boldsymbol\theta\rVert^2$ to $3.8\times10^6$ and the error to
      chance. Diagnostic in the same pilot: the empirical covariance of residuals
-     across positions. If not near-diagonal, band $\bm R$ or score every $k$-th
+     across positions. If not near-diagonal, band $\boldsymbol R$ or score every $k$-th
      position and pay the rank knowingly.
 
   4. **Name the bracket.** Every agent's law is *identical*, so the optimal
@@ -717,10 +717,10 @@ agent. They are the reason phase 5 is not just "the same experiments again".
      tasks sit at opposite extremes.
 
      It also makes a prediction worth running: [[D88]] found $\beta=1$ beating
-     $\beta=2$ by up to 0.218 at $t=42.5$ on \ac{iid} shards, because the agents'
+     $\beta=2$ by up to 0.218 at $t=42.5$ on IID shards, because the agents'
      errors nearly coincide. Here each agent tracks a *different chaotic
      trajectory*, so the errors should decorrelate. **If $\beta>1$ wins here and
-     loses on \ac{mnist}, that is a mechanistic result about when conservative
+     loses on MNIST, that is a mechanistic result about when conservative
      fusion is necessary**, not a knob that failed to pay.
 
   ### Revised first configuration
@@ -733,7 +733,7 @@ agent. They are the reason phase 5 is not just "the same experiments again".
   **Cost, honestly.** New data shape (`DatasetSpec` assumes images — channels,
   image_size, num_classes), new model with `jacobian`/`vjp`, a second drift
   channel, RMSE and predictive-interval metrics in place of error and
-  \ac{ece}. Roughly one to two weeks before the first number. Calibration gets
+  ECE. Roughly one to two weeks before the first number. Calibration gets
   *easier*, though: under a Gaussian the predictive variance is
-  $\bm H\bm P\bm H^{\trans}+\bm R$ and is directly scoreable against realised
+  $\boldsymbol H\boldsymbol P\boldsymbol H^{\mathsf T}+\boldsymbol R$ and is directly scoreable against realised
   squared error, which is P5.11 and P5.14 without the softmax obstruction.

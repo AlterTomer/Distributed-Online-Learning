@@ -171,7 +171,7 @@ already on disk. Just run the same command again.
 A run directory with neither a `_complete` nor a `_diverged` marker is debris
 from an interrupted run and is deleted rather than resumed — the recorder
 checkpoints as it goes, so resuming it would restart the *learner* from
-$\bm\theta_0$ while the recorder skipped ahead, and the result would look clean
+$\boldsymbol\theta_0$ while the recorder skipped ahead, and the result would look clean
 and be nonsense (D68).
 
 **Q. How do I run only part of a sweep?**
@@ -287,7 +287,7 @@ derivative is a delta, and is the quantity the break threshold is a threshold on
 
 Topology: [`configs.md`](configs.md) §3.4. Model: implement the `Model` protocol
 (`models/base.py`) and register it in `models/registry.py`; the filter needs only
-$\bm\theta\mapsto\bm h(\bm\theta)$ and its Jacobian, so anything differentiable
+$\boldsymbol\theta\mapsto\boldsymbol h(\boldsymbol\theta)$ and its Jacobian, so anything differentiable
 works.
 
 **Q. How do I add an experiment?**
@@ -377,8 +377,8 @@ the state that caused it.
 | `ReferenceError: ... train_reference.py` | The offline reference is not cached. Run that script once. |
 | `ConfigError: learner[x].prior_scale must be > 0` | Zero prior variance is a point mass the filter can never move away from. |
 | `FilterError: ... diverged at step N` | The mean went non-finite. Usually `prior_scale` too large. |
-| `FilterError: ... left the trust region` | The mean is finite but more than 50× $\lVert\bm\theta_0\rVert$ — diverged without overflowing. Healthy runs sit at 1.3–5.5×, so this is a real failure, not a tight threshold. Raise `trust_region_ratio` only if your model's weights genuinely grow. |
-| `FilterError: ... lost positive definiteness` | The covariance collapsed. With $\gamma=1$ and $\bm Q=\zero$ it only ever shrinks; give the filter a way to stay uncertain. |
+| `FilterError: ... left the trust region` | The mean is finite but more than 50× $\lVert\boldsymbol\theta_0\rVert$ — diverged without overflowing. Healthy runs sit at 1.3–5.5×, so this is a real failure, not a tight threshold. Raise `trust_region_ratio` only if your model's weights genuinely grow. |
+| `FilterError: ... lost positive definiteness` | The covariance collapsed. With $\gamma=1$ and $\boldsymbol Q=\boldsymbol 0$ it only ever shrinks; give the filter a way to stay uncertain. |
 | `MetricError: probabilities must sum to one` | Almost always a diverged belief reaching the metrics. The guards above should catch it first; if this fires, one did not. |
 | `BreakError: no rows to pool a noise estimate from` | The learner name is not in the run, or the filter arguments excluded everything. |
 

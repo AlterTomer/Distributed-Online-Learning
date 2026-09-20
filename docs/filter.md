@@ -99,13 +99,13 @@ strength of the shrinkage is not well defined as an operation on the function.
 MNIST classification is case (b) of eq 21. The network outputs logits
 $\boldsymbol h_{v,t}$; then
 
-$$\boldsymbol\pi=\operatorname{softmax}(\boldsymbol h),\qquad \boldsymbol\nu=\boldsymbol y-\boldsymbol\pi,\qquad \boldsymbol\Lambda=\operatorname{diag}(\boldsymbol\pi)-\boldsymbol\pi\boldsymbol\pi^{\top}$$
+$$\boldsymbol\pi=\mathrm{softmax}(\boldsymbol h),\qquad \boldsymbol\nu=\boldsymbol y-\boldsymbol\pi,\qquad \boldsymbol\Lambda=\mathrm{diag}(\boldsymbol\pi)-\boldsymbol\pi\boldsymbol\pi^{\top}$$
 
 with $\boldsymbol y$ one-hot. $\boldsymbol\Lambda\succeq\boldsymbol 0$ and $\boldsymbol\Lambda\boldsymbol 1=\boldsymbol 0$, so
 its rank is at most $K-1 = 9$ — that singularity encodes the shift invariance of
 the softmax and is a feature, not a defect.
 
-**Not a Gaussian surrogate.** Writing $\boldsymbol y=\operatorname{softmax}(\boldsymbol h)+\boldsymbol\varepsilon$
+**Not a Gaussian surrogate.** Writing $\boldsymbol y=\mathrm{softmax}(\boldsymbol h)+\boldsymbol\varepsilon$
 with Gaussian $\boldsymbol\varepsilon$ and reusing the regression machinery fails three
 ways: the residual is bounded and cannot be Gaussian; its entries sum to zero so
 its covariance is singular and $\boldsymbol R^{-1}$ does not exist, making the
@@ -155,7 +155,7 @@ against a tuned adaptive-gradient baseline is mandatory rather than optional.
 ### Woodbury, and why it is not optional
 
 The information increment is low rank: $\boldsymbol\Lambda=\boldsymbol G\boldsymbol G^{\top}$ with
-$\operatorname{rank}\boldsymbol\Lambda\le K-1$, so $\Delta\boldsymbol\Omega=\boldsymbol B\boldsymbol B^{\top}$
+$\mathrm{rank}\boldsymbol\Lambda\le K-1$, so $\Delta\boldsymbol\Omega=\boldsymbol B\boldsymbol B^{\top}$
 with $\boldsymbol B=\boldsymbol H^{\top}\boldsymbol G\in\mathbb R^{p\times q'}$ (eq 38). Stacked over
 $N=10$ agents and $n=4$ samples the total rank is $Nn(K-1)=360$ against
 $p = 2908$.
@@ -227,7 +227,7 @@ keep by having failed:
 | Cholesky over 1500 steps at $p=2908$, five hyperparameter corners | holds throughout | — |
 | $\boldsymbol P-\boldsymbol P^+\succeq\boldsymbol0$ | $>-10^{-9}$ | — |
 | $\gamma=1$ vs `transition: identity` | bitwise equal | — |
-| $\boldsymbol\Lambda=\operatorname{Cov}(\boldsymbol s)$, sampled | 5e-3 at $2\times10^5$ draws | — |
+| $\boldsymbol\Lambda=\mathrm{Cov}(\boldsymbol s)$, sampled | 5e-3 at $2\times10^5$ draws | — |
 
 The exactness check is the filter's analogue of X0, and it is worth being
 precise about why it has teeth. A linear probe makes $\boldsymbol h(\boldsymbol\theta)=\boldsymbol
@@ -333,7 +333,7 @@ the variant it asked for:
   `sender`, what X20–X26 ran, which sums blocks from different points into one
   update and needs $\boldsymbol\theta_{u,t}^-$ in the first message, 6 604 scalars per
   link per direction — or at its *own* $\boldsymbol\theta_{v,t}^-$ — `receiver`, one
-  point per update, the textbook diffusion \ac{ekf}, and 3 696. They coincide
+  point per update, the textbook diffusion EKF, and 3 696. They coincide
   whenever the agents' predictive means agree, so on a complete graph both pass
   the exactness gate and only a sparse graph separates them. The `*_receiver`
   learner names select it.

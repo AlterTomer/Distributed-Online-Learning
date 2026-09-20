@@ -275,12 +275,12 @@ Described at signature level. No implementation here.
 
 | Member | Purpose | Needed by |
 |---|---|---|
-| `init_params(seed) -> ParamDict` | Deterministic init, so all agents can share $\bm\theta_0$ | all |
+| `init_params(seed) -> ParamDict` | Deterministic init, so all agents can share $\boldsymbol\theta_0$ | all |
 | `forward(params, x) -> logits` | Functional; params passed explicitly | all |
 | `num_params -> int` (`p`) | Sizing and cost accounting | all |
 | `output_dim -> int` (`q`) | Covariance sizing | Diff-EKF |
 | `flatten(params) -> Tensor` / `unflatten(vec) -> ParamDict` | Filter state is a flat vector | Diff-EKF |
-| `vjp(params, x, v) -> Tensor` / `jvp(params, x, v) -> Tensor` | Jacobian products without materializing $\bm H$ | Diff-EKF |
+| `vjp(params, x, v) -> Tensor` / `jvp(params, x, v) -> Tensor` | Jacobian products without materializing $\boldsymbol H$ | Diff-EKF |
 | `param_groups() -> list[slice]` | Layer blocks for block-diagonal / Kronecker covariance and last-layer filtering | Diff-EKF |
 
 Phase-1 SGD uses only the first three. Building the rest now costs about half a day and avoids refactoring every model later.
@@ -292,17 +292,17 @@ Phase-1 SGD uses only the first three. Building the rest now costs about half a 
 - `Learner.combine(intermediates, weights) -> None` — the only communication
 - `Learner.predict(node_id, x) -> logits`
 - `Learner.state(node_id) -> LearnerState` — a **dict-like** container, not a bare tensor, so a covariance can be added later without touching the runner
-- `Learner.flat_params(node_id) -> Tensor` — the flat $\bm\theta^v$, needed by $E_{\text{agree}}$ and $E_{\text{cent}}$
+- `Learner.flat_params(node_id) -> Tensor` — the flat $\boldsymbol\theta^v$, needed by $E_{\text{agree}}$ and $E_{\text{cent}}$
 - `Learner.comm_scalars_per_step() -> int` — for the ledger
 
 `centralized_sgd` and `local_only` implement `combine` as a no-op. This keeps the loop uniform.
 
-**`adapt_scope`.** Every diffusion learner carries a config field `adapt_scope: local | one_hop`, defaulting to `local`. In phase 1 only `local` is implemented and `one_hop` raises. It exists now because the research note's Prop. 1 — complete-graph exactness for Diff-EKF — holds for $\mathcal M_{v,t}=\mathcal V$, the **one-hop** adapt step, not the local one, and that variant exchanges $(\bm B_{u,t},\bm H_{u,t}^{\mathsf T}\bm\nu_{u,t})$ at $O(pq')$ per link instead of $O(p)$. Retrofitting it in phase 5 would touch the learner protocol, the communication ledger, and every ledger row already recorded. The SGD exactness check needs no such distinction — its identity holds with purely local gradients — so the field is inert in phases 1–4 and merely has to exist.
+**`adapt_scope`.** Every diffusion learner carries a config field `adapt_scope: local | one_hop`, defaulting to `local`. In phase 1 only `local` is implemented and `one_hop` raises. It exists now because the research note's Prop. 1 — complete-graph exactness for Diff-EKF — holds for $\mathcal M_{v,t}=\mathcal V$, the **one-hop** adapt step, not the local one, and that variant exchanges $(\boldsymbol B_{u,t},\boldsymbol H_{u,t}^{\mathsf T}\boldsymbol\nu_{u,t})$ at $O(pq')$ per link instead of $O(p)$. Retrofitting it in phase 5 would touch the learner protocol, the communication ledger, and every ledger row already recorded. The SGD exactness check needs no such distinction — its identity holds with purely local gradients — so the field is inert in phases 1–4 and merely has to exist.
 
 ### 4.4 Likelihood
 
 - `mu(logits) -> Tensor` — mean parameter (softmax for categorical)
-- `Lambda(logits) -> Tensor` — Fisher information; for categorical, $\operatorname{diag}(\pi)-\pi\pi^{\mathsf T}$
+- `Lambda(logits) -> Tensor` — Fisher information; for categorical, $\mathrm{diag}(\pi)-\pi\pi^{\mathsf T}$
 - `innovation(y, logits) -> Tensor` — $y - \mu$
 - `nll(y, logits) -> Tensor`
 
@@ -449,7 +449,7 @@ The config must pin, and the test must assert, all four preconditions of the ide
 | Equal batch sizes across agents | `label_availability: 1.0`, uniform $n$ | The average of per-agent means equals the pooled mean only for equal $|\mathcal D^v_t|$ |
 | `mean` loss reduction everywhere | learner config | Centralized reduces over all $Nn$; a `sum` anywhere rescales the step by $N$ |
 | Plain SGD | `optimizer: sgd`, no momentum, no weight decay | Any optimizer state makes the trajectories diverge legitimately |
-| Common $\bm\theta_0$ | shared `seed_init` | Holds at $t=0$; the identity then preserves it inductively |
+| Common $\boldsymbol\theta_0$ | shared `seed_init` | Holds at $t=0$; the identity then preserves it inductively |
 
 Violating the first produces a small, plausible, non-zero residual rather than an obvious failure — which is exactly the failure mode this test exists to catch, so the assertion is on $10^{-12}$ and not on "close enough".
 
@@ -541,8 +541,8 @@ been worse than no module.
 
 Keep `docs/diffekf_integration.md` open and tick these off as phases 1–4 proceed. Each is cheap now and expensive later.
 
-1. **Flat parameter vector.** `flatten` / `unflatten` exist and are tested. The filter's state is $\bm\theta\in\mathbb R^p$, not a `state_dict`.
-2. **Functional forward.** Parameters passed explicitly, so the model can be evaluated at an arbitrary $\bm\theta$ (the predictive mean) without mutating a module.
+1. **Flat parameter vector.** `flatten` / `unflatten` exist and are tested. The filter's state is $\boldsymbol\theta\in\mathbb R^p$, not a `state_dict`.
+2. **Functional forward.** Parameters passed explicitly, so the model can be evaluated at an arbitrary $\boldsymbol\theta$ (the predictive mean) without mutating a module.
 3. **Jacobian products.** `vjp` / `jvp` exposed and tested against autograd.
 4. **Likelihood objects.** `mu()`, `Lambda()`, `innovation()`, `score()` implemented — the softmax Fisher is the one that matters. Writing them in phase 2 also lets SGD runs log calibration for free. ⚠️ `score()` was added late, in phase 5, and the delay had a cost: `innovation()` and `score()` coincide under softmax and differ by $\sigma^{-2}$ under a Gaussian, so the filter's mean update was wrong by that factor until the linear-Gaussian test caught it. The lesson generalises — an interface with one live implementation is shaped around that implementation (design note D60).
 5. **Learner interface is adapt/combine.** Diff-EKF then differs from diffusion SGD *only* in `adapt`. If the interface were a single `step()`, the filter would not fit.
@@ -552,9 +552,9 @@ Keep `docs/diffekf_integration.md` open and tick these off as phases 1–4 proce
 9. **`linear_probe` model exists.** In the last-layer-only regime the EKF is an *exact* KF, giving a setting where the theory holds with no linearization error — the analogue of the research note's linear sanity check, and the right first Diff-EKF experiment.
 10. **Size reality check — resolved.** A 784–128–10 MLP has $p\approx10^5$, so a dense covariance is $10^{10}$ entries: impossible. Shrinking the hidden width does not fix it — the budget $p\lesssim3\times10^3$ forces $h\approx3$ at 784 inputs, which is not a classifier. The **input** is what comes down: $14\times14$ downsampling gives a $196$–$14$–$10$ MLP at $p=2908$, whose dense covariance is $\approx8.5\times10^6$ entries, a few tens of MB in float64. `mlp_small.yaml` is therefore the primary model for *all* phases, not a phase-5 variant, so the comparison is like-for-like by construction (`WORKPLAN.md` §4.6).
 11. **Two graphs stay separable.** `env/graph.py` keeps `G_comm` and `G_data` distinct from day one, even though phase 1 only ever populates `G_comm`. When the project reaches GNNs (Class C), the learner gains $L$ forward and $L-1$ backward message-passing rounds per step; [1] §III-A derives exactly those recursions for a GCNN and releases code, so it is an integration task rather than a derivation. Retrofitting a second graph into an environment that assumed one touches every file.
-12. **`adapt_scope` exists from day one.** The research note's Prop. 1 gives complete-graph exactness only for the **one-hop** adapt step $\mathcal M_{v,t}=\mathcal V$, which exchanges $(\bm B_{u,t},\bm H_{u,t}^{\mathsf T}\bm\nu_{u,t})$ at $O(pq')$ per link rather than the $O(p)$ of the local step. Phase 1 implements `local` only and raises on `one_hop`, but the field, the ledger column, and the config plumbing exist now — adding a second communication mode later invalidates every ledger row already written (§4.3).
-13. **The information form is not optional for classification.** The gain form inverts $\bm S=\bm H\bm P\bm H^{\mathsf T}+\bm R$, which does not exist for the softmax likelihood: $\bm\Lambda=\diag(\bm\pi)-\bm\pi\bm\pi^{\mathsf T}$ is singular by construction ($\bm\Lambda\one=\zero$), so $\bm R=\bm\Lambda^{-1}$ is undefined rather than merely ill-conditioned (research note, Rem. 2). `diffusion_ekf.py` carries **both** paths from the start — gain form for Gaussian regression, information form for the exponential family — and MNIST classification uses the latter. Writing only the gain form and "generalizing later" means rewriting the filter.
-14. **Structure-preserving prediction.** The research note §6.4 prefers multiplicative inflation $\bm P_{t|t-1}=\lambda^{-1}\bm P_{t-1|t-1}$ to additive $\bm Q_t$, because with $\bm F=\I$ inflation is exactly $\bm\Omega_{t|t-1}=\lambda\bm\Omega_{t-1|t-1}$ and therefore closed under diagonal, block-diagonal and Kronecker structure, whereas $(\bm\Omega^{-1}+\bm Q)^{-1}$ is dense. `diffusion_ekf.yaml` exposes `lambda` and `Q` with exactly one active at a time — they are two parameterisations of the same forgetting and are jointly unidentifiable.
+12. **`adapt_scope` exists from day one.** The research note's Prop. 1 gives complete-graph exactness only for the **one-hop** adapt step $\mathcal M_{v,t}=\mathcal V$, which exchanges $(\boldsymbol B_{u,t},\boldsymbol H_{u,t}^{\mathsf T}\boldsymbol\nu_{u,t})$ at $O(pq')$ per link rather than the $O(p)$ of the local step. Phase 1 implements `local` only and raises on `one_hop`, but the field, the ledger column, and the config plumbing exist now — adding a second communication mode later invalidates every ledger row already written (§4.3).
+13. **The information form is not optional for classification.** The gain form inverts $\boldsymbol S=\boldsymbol H\boldsymbol P\boldsymbol H^{\mathsf T}+\boldsymbol R$, which does not exist for the softmax likelihood: $\boldsymbol\Lambda=\mathrm{diag}(\boldsymbol\pi)-\boldsymbol\pi\boldsymbol\pi^{\mathsf T}$ is singular by construction ($\boldsymbol\Lambda\boldsymbol 1=\boldsymbol 0$), so $\boldsymbol R=\boldsymbol\Lambda^{-1}$ is undefined rather than merely ill-conditioned (research note, Rem. 2). `diffusion_ekf.py` carries **both** paths from the start — gain form for Gaussian regression, information form for the exponential family — and MNIST classification uses the latter. Writing only the gain form and "generalizing later" means rewriting the filter.
+14. **Structure-preserving prediction.** The research note §6.4 prefers multiplicative inflation $\boldsymbol P_{t|t-1}=\lambda^{-1}\boldsymbol P_{t-1|t-1}$ to additive $\boldsymbol Q_t$, because with $\boldsymbol F=\boldsymbol I$ inflation is exactly $\boldsymbol\Omega_{t|t-1}=\lambda\boldsymbol\Omega_{t-1|t-1}$ and therefore closed under diagonal, block-diagonal and Kronecker structure, whereas $(\boldsymbol\Omega^{-1}+\boldsymbol Q)^{-1}$ is dense. `diffusion_ekf.yaml` exposes `lambda` and `Q` with exactly one active at a time — they are two parameterisations of the same forgetting and are jointly unidentifiable.
 
 ---
 

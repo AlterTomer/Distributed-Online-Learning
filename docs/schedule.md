@@ -107,7 +107,7 @@ rest runs. B0 can extend it if the task proves too easy.
 
 ### Where the communication actually stands
 
-| variant | scalars / link / step | bytes (float64 $\bm\psi$, 8-bit pixels) | vs one $\bm\psi$ |
+| variant | scalars / link / step | bytes (float64 $\boldsymbol\psi$, 8-bit pixels) | vs one $\boldsymbol\psi$ |
 |---|---|---|---|
 | local, mean-only | 2 908 | 23 264 | 1.00 |
 | **one-hop, mean-only, receiver point** | 3 696 | **24 052** | **1.03** |
@@ -122,12 +122,12 @@ per link per step, and a reviewer will ask why the filter is not compared with
 
 ### Options, ranked
 
-1. **Count bits, and send $\bm\psi$ at lower precision.** The filter runs in
+1. **Count bits, and send $\boldsymbol\psi$ at lower precision.** The filter runs in
    float64 (D61), but what crosses the link need not; rounding enters like extra
    measurement noise.
 2. **Differences with memory.** Every agent keeps a public copy
-   $\hat{\bm\psi}_u$ of each neighbour's estimate and of its own, sends
-   $Q(\bm\psi_v-\hat{\bm\psi}_v)$, and everyone adds it to $\hat{\bm\psi}_v$, so
+   $\hat{\boldsymbol\psi}_u$ of each neighbour's estimate and of its own, sends
+   $Q(\boldsymbol\psi_v-\hat{\boldsymbol\psi}_v)$, and everyone adds it to $\hat{\boldsymbol\psi}_v$, so
    compression error is corrected rather than accumulated — the CHOCO-gossip
    construction (Koloskova, Stich and Jaggi, ICML 2019); Sayed's group has an
    adapt–compress–then–combine diffusion variant, to be read first. A plain
@@ -136,20 +136,20 @@ per link per step, and a reviewer will ask why the filter is not compared with
    filter-specific form ranks coordinates by $|\delta_i|/\sqrt{P_{ii}}$, the
    change in units of the filter's own uncertainty — a scale SGD does not have.
 4. **Event-triggered communication**: transmit when
-   $(\bm\psi_v-\hat{\bm\psi}_v)^{\trans}\bm P^{-1}(\bm\psi_v-\hat{\bm\psi}_v)>\eta$,
+   $(\boldsymbol\psi_v-\hat{\boldsymbol\psi}_v)^{\mathsf T}\boldsymbol P^{-1}(\boldsymbol\psi_v-\hat{\boldsymbol\psi}_v)>\eta$,
    against a periodic-$K$ baseline. Claim (M4)'s "communication scheduling" made
    concrete.
 5. **Compressing full sharing**, now that it stays in the comparison. The adapt
-   step changes $\bm P$ by rank at most $nq=40$ and the predict step is
+   step changes $\boldsymbol P$ by rank at most $nq=40$ and the predict step is
    deterministic, so without the combine a 40-column factor — $116\,320$ scalars
    against $4\,229\,686$, 36× less — would reconstruct it exactly. The combine
    mixes in the sender's *own* neighbours' covariances, which the receiver does
    not track, so the step-to-step change is full rank and the reconstruction is
-   inexact. Candidates: a public copy of each neighbour's $\bm P$ with a low-rank
+   inexact. Candidates: a public copy of each neighbour's $\boldsymbol P$ with a low-rank
    (or low-rank-plus-diagonal) difference and error feedback — exact at the
    adapt step, approximate at the combine, and costing
    $\lvert\mathcal N_v\rvert$ extra dense covariances per agent; or sending
-   $\bm P$ every $K$ steps only. Worth a design note before building.
+   $\boldsymbol P$ every $K$ steps only. Worth a design note before building.
 6. **Shrink $p$ itself** by filtering fewer parameters (the note's scaling
    section).
 
@@ -159,7 +159,7 @@ cumulative bits.
 | step | what | cost |
 |---|---|---|
 | C0 | Design note: CHOCO, ACTC; compressor interface; bits ledger; the full-sharing option | 2 days |
-| C1 | Bits ledger; $\bm\psi$ in float32/float16 | 1 day |
+| C1 | Bits ledger; $\boldsymbol\psi$ in float32/float16 | 1 day |
 | C2 | Public copies and difference transmission with a pluggable $Q$, error feedback; also for ATC | 4–5 days |
 | C3 | Event trigger and periodic-$K$ baseline | 2 days |
 | C4 | Error against bits on MNIST (IID and severe skew), then on Mackey–Glass | ~3 days GPU |
