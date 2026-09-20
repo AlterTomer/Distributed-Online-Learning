@@ -1,6 +1,6 @@
 r"""M5 -- the diffusion filter's three knobs, tuned jointly, then a five-seed tie-break.
 
-    python scripts/run_m5_diffusion.py              # the 12-cell grid, 2 seeds
+    python scripts/run_m5_diffusion.py              # the 16-cell grid, 2 seeds
     python scripts/run_m5_diffusion.py --tie-break  # the plateau, at 5 seeds
     python scripts/run_m5_diffusion.py --report-only
 
@@ -22,7 +22,7 @@ Each axis **brackets two competing predictions** instead of assuming either:
 
 | axis | M4, centralised on this task | MNIST's *diffusion* filter | grid |
 |---|---|---|---|
-| $q$ | $6\times10^{-6}$ | $6\times10^{-4}$, a decade **above** its centralised twin | both, plus the midpoint |
+| $q$ | $6\times10^{-6}$ | $6\times10^{-4}$, a decade **above** its centralised twin | both, the midpoint, and one step below |
 | $\sigma_0^2$ | $0.01$ | $10^{-3}$, a decade **below** | both |
 | $\gamma$ | $1.0$ | $0.9995$ | both |
 
@@ -37,6 +37,19 @@ The top of the $q$ range is deliberately **one decade below the image task's mea
 divergence cliff** ($6\times10^{-3}$, where X21 found every $\gamma$ destroyed). If
 the argmin lands on $6\times10^{-4}$ the grid is extended upward carefully, one step
 at a time, rather than blindly.
+
+**Extended downward to $6\times10^{-7}$ on 2026-09-19**, after the first twelve cells
+ran. The argmin landed on the *bottom* of the range, so the discipline written above
+for the upward case applies symmetrically: one step down, not a blind decade-wide
+sweep. The measured surface is monotone in $q$ and sharply decelerating --
+$6\times10^{-4}\to6\times10^{-5}$ bought $0.046$, $6\times10^{-5}\to6\times10^{-6}$
+bought $0.0073$ -- which extrapolates to roughly $0.001$ at $6\times10^{-7}$, *below*
+`THRESHOLD`. The extrapolation is the reason to expect a null result; it is not a
+reason to skip the measurement. The deciding argument is M6: its headline compares
+this filter against M4's centralised one, and **M4's grid bottoms out at the same
+$q=6\times10^{-6}$**. If the extra decade buys something here, M4's grid is extended
+too -- otherwise the diffusion filter would have been searched finer than the
+baseline it is measured against, and the comparison would stop being like-for-like.
 
 $\gamma$ carries both values because M4 measured the axes as **interacting** on this
 task: $\gamma=0.9995$ won every slice at high $q$, $\gamma=1$ every slice at low.
@@ -83,7 +96,7 @@ LEARNER = "diffusion_ekf_onehop_mean_receiver"
 
 #: The experiment itself, so constants rather than flags.
 GAMMAS = [1.0, 0.9995]
-PROCESS_NOISE = [6.0e-6, 6.0e-5, 6.0e-4]
+PROCESS_NOISE = [6.0e-7, 6.0e-6, 6.0e-5, 6.0e-4]
 PRIOR_SCALES = [0.01, 0.001]
 
 HORIZON, SEEDS, EVAL_EVERY = 1500, [0, 1], 25
@@ -139,7 +152,7 @@ def save_status(status: dict) -> None:
 
 
 def sweep(args) -> int:
-    """The 12-cell grid at two seeds."""
+    """The 16-cell grid at two seeds."""
     cells = grid()
     status = load_status()
     print(f"M5: {len(cells)} cells x {len(args.seeds)} seeds on {CONDITION}, "
