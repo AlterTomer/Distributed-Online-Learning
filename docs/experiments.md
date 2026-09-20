@@ -51,7 +51,7 @@ D58). Every script prints a per-cell ETA as it goes.
 | **X10** | Does cooperation pay under label shift rather than covariate shift? | `run_experiment.py x10_prior_drift` then `x10_control` | |
 | **X11** | Recovery under *repeated* abrupt shifts, $J$ × $t'$ | `run_recurring_sweep.py` | 38 h |
 | **X12** | Smooth drift at four constant rates, to bracket X11 | `run_linear_sweep.py` | |
-| **X13** | Tuning the centralised EKF: $(\sigma_0^2,\gamma,\bm Q)$ and $(\sigma_0^2,\lambda)$ | `run_ekf_sweep.py`, then `--baselines`, then `--full` | 12 + 2 + 36 h |
+| **X13** | Tuning the centralised EKF: $(\sigma_0^2,\gamma,\boldsymbol Q)$ and $(\sigma_0^2,\lambda)$ | `run_ekf_sweep.py`, then `--baselines`, then `--full` | 12 + 2 + 36 h |
 | **X14** | Does the filter's advantage generalise? 21 drift conditions, rate crossed with state count | `run_ekf_generalization.py --lr` then `run_ekf_generalization.py` | 0.5 + 32 h |
 | **X15** | Is the $\gamma$/$\lambda$ ordering a mechanism or a tuning artefact? Both families re-tuned at one fast condition | `run_ekf_retune.py` | ~6 h |
 | **X16** | The filter on X9's ramp, so the break figure has a filter curve | `run_ekf_ramp.py` | 1 h |
@@ -65,7 +65,7 @@ D58). Every script prints a per-cell ETA as it goes.
 | **X24** | Was covariance sharing wasted rather than useless? $\alpha \times \beta$ on the full-sharing variants, where $\beta=1$ is the conservative bound and $\beta=2$ assumes independent errors | `run_diffusion_combine.py` | 4 h |
 | **X25** | The diffusion filter under Dirichlet label skew — the first time the combine step must reconcile beliefs formed from different label distributions | `run_diffusion_skew.py --lr` then `run_diffusion_skew.py` | 0.3 + 9 h |
 | **X26** | `atc_plain` at its own learning rate, which it had never had — the bandwidth-matched baseline that settles the M2 claim | `run_atc_plain.py --lr` then `run_atc_plain.py` | 1.5 + 0.5 h |
-| **X27** | Where should one-hop linearise a neighbour's batch — at the sender's $\bm\theta_u^-$ (X20–X26) or the receiver's own $\bm\theta_v^-$? Both points paired on X25's cells; the sender arm doubles as a reproduction check (D94) | `run_linearization_point.py --seeds 0 1 2 3 4` | ~12 h (est.) |
+| **X27** | Where should one-hop linearise a neighbour's batch — at the sender's $\boldsymbol\theta_u^-$ (X20–X26) or the receiver's own $\boldsymbol\theta_v^-$? Both points paired on X25's cells; the sender arm doubles as a reproduction check (D94) | `run_linearization_point.py --seeds 0 1 2 3 4` | ~12 h (est.) |
 
 **Order matters in five places.** X13 needs `--baselines` before `--full`, or it
 compares a drift-tuned filter against a stationary-tuned baseline. X14 needs

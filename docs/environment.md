@@ -167,8 +167,8 @@ at a step therefore holds the same count.
 
 *Why it matters.* The X0 identity
 
-$$\sum_v \tfrac1N\bigl(\bm\theta-\eta\nabla L(\bm\theta;\mathcal D^v)\bigr)
-= \bm\theta - \eta\,\tfrac1N\sum_v \nabla L(\bm\theta;\mathcal D^v)$$
+$$\sum_v \tfrac1N\bigl(\boldsymbol\theta-\eta\nabla L(\boldsymbol\theta;\mathcal D^v)\bigr)
+= \boldsymbol\theta - \eta\,\tfrac1N\sum_v \nabla L(\boldsymbol\theta;\mathcal D^v)$$
 
 holds only when the per-agent means average to the pooled mean, which requires
 equal batch sizes. Unequal batches produce a small, plausible, non-zero residual
@@ -246,40 +246,40 @@ single class.
 
 Each agent draws a preference vector over the $K = 10$ classes,
 
-$$\bm q_v \sim \mathrm{Dir}(\beta \bm 1_K),$$
+$$\boldsymbol q_v \sim \mathrm{Dir}(\beta \boldsymbol 1_K),$$
 
-and is then filled to its target size, taking as much of each class as $\bm q_v$
+and is then filled to its target size, taking as much of each class as $\boldsymbol q_v$
 asks for and the remaining pool can supply. $\beta$ is the **concentration**: it
 is the only knob, and it controls how far a typical draw strays from the uniform
-vector $\bm 1/K$.
+vector $\boldsymbol 1/K$.
 
 The mechanism is the variance of a Dirichlet coordinate,
 
-$$\operatorname{Var}(q_{v,k}) = \frac{\tfrac1K\left(1 - \tfrac1K\right)}{\beta K + 1},$$
+$$\mathrm{Var}(q_{v,k}) = \frac{\tfrac1K\left(1 - \tfrac1K\right)}{\beta K + 1},$$
 
 which is $O(1/\beta)$. So:
 
 - **Small $\beta$ (0.1).** Draws are extreme — most of the mass lands on a couple
   of coordinates and the rest are near zero. Agents get sharply different
   preference vectors, hence sharply different digits.
-- **Large $\beta$ (100).** Draws concentrate on the mean $\bm 1/K$. Every agent's
+- **Large $\beta$ (100).** Draws concentrate on the mean $\boldsymbol 1/K$. Every agent's
   preference is *nearly the same uniform vector*, so every agent's shard is
   nearly a uniform sample of the pool. As $\beta \to \infty$ this converges to
   IID.
 
 **"More independence" is the wrong intuition, and worth being precise about.**
-The $\bm q_v$ are drawn independently at *every* $\beta$ — that never changes.
+The $\boldsymbol q_v$ are drawn independently at *every* $\beta$ — that never changes.
 What large $\beta$ does is make them **nearly identical**, because they all
 concentrate on the same mean. The consequence is that an agent's shard becomes
 *uninformative about which agent it is*: knowing you are looking at agent 7's
 data tells you nothing about which digits you will see. That statistical
 independence between **agent identity and label** is what "IID across agents"
-names, and it is produced by low variance in $\bm q_v$, not by any change in how
-the $\bm q_v$ are drawn.
+names, and it is produced by low variance in $\boldsymbol q_v$, not by any change in how
+the $\boldsymbol q_v$ are drawn.
 
 Measured on MNIST, $N = 10$, five seeds:
 
-| $\beta$ | skew (mean TV) | classes present | classes with ≥5 % of the shard | perplexity $e^{H(\bm q_v)}$ |
+| $\beta$ | skew (mean TV) | classes present | classes with ≥5 % of the shard | perplexity $e^{H(\boldsymbol q_v)}$ |
 |---|---|---|---|---|
 | 0.1 | 0.647 | 5.5 [3–8] | 3.1 [1–5] | 2.9 |
 | 1.0 | 0.363 | 9.3 [6–10] | 6.0 [4–9] | 6.5 |

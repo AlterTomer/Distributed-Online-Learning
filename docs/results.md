@@ -45,7 +45,7 @@ gap against the 1e-12 tolerance is a claim.
 AdamW breaking is the positive control: without a case that fails, a test that
 always passes is indistinguishable from one that checks nothing. **It is not a
 convergence result** — the identity fails on the first step because Adam's second
-moment is nonlinear in $\bm g$, which is a different phenomenon from the D-Adam
+moment is nonlinear in $\boldsymbol g$, which is a different phenomenon from the D-Adam
 divergence in `WORKPLAN.md` §3.4. No experiment here runs AdamW to convergence:
 the tuning sweep grid is `optimizer` $\in$ {`sgd`, `sgd_momentum`} only.
 
@@ -331,7 +331,7 @@ Isolating it on a single agent, varying only the optimizer:
 | 0.005 | 0.9 | 2 | 0.188 |
 | 0.05 | 0.9 | 20 | 0.188 |
 
-Not divergence — $\|\bm\theta\|^2$ stayed comparable to the other methods — but a
+Not divergence — $\|\boldsymbol\theta\|^2$ stayed comparable to the other methods — but a
 settle into near-uniform output, mean confidence 0.154 against a floor of 0.1.
 
 **The standing check this leaves behind:** no distributed method may beat
@@ -577,9 +577,9 @@ Five cells show ATC *beating* centralized — the sanity check of §6 firing aga
 Investigated rather than reported.
 
 **Most of it is an effective-step artefact.** At $\pi_\text{lab} < 1$ most agents
-are idle, and an idle agent contributes its unchanged $\bm\theta$ to the combine
+are idle, and an idle agent contributes its unchanged $\boldsymbol\theta$ to the combine
 step. So ATC's update is
-$\bm\theta - \frac{\eta}{N}\sum_{v\ \text{active}} \nabla L_v$ — an effective step
+$\boldsymbol\theta - \frac{\eta}{N}\sum_{v\ \text{active}} \nabla L_v$ — an effective step
 of $\eta \times n_\text{active}/N$, while centralized takes the full $\eta$ on the
 pooled batch. At $\pi_\text{lab} = 0.25$ that is a **4x** difference, and the two
 methods are therefore not running at comparable step sizes.
@@ -734,7 +734,7 @@ full momentum-arm profile at $n{=}1,\ \pi_\text{lab}{=}0.25$:
 | 0.05 | 0.896 | 0.302 |
 
 ATC's optimum is *still the headline value*; centralized's has moved by 4x. With
-~2.5 of 10 agents active, an idle agent contributes its unchanged $\bm\theta$ to
+~2.5 of 10 agents active, an idle agent contributes its unchanged $\boldsymbol\theta$ to
 the combine, so ATC's effective step is $\eta \cdot n_\text{active}/N \approx
 \eta/4$ **automatically** — exactly the reduction a smaller batch calls for.
 Centralized applies the full $\eta$ however many agents held labels, so its
@@ -998,7 +998,7 @@ $t'$ axis is unaffected, since the state set is identical down a column.
 Both on Erdős–Rényi(0.3), 5 seeds, against twins differing in one thing only.
 The **cooperation gap** is `local_only` minus `diffusion_sgd_atc` measured
 *inside* each run, where both share one environment, one graph and one
-$\bm\theta_0$.
+$\boldsymbol\theta_0$.
 
 ### 14.1 X8 — heterogeneous drift costs whoever shares information
 
@@ -1292,7 +1292,7 @@ sharing maintains the second.
 0.0095 at linear, 0.0352 against 0.0370 at abrupt — while its absolute error is
 worse by 0.013–0.017 everywhere. Not a contradiction: damage removes fitting
 ability to isolate tracking, so a method can track better from a worse floor. Less
-accumulated information means a larger $\bm P$, a larger gain and faster
+accumulated information means a larger $\boldsymbol P$, a larger gain and faster
 adaptation; the centralised filter's data advantage makes it more confident and
 therefore more sluggish. **On error — the objective — the centralised filter wins
 all six cells**, as it should (D81).
@@ -1397,7 +1397,7 @@ single shared setting is confounded by an effect as large as the one it measures
 **$\gamma$ remains a three-way trade, not a selection.** At the chosen
 $(q,\sigma_0^2)$:
 
-| $\gamma$ | error | \ac{ece} | $\lVert\bm\theta\rVert^2$ | mean conf |
+| $\gamma$ | error | ECE | $\lVert\boldsymbol\theta\rVert^2$ | mean conf |
 |---|---|---|---|---|
 | 0.9995 | **0.1173** | 0.0379 | 58.7 | 0.8465 |
 | 0.9999 | 0.1192 | 0.0228 | 88.5 | 0.8645 |
@@ -1406,7 +1406,7 @@ $(q,\sigma_0^2)$:
 All three sit on the Pareto frontier and both gaps clear the 0.0013 threshold, so
 this is a reporting choice rather than a measurement: $\gamma=0.9995$ for accuracy
 claims, $\gamma=1$ for calibration claims, $\gamma=0.9999$ if one setting has to
-serve both — +0.0019 error for a 40% cut in \ac{ece}.
+serve both — +0.0019 error for a 40% cut in ECE.
 
 ⚠ **$\alpha$ was 0 in every cell.** X23 tunes the filter as built; it does not
 apply the $c=(N/\lvert\mathcal M_v\rvert)^{\alpha}$ correction, which is X22. The
@@ -1417,7 +1417,7 @@ X20) and then stopped.
 
 ## How far may an agent extrapolate its own evidence? (X22)
 
-$\alpha$ is `information_exponent`: the adapt step scales $\bar{\bm B}$ by
+$\alpha$ is `information_exponent`: the adapt step scales $\bar{\boldsymbol B}$ by
 $\sqrt c$ and the score by $c$, with $c=(N/\lvert\mathcal M_v\rvert)^{\alpha}$.
 $\alpha=0$ claims only what the agent gathered; $\alpha=1$ claims the whole
 network's worth. ⚠ That is "just multiply by $N$" **for the local adapt only** —
@@ -1429,7 +1429,7 @@ scopes, 3 seeds, 15° every 25 steps over ER $p=0.3$, at the X20/X23 setting
 
 **Full ablation — kept complete rather than summarised, for the paper.**
 
-| $\alpha$ | error | ECE | overconf. | $\lVert\bm\theta\rVert^2$ |
+| $\alpha$ | error | ECE | overconf. | $\lVert\boldsymbol\theta\rVert^2$ |
 |---|---|---|---|---|
 | **`diffusion_ekf` (local adapt)** | | | | |
 | 0 | **0.1173** | 0.0379 | −0.0362 | 58.7 |
@@ -1461,7 +1461,7 @@ above threshold, and on one-hop it is flat across the range.
 
 **Why**: scaling one agent's information by $N$ does not create $N$ agents' worth
 of independent evidence, it makes the filter confident about evidence it never
-received. The score is scaled by $c$ while $\bm P$ shrinks by much less than $c$
+received. The score is scaled by $c$ while $\boldsymbol P$ shrinks by much less than $c$
 wherever the prior dominates, so the step grows and passes beyond where the
 linearisation holds (D92). The $1/N$ deficit is real information, not a missing
 constant (D87). What does close it is gathering more: one-hop beats local at every
@@ -1475,7 +1475,7 @@ what $\alpha=1$ does better than a `_diverged` marker would.
 ## Was covariance sharing wasted rather than useless? (X24)
 
 $\beta$ is `combine_exponent`: the covariance combine is
-$\sum_u a_{vu}^{\beta}\bm P^{\psi}_u$, with $\beta=1$ the conservative bound of
+$\sum_u a_{vu}^{\beta}\boldsymbol P^{\psi}_u$, with $\beta=1$ the conservative bound of
 `lem:conservative` (errors coincide) and $\beta=2$ what independent errors give.
 It reaches only the full-sharing variants — under local sharing there is no
 covariance combine (D85). Swept jointly with $\alpha$, one learner per cell,
@@ -1513,12 +1513,12 @@ it assumes, and treating them as independent is badly wrong (D88, and P5.14
 answered from an unexpected side).
 
 **$\beta$ interacts with $\alpha$.** At $\beta=1$ the $\alpha=1$ cells diverge; at
-$\beta\ge1.5$ they survive, because shrinking $\bm P$ shrinks the gain and offsets
+$\beta\ge1.5$ they survive, because shrinking $\boldsymbol P$ shrinks the gain and offsets
 $\alpha$'s score inflation. Either axis swept alone would have misreported the
 other.
 
 **$\beta>1$ makes the filter more under-confident, not less** — overconfidence
-runs −0.0354 → −0.3057. A covariance knob sits inside the gain, so shrinking $\bm
+runs −0.0354 → −0.3057. A covariance knob sits inside the gain, so shrinking $\boldsymbol
 P$ slows learning as well as narrowing the claim, and the first effect dominates.
 
 **Full sharing against mean-only, at the re-tuned setting:** −0.0018 ($t=-6.88$)

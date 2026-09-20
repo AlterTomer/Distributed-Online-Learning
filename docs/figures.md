@@ -174,7 +174,7 @@ actually stated.
 ### Why the ordering flips — a step-count identity
 
 Not a subtlety about momentum. **At equal bandwidth the payload-matched variant
-has taken twice as many steps.** Momentum ships $2p$ per link ($\bm\theta$ and
+has taken twice as many steps.** Momentum ships $2p$ per link ($\boldsymbol\theta$ and
 its buffer), plain ships $p$ — 116 320 against 58 160 scalars per step on the
 ring — so a budget $B$ buys momentum $t$ steps and plain $2t$. The comparison is
 therefore $e_\text{plain}(2t)$ against $e_\text{momentum}(t)$, and plain wins
@@ -281,7 +281,7 @@ in *performance*, which is a different quantity from F5's disagreement in
 *parameters* — agents can hold different weights and still score alike.
 
 **What to look for.** `centralized_sgd` has no band at all: every agent holds the
-same $\bm\theta$ by construction, so a visible band there would mean the runner is
+same $\boldsymbol\theta$ by construction, so a visible band there would mean the runner is
 reading the wrong state. `local_only` has a wide one. ATC sits between, and how
 narrow it is measures how well the combine step is holding the network together.
 
@@ -291,9 +291,9 @@ Not smoothed — the `current` evalset is already sparse (§2).
 
 ## 7. F5 — disagreement and deviation from centralized
 
-$$E_\text{agree} = \tfrac1N\sum_v \lVert\bm\theta_v - \bar{\bm\theta}\rVert^2
+$$E_\text{agree} = \tfrac1N\sum_v \lVert\boldsymbol\theta_v - \bar{\boldsymbol\theta}\rVert^2
 \qquad
-E_\text{cent} = \lVert\bar{\bm\theta} - \bm\theta^\text{cent}\rVert^2$$
+E_\text{cent} = \lVert\bar{\boldsymbol\theta} - \boldsymbol\theta^\text{cent}\rVert^2$$
 
 **$E_\text{agree}$ is consensus** — how far the agents are from each other.
 Identically zero for `centralized_sgd` by construction, which is why that series
@@ -303,19 +303,19 @@ is absent from the top row rather than drawn along the floor.
 fusion centre would have computed. The two are independent: a network can agree
 perfectly on the wrong answer.
 
-**The third row is the second one normalised**, $E_\text{cent}/\lVert\bar{\bm\theta}\rVert^2$,
+**The third row is the second one normalised**, $E_\text{cent}/\lVert\bar{\boldsymbol\theta}\rVert^2$,
 and it exists because the raw curve is easy to misread.
 
 ### Why $E_\text{cent}$ rises, and why that is not "getting worse"
 
-| $t$ | $\lVert\bar{\bm\theta}\rVert^2$ | $E_\text{cent}$ | ratio |
+| $t$ | $\lVert\bar{\boldsymbol\theta}\rVert^2$ | $E_\text{cent}$ | ratio |
 |---|---|---|---|
 | 100 | 47.7 | 0.03 | 0.0006 |
 | 600 | 64.7 | 0.12 | 0.0019 |
 | 1499 | 79.5 | 0.31 | 0.0039 |
 
 $E_\text{cent}$ is an **unnormalised** squared distance, and the weights
-themselves grow — $\lVert\bar{\bm\theta}\rVert^2$ nearly doubles over the run. Two
+themselves grow — $\lVert\bar{\boldsymbol\theta}\rVert^2$ nearly doubles over the run. Two
 trajectories a fixed *relative* distance apart therefore separate in absolute
 terms simply by travelling further from the origin. Roughly half the rise is
 that, which the third row removes.
@@ -359,7 +359,7 @@ cost (ATC (payload-matched) − ATC).
 
 **Every cell uses each method's own best (optimizer, lr) for that cell**, not one
 global setting. This is not fussiness. At $\pi_\text{lab} < 1$ most agents are
-idle, and an idle agent contributes its *unchanged* $\bm\theta$ to the combine
+idle, and an idle agent contributes its *unchanged* $\boldsymbol\theta$ to the combine
 step — so ATC's effective step is $\eta\, n_\text{active}/N$ while centralized
 takes the full $\eta$. At $\pi_\text{lab} = 0.25$ that is a **4×** difference.
 Comparing the two at one lr compares step sizes, not methods. (Measured: the two
@@ -488,7 +488,7 @@ why:
 
 ATC's optimum is *still the headline value*; centralized's has moved by a factor
 of four. With ~2.5 of 10 agents active, an idle agent contributes its unchanged
-$\bm\theta$ to the combine, so ATC's effective step is
+$\boldsymbol\theta$ to the combine, so ATC's effective step is
 $\eta \cdot n_\text{active}/N \approx \eta/4$ **automatically**. A smaller batch
 needs a ~4× smaller step, and diffusion supplies that reduction by itself, so its
 *nominal* rate need not move. Centralized applies the full $\eta$ however many
@@ -558,8 +558,8 @@ the shift does not advantage any method, it just costs them all the same.
 Two panels — error rate and $E_\text{agree}$ — for the two orderings at
 **identical communication cost**.
 
-$$\text{ATC:}\quad \bm\psi_v = \bm\theta_v - \eta\nabla L_v,\qquad \bm\theta_v \leftarrow \textstyle\sum_u a_{vu}\bm\psi_u$$
-$$\text{CTA:}\quad \bm\theta_v \leftarrow \textstyle\sum_u a_{vu}\bm\theta_u - \eta\nabla L(\bm\theta_v)$$
+$$\text{ATC:}\quad \boldsymbol\psi_v = \boldsymbol\theta_v - \eta\nabla L_v,\qquad \boldsymbol\theta_v \leftarrow \textstyle\sum_u a_{vu}\boldsymbol\psi_u$$
+$$\text{CTA:}\quad \boldsymbol\theta_v \leftarrow \textstyle\sum_u a_{vu}\boldsymbol\theta_u - \eta\nabla L(\boldsymbol\theta_v)$$
 
 The gradient is evaluated **before** the averaging in CTA and after it in ATC.
 That is the entire difference; they cost the same.
@@ -749,7 +749,7 @@ making the key silently disagree with the data.
 
 `make_mg_figures.py`, excluded like every other builder (§1). All four draw from
 JSON the M-series already reduced — the pilot report, the reference sweep, the
-$\bm R$ profile — so none of them needs a `results/` run still on disk.
+$\boldsymbol R$ profile — so none of them needs a `results/` run still on disk.
 
 ### MG1 — the pilot gate
 
@@ -796,13 +796,13 @@ property of any method under test. Persistence and the $\sigma=0.1$ floor bound
 the plot: nothing should beat the floor, and a learner above persistence is not
 learning.
 
-### MG4 — the per-position $\bm R$
+### MG4 — the per-position $\boldsymbol R$
 
 The profile shipped in `mg_transformer.yaml`, log-scaled because the *shape* is
 the point: position 1 predicts from a single sample and is worst by far, and the
 variance falls to $\sim0.014$ by position 20. The linear AR profile sits beside it
 — higher everywhere, and much worse at position 2 — and the dotted line marks the
-$\bm R$ centre that M4 and M5 scale by a single tuned factor.
+$\boldsymbol R$ centre that M4 and M5 scale by a single tuned factor.
 
 **A flat profile would be the surprise**, since it would mean the per-position
 rule (decision 14) was never needed.

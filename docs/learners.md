@@ -16,8 +16,8 @@ If this document and the code disagree, the code is right and this is stale.
 | learner | adapt sees | combine | per link |
 |---|---|---|---|
 | `centralized_sgd` | the pooled batch $\bigcup_v \mathcal D_t^v$ | nothing | — |
-| `diffusion_sgd_atc` | agent $v$'s own batch | average the $\bm\psi$ | $2p$ |
-| `diffusion_sgd_atc_plain` | agent $v$'s own batch | average the $\bm\psi$ | $p$ |
+| `diffusion_sgd_atc` | agent $v$'s own batch | average the $\boldsymbol\psi$ | $2p$ |
+| `diffusion_sgd_atc_plain` | agent $v$'s own batch | average the $\boldsymbol\psi$ | $p$ |
 | `diffusion_sgd_cta` | agent $v$'s own batch | average *before* the gradient | $2p$ |
 | `local_only` | agent $v$'s own batch | nothing | 0 |
 
@@ -28,7 +28,7 @@ not in two implementations that drifted apart.
 ### `centralized_sgd` — the upper reference
 
 Sees the pooled batch every step and takes one optimizer step. Every agent holds
-the same $\bm\theta$ by construction, so `combine` is a no-op and
+the same $\boldsymbol\theta$ by construction, so `combine` is a no-op and
 $E_\text{agree}$ is identically zero.
 
 It is an upper reference **for the online setting**, not a deployable
@@ -38,7 +38,7 @@ than a point on the communication axis (design note D30).
 
 ### `diffusion_sgd_atc` — the primary method
 
-$$\bm\psi_v = \bm\theta_v - \eta\nabla L(\bm\theta_v;\mathcal D_v), \qquad \bm\theta_v \leftarrow \sum_u a_{vu}\bm\psi_u$$
+$$\boldsymbol\psi_v = \boldsymbol\theta_v - \eta\nabla L(\boldsymbol\theta_v;\mathcal D_v), \qquad \boldsymbol\theta_v \leftarrow \sum_u a_{vu}\boldsymbol\psi_u$$
 
 Each agent steps on its own data, then averages the *result* with its
 neighbours. **Parameters are mixed, not gradients** — that is what drives the
@@ -56,17 +56,17 @@ rather than to the ordering.
 to the *same class*, `DiffusionSGDATC`. Given the same optimizer the two are
 bit-identical — measured at exactly 0.0 divergence over 40 steps. Both run
 
-$$\bm\psi_v = \bm\theta_v - \eta\,\bm d_v, \qquad \bm\theta_v \leftarrow \sum_u a_{vu}\bm\psi_u$$
+$$\boldsymbol\psi_v = \boldsymbol\theta_v - \eta\,\boldsymbol d_v, \qquad \boldsymbol\theta_v \leftarrow \sum_u a_{vu}\boldsymbol\psi_u$$
 
-and differ only in what $\bm d_v$ is:
+and differ only in what $\boldsymbol d_v$ is:
 
-| | $\bm d_v$ | mixed | per link |
+| | $\boldsymbol d_v$ | mixed | per link |
 |---|---|---|---|
-| `diffusion_sgd_atc` | $\bm m_v \leftarrow \beta\bm m_v + \bm g_v$ | $\bm\theta$ and $\bm m$ | $2p$ |
-| **ATC (payload-matched)** | $\bm g_v$ | $\bm\theta$ only | $p$ |
+| `diffusion_sgd_atc` | $\boldsymbol m_v \leftarrow \beta\boldsymbol m_v + \boldsymbol g_v$ | $\boldsymbol\theta$ and $\boldsymbol m$ | $2p$ |
+| **ATC (payload-matched)** | $\boldsymbol g_v$ | $\boldsymbol\theta$ only | $p$ |
 
 So the payload-matched variant is **exactly the $\beta = 0$ case**. At
-$\beta = 0$ the mixing choice also becomes vacuous: $\bm m_v = \bm g_v$, so
+$\beta = 0$ the mixing choice also becomes vacuous: $\boldsymbol m_v = \boldsymbol g_v$, so
 averaging the buffers cannot influence any later step. The two config knobs
 collapse into one.
 
@@ -87,7 +87,7 @@ sits on the same order as 0.20.
 
 ### `diffusion_sgd_cta` — the ordering comparison
 
-$$\bm\theta_v(t{+}1) = \sum_u \bm W_{vu}\bm\theta_u(t) \;-\; \alpha_t\nabla L(\bm\theta_v(t);\mathcal D_v)$$
+$$\boldsymbol\theta_v(t{+}1) = \sum_u \boldsymbol W_{vu}\boldsymbol\theta_u(t) \;-\; \alpha_t\nabla L(\boldsymbol\theta_v(t);\mathcal D_v)$$
 
 Eq. (17) of Olshevskyi et al. — the Nedić–Ozdaglar consensus-plus-local-gradient
 form. The gradient is evaluated **before** the averaging, which is the entire
@@ -109,15 +109,15 @@ the value of cooperation, and it is the cleanest answer to Q2.
 
 ## 2. Optimizer state, and what the combine step mixes
 
-`mix_optimizer_state: momentum` averages $\bm m$ with the **same weights** as
-$\bm\theta$, so combine is one operator on the whole learner state:
+`mix_optimizer_state: momentum` averages $\boldsymbol m$ with the **same weights** as
+$\boldsymbol\theta$, so combine is one operator on the whole learner state:
 
-$$\begin{pmatrix}\bm\theta_v \\ \bm m_v\end{pmatrix} \leftarrow \sum_u a_{vu}\begin{pmatrix}\bm\psi_u \\ \bm m_u\end{pmatrix}$$
+$$\begin{pmatrix}\boldsymbol\theta_v \\ \boldsymbol m_v\end{pmatrix} \leftarrow \sum_u a_{vu}\begin{pmatrix}\boldsymbol\psi_u \\ \boldsymbol m_u\end{pmatrix}$$
 
-Every property established for $\bm A$ then covers all of it: row-stochasticity
+Every property established for $\boldsymbol A$ then covers all of it: row-stochasticity
 keeps the result inside the neighbours' convex hull, double stochasticity
-preserves the network average. Unmixed, $\bm\theta$ gets those guarantees and
-$\bm m$ — the part that diverges — gets none.
+preserves the network average. Unmixed, $\boldsymbol\theta$ gets those guarantees and
+$\boldsymbol m$ — the part that diverges — gets none.
 
 **Why it is not optional.** Olshevskyi et al. Fig. 2a: **D-Adam**, which mixes
 parameters and keeps moments local, converges then *diverges*; **D-AMSGrad**,
@@ -131,8 +131,8 @@ sent, which is why `momentum` costs $2p$ per link and plain SGD costs $p$.
 | optimizer | state carried | mixed under `momentum` | per link |
 |---|---|---|---|
 | `sgd` | — | — | $p$ |
-| `sgd_momentum` | $\bm m$ | $\bm m$ | $2p$ |
-| `adamw` | $\bm m, \bm v$ | $\bm m$ (or both under `all`) | $2p$–$3p$ |
+| `sgd_momentum` | $\boldsymbol m$ | $\boldsymbol m$ | $2p$ |
+| `adamw` | $\boldsymbol m, \boldsymbol v$ | $\boldsymbol m$ (or both under `all`) | $2p$–$3p$ |
 
 Implemented directly rather than through `torch.optim`: torch optimizers own
 their state internally and expose it only as
@@ -148,9 +148,9 @@ exactly the boundary that must not move.
 On a complete graph with uniform weights and plain SGD, ATC is **algebraically
 identical** to centralized SGD:
 
-$$\sum_v \tfrac1N\bigl(\bm\theta - \eta\nabla L_v\bigr) = \bm\theta - \eta\,\tfrac1N\sum_v\nabla L_v$$
+$$\sum_v \tfrac1N\bigl(\boldsymbol\theta - \eta\nabla L_v\bigr) = \boldsymbol\theta - \eta\,\tfrac1N\sum_v\nabla L_v$$
 
-given a common $\bm\theta$, which the identity then preserves inductively.
+given a common $\boldsymbol\theta$, which the identity then preserves inductively.
 
 **Measured: 1.7e-15** over 50 steps in float64, against a 1e-12 target. Via the
 full pipeline, the two learners' error rates agree to four decimals and
@@ -182,9 +182,9 @@ gradients**, because averaging commutes with linear maps:
 | momentum $\beta{=}0.9$ | not mixed | 9.99e-16 | exact |
 | AdamW | all | 0.76 | **breaks** |
 
-Heavy-ball is linear — $\bm m \leftarrow \beta\bm m + \bm g$ — so
-$\frac1N\sum_v\bm m_v$ *is* the centralized momentum recursion. Adam's second
-moment carries $\bm g^2$, which is not.
+Heavy-ball is linear — $\boldsymbol m \leftarrow \beta\boldsymbol m + \boldsymbol g$ — so
+$\frac1N\sum_v\boldsymbol m_v$ *is* the centralized momentum recursion. Adam's second
+moment carries $\boldsymbol g^2$, which is not.
 
 **Read the magnitudes, not the digits.** All four are 30 steps, complete graph,
 float64, at the tuned lr 0.01. The exact rows sit at float64 accumulation and
@@ -210,7 +210,7 @@ always passes is indistinguishable from one that checks nothing. Three more
 controls exist: a ring, unequal batch sizes, and float32.
 
 **A limit worth stating.** All of this holds on a *complete* graph, where every
-agent linearises at the same $\bm\theta$. On a ring the agents differ and the
+agent linearises at the same $\boldsymbol\theta$. On a ring the agents differ and the
 argument collapses — so it says nothing about whether mixing matters in the
 experiments actually run.
 
@@ -220,7 +220,7 @@ experiments actually run.
 
 `WORKPLAN.md` §3.2 says diffusion SGD exchanges "one $p$-vector per link per
 step". True of the payload-matched variant. But §3.4 makes the X1–X6 primary *SGD with momentum,
-momentum mixed* — which sends $2p$, while Diff-EKF sends $\bm\psi$ alone.
+momentum mixed* — which sends $2p$, while Diff-EKF sends $\boldsymbol\psi$ alone.
 
 At $N{=}10$ on a ring, $p = 2908$:
 
@@ -245,7 +245,7 @@ link — the stronger momentum baseline is not its competitor (`results.md` §2.
 **`one_hop` is worth understanding before phase 5.** It selects *whose*
 likelihood information an agent folds into its own adapt step. Under `local` the
 agent uses only its own data; under `one_hop` neighbours exchange the raw
-information $(\bm B_u, \bm H_u^{\mathsf T}\bm\nu_u)$ first. Proposition 1 —
+information $(\boldsymbol B_u, \boldsymbol H_u^{\mathsf T}\boldsymbol\nu_u)$ first. Proposition 1 —
 complete-graph exactness for the filter — holds only for `one_hop`, because the
 EKF's gain is *data-dependent* where SGD's step size is fixed: averaging
 estimates computed with different gains does not reproduce one joint update. So
@@ -277,7 +277,7 @@ the combine-step axis that makes four arrives with the diffusion filter.
 
 Two smaller decisions that guard silent failures:
 
-- **`init()` clones $\bm\theta_0$ per agent** rather than sharing one tensor. Sharing would make the first in-place update change every agent at once, and the run would show perfect consensus for a reason unconnected to the combine step.
+- **`init()` clones $\boldsymbol\theta_0$ per agent** rather than sharing one tensor. Sharing would make the first in-place update change every agent at once, and the run would show perfect consensus for a reason unconnected to the combine step.
 - **`combine` reads every message before writing any.** The obvious loop would let agent 1 combine agent 0's *already-updated* parameters, making the result depend on node ordering and breaking X0 while still producing a plausible curve.
 
 ---

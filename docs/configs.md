@@ -107,7 +107,7 @@ the split is uniform, so every agent sees roughly the same class distribution;
 this is deliberate for X1–X3, because it makes drift the only source of
 non-stationarity and keeps "what does decentralization cost" (Q1) from being
 confounded with "what does heterogeneity cost". Under **`dirichlet`**, each agent
-draws a class preference $\bm q_v \sim \text{Dir}(\beta\mathbf 1_K)$ and is filled
+draws a class preference $\boldsymbol q_v \sim \text{Dir}(\beta\mathbf 1_K)$ and is filled
 according to it: $\beta = 0.1$ gives agents that each see only three or four
 digits, and $\beta \to \infty$ approaches IID. That is the sharpest form of Q2 —
 an agent that never sees a 7 can only learn 7s through the combine step — and it
@@ -275,8 +275,8 @@ and their 45-degree cap; on this task the cap stands for the channel's full
 | `hidden` | list[int] | `[14]` | each ≥ 1 | Empty list means a linear probe |
 | `output_dim` | int | `10` | ≥ 2 | $q$; number of classes |
 | `likelihood` | str | `categorical` | `categorical` \| `gaussian` | Selects the observation model in `likelihoods/registry.py` |
-| `observation_variance` | float | `1.0` | > 0 | $\sigma^2$ in $\bm R = \sigma^2\bm I$; read only by `gaussian` |
-| `observation_variances` | list[float] | `[]` | each > 0, one per output | A per-position diagonal of $\bm R$, overriding `observation_variance` when non-empty (series task, decision 14) |
+| `observation_variance` | float | `1.0` | > 0 | $\sigma^2$ in $\boldsymbol R = \sigma^2\boldsymbol I$; read only by `gaussian` |
+| `observation_variances` | list[float] | `[]` | each > 0, one per output | A per-position diagonal of $\boldsymbol R$, overriding `observation_variance` when non-empty (series task, decision 14) |
 | `context` | int | `31` | = `env.series.length - 1` | Sequence models: positions per block. `output_dim` must equal it |
 | `d_model`, `n_heads`, `d_ff` | int | `16`, `2`, `32` | `d_model` even, divisible by `n_heads` | `causal_transformer` widths |
 
@@ -284,7 +284,7 @@ and their 45-degree cap; on this task the cap stands for the channel's full
 `causal_transformer` and 32 for `linear_ar`, checked against the built models.
 
 `likelihood` is the observation model, not the loss: it decides what the
-filter's information pair $(\bm B, \bm s)$ *means*. Under `categorical` the
+filter's information pair $(\boldsymbol B, \boldsymbol s)$ *means*. Under `categorical` the
 score and the innovation coincide; under `gaussian` they differ by
 $\sigma^{-2}$ (design note D60), which is why a config that selects the wrong
 one is wrong by a constant factor rather than obviously broken. `gaussian` with
@@ -545,12 +545,12 @@ Shared fields:
 | `adapt_scope` | str | `local` | `local`, `one_hop` | Whose likelihood information an agent uses. `one_hop` is the canonical diffusion Kalman filter; `local` is a reduction of it. Pinned by the learner name |
 | `adapt_rounds` | int | `1` | `>= 1` | Hops of measurement information. `1` is one-hop; `>= diam(G)` makes the measurement set the whole graph, so the filter equals the centralised one. Only under `adapt_scope: one_hop` |
 | `covariance_sharing` | str | `local` | `full`, `local` | `full` is eq. 46, `local` is eq. 45. X19 measured the difference at +0.0002 to +0.0007 for 2909x the bandwidth. Pinned by the learner name |
-| `linearization_point` | str | `sender` | `sender`, `receiver` | One-hop only. Where a neighbour's batch is linearised: at the sender's $\bm\theta_u^-$ (what X20–X26 ran; mixed points, $\bm\theta_u^-$ must travel) or at the receiver's own $\bm\theta_v^-$ (one point per update; 3 696 scalars per link per direction instead of 6 604). D93, D94. Pinned by the learner name |
+| `linearization_point` | str | `sender` | `sender`, `receiver` | One-hop only. Where a neighbour's batch is linearised: at the sender's $\boldsymbol\theta_u^-$ (what X20–X26 ran; mixed points, $\boldsymbol\theta_u^-$ must travel) or at the receiver's own $\boldsymbol\theta_v^-$ (one point per update; 3 696 scalars per link per direction instead of 6 604). D93, D94. Pinned by the learner name |
 | `combine_exponent` | float | `1.0` | `[1, 2]` | `P <- sum a^beta P`. `1` is the conservative bound, `2` what independent errors give. Costs no communication |
 | `freeze_after` | int \| null | `null` | ≥ 1 | Stop adapting *and* transmitting at this step |
-| `transition` | str | `identity` | `identity`, `scalar` | Phase 5; $\bm F_t$ |
-| `gamma` | float | `1.0` | $(0,1]$ | Phase 5; $\bm F_t = \gamma\bm I$ under `scalar` |
-| `forgetting` | str | `lambda` | `lambda`, `process_noise` | Phase 5; how $\bm P$ is loosened |
+| `transition` | str | `identity` | `identity`, `scalar` | Phase 5; $\boldsymbol F_t$ |
+| `gamma` | float | `1.0` | $(0,1]$ | Phase 5; $\boldsymbol F_t = \gamma\boldsymbol I$ under `scalar` |
+| `forgetting` | str | `lambda` | `lambda`, `process_noise` | Phase 5; how $\boldsymbol P$ is loosened |
 | `lambda_forget` | float | `0.997` | $(0,1]$ | Phase 5; memory $\approx 1/(1-\lambda)$ |
 | `process_noise_q` | float | `1e-6` | > 0 | Phase 5; used under `forgetting: process_noise` |
 | `prior_scale` | float | `1.0` | > 0 | Phase 5; $P_0 = \text{prior\_scale}\cdot I$ |
@@ -566,7 +566,7 @@ adaptation from initial learning, and needs no threshold anyone had to choose
 (design note D49).
 
 It must be listed in the **same experiment** as the learners it is compared
-with, not run separately: they then share one environment and one $\bm\theta_0$,
+with, not run separately: they then share one environment and one $\boldsymbol\theta_0$,
 so the comparison is paired by construction rather than by seed (D4).
 
 `centralized_sgd` cannot be frozen and the config says so rather than ignoring
@@ -580,17 +580,17 @@ combinations are legal, so which state model performs better is measured rather
 than assumed.
 
 $\gamma$ is commonly called a "forgetting factor" and **is not one**. Propagating
-the moments gives $\bm P_{t|t-1} = \gamma^2\bm P_{t-1|t-1} + \bm Q_t$, and
+the moments gives $\boldsymbol P_{t|t-1} = \gamma^2\boldsymbol P_{t-1|t-1} + \boldsymbol Q_t$, and
 $\gamma^2 \le 1$ *contracts* the covariance — the opposite of forgetting, which
 requires loosening the prior so a new sample counts for relatively more. What
-$\gamma$ actually does is $\bm m_{t|t-1} = \gamma\bm m_{t-1|t-1}$: $L_2$ weight
+$\gamma$ actually does is $\boldsymbol m_{t|t-1} = \gamma\boldsymbol m_{t-1|t-1}$: $L_2$ weight
 decay written in state-space form.
 
 Defaults are `identity` + `lambda`, because a single $\gamma$ ties two things you
 would want to tune separately, and because multiplicative inflation is exactly
-structure-preserving in the information domain while $(\bm\Omega^{-1}+\bm Q)^{-1}$
-is dense. `process_noise` is offered anyway: while $\bm P$ is carried densely —
-all of phase 5 at $p = 2908$ — both rules cost the same, and $\bm Q$ buys
+structure-preserving in the information domain while $(\boldsymbol\Omega^{-1}+\boldsymbol Q)^{-1}$
+is dense. `process_noise` is offered anyway: while $\boldsymbol P$ is carried densely —
+all of phase 5 at $p = 2908$ — both rules cost the same, and $\boldsymbol Q$ buys
 anisotropy a scalar cannot express.
 
 **`lambda_forget` should be read as a memory length.** Effective memory is
@@ -609,7 +609,7 @@ directions harder — the value is a phase-5 pilot item, not a settled constant.
 Three validation rules worth knowing before you hit them:
 
 - **An optimizer that carries per-node state cannot have `mix_optimizer_state: none`.** Local momentum drifts apart across agents and the run diverges; that is a known failure mode, not an open question. Use plain `sgd` if you want no mixing.
-- **`gamma` under `transition: identity` is rejected**, rather than silently ignored: $\bm F_t = \bm I$ means it does nothing, and a config setting it is asking for behaviour it will not get.
+- **`gamma` under `transition: identity` is rejected**, rather than silently ignored: $\boldsymbol F_t = \boldsymbol I$ means it does nothing, and a config setting it is asking for behaviour it will not get.
 - **`lambda_forget` and `process_noise_q` are both always present**, but only the one `forgetting` names is used. They are two parameterisations of the same effect and are jointly unidentifiable, so the selector makes the choice explicit rather than inferred from which field is non-null.
 
 | File | Role |
@@ -623,7 +623,7 @@ Three validation rules worth knowing before you hit them:
 | `diffusion_ekf_onehop.yaml` | One-hop adapt, full sharing: the exactness fixture, not tuned |
 | `diffusion_ekf_onehop_mean.yaml` | One-hop adapt, mean-only: the canonical algorithm at the deployable payload |
 | `diffusion_ekf_onehop_receiver.yaml` | `diffusion_ekf_onehop` linearised at the receiver's point: also an exactness fixture (D94) |
-| `diffusion_ekf_onehop_mean_receiver.yaml` | `diffusion_ekf_onehop_mean` linearised at the receiver's point: one linearisation point per update, and no $\bm\theta_u^-$ on the wire (D94) |
+| `diffusion_ekf_onehop_mean_receiver.yaml` | `diffusion_ekf_onehop_mean` linearised at the receiver's point: one linearisation point per update, and no $\boldsymbol\theta_u^-$ on the wire (D94) |
 | `centralized_adamw.yaml` | The pooled learner with AdamW — the series task's baseline for a Transformer, which is normally trained with Adam (Mackey–Glass plan, decision 19). Rate set per condition by M3 |
 | `diffusion_atc_adamw.yaml` | ATC with AdamW, both moments mixed: **3p** per link, the costliest gradient baseline. Rate set by M3 |
 | `local_adamw.yaml` | Each agent alone with AdamW: the no-cooperation floor of the AdamW arm. Never communicates |
