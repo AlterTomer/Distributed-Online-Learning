@@ -152,9 +152,12 @@ def sweep(args) -> int:
 
 def report() -> None:
     print("  settled RMSE: the filter with no communication, against its connected twins\n")
-    header = f"    {'condition':<14}{'isolated':>11}" + "".join(f"{t:>38}" for t in TWINS)
-    print(header)
-    print(f"    {'':<14}{'':>11}" + "".join(f"{'connected      gain':>38}" for _ in TWINS))
+    # Short labels: `diffusion_ekf_onehop_mean_receiver` is 34 characters and
+    # overran its column, so the header no longer sat above the numbers it names.
+    labels = {"diffusion_ekf": "vs diffusion_ekf",
+              "diffusion_ekf_onehop_mean_receiver": "vs one-hop"}
+    print(f"    {'condition':<14}{'isolated':>11}"
+          + "".join(f"{labels.get(t, t):>27}{'gain':>11}" for t in TWINS))
 
     any_rows = False
     for condition in CONDITIONS:
