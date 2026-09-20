@@ -4106,6 +4106,135 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D106. M6: the main comparison, and an online filter that beats its offline reference
+
+`scripts/run_m6_comparison.py`, six cells (three conditions × two groups) × five
+seeds × fourteen learners, 11 h 55 min GPU on 2026-09-20. **Zero divergences in
+any cell.** Graph: Erdős–Rényi $p=0.3$ at $N=10$, Metropolis weights. Filters
+carry M4's and M5's selections, gradient learners M3's rates, per condition.
+
+**The headline is a ladder, at $\beta=0.22$ — the law the stationary condition
+runs, and the level M2 measured.**
+
+| | RMSE | |
+|---|---|---|
+| noise floor | 0.1000 | unreachable |
+| full context | 0.1177 | sees the whole window |
+| **centralised filter** | **0.1391** | online, one pass |
+| **diffusion, one-hop** | **0.1408** | online, distributed |
+| $e^\star$, offline Transformer | 0.1433 | trained to convergence |
+| diffusion, local adapt | 0.1442 | |
+| best gradient baseline | 0.1628 | AdamW, centralised |
+| worst gradient baseline | 0.1899 | local-only |
+| persistence | 0.2264 | |
+
+**The budgets are equal by construction, which is what makes this a result rather
+than an artefact.** `ReferenceSettings` gives $e^\star$ $40\times375=15\,000$
+blocks — "$N\times T$ blocks, the pooled data an online run sees" — and the series
+environment sizes each agent's per-step batch from `series.n_blocks = 1`, so the
+online budget is $N\times T\times n_b = 10\times1500\times1 = 15\,000$. (The
+config's `env.samples_per_node_per_step = 4` is an inert MNIST-inherited field
+here; reading it as the block count inflates the online budget fourfold and
+invalidates the comparison.) So **an online filter making a single pass beats a
+Transformer trained to convergence on identical data, and so does the distributed
+one** — each agent seeing a tenth of the stream and exchanging only means.
+
+⚠ Indicative, not a significance test. $e^\star$ is scored on 4 000 held-out
+blocks; M6's `current` set is 32 blocks per seed. The 0.0042 margin is about
+three standard errors of the filter's own seed spread (0.0028), and $e^\star$
+carries no error bar at all. The *ordering* is safe; the margin is not.
+
+**Full covariance sharing buys nothing — on error and on uncertainty.** Paired
+per seed, six measurements:
+
+| | stationary | linear | abrupt |
+|---|---|---|---|
+| one-hop | $+0.0000$ (0.0003) | $-0.0003$ (0.0004) | $-0.0001$ (0.0001) |
+| local adapt | $-0.0004$ (0.0005) | $-0.0004$ (0.0007) | $+0.0001$ (0.0005) |
+
+All within $\pm0.0004$, the tightest at $\pm0.0001$, for $p(p+1)/2 = 2\,584\,401$
+scalars against a mean's 2 273 — about 1 100× the payload. Calibration moves no
+further: the largest paired difference on `variance_ratio`, `coverage_90/95` or
+`predictive_nll` is ~0.013 (about 1.5%), and it shifts the *same* direction in
+both conditions, so it improves calibration under drift and worsens it at
+stationary. D100 held only for error, on one task; this holds for error and
+uncertainty, on a second task, second architecture, second problem class.
+
+**One-hop is what makes the filter viable when distributed — the finding is in
+the row beneath the one we were watching.** Centralised minus its diffusion form:
+
+| family | stationary | linear | abrupt |
+|---|---|---|---|
+| filter, one-hop | $+0.0017$ | $+0.0021$ | $+0.0020$ |
+| **filter, local adapt** | $+0.0052$ | $+0.0073$ | $+0.0077$ |
+| SGD + momentum | $+0.0029$ | $+0.0025$ | $+0.0029$ |
+| AdamW | $+0.0031$ | $+0.0028$ | $+0.0018$ |
+
+The prediction that filters lose *less* from decentralising than gradient methods
+is **not supported**: one-hop's $+0.0017$–$0.0021$ overlaps SGD and AdamW, and
+AdamW is nominally better under abrupt. But without the one-hop adapt the filter
+pays two to three times what gradient methods pay. One-hop is not a refinement of
+the adapt scope; it is the repair that restores parity.
+
+**Cooperation dwarfs every architectural contrast here**: local-only minus the
+diffusion form is $+0.0111$ to $+0.0146$ for both gradient families across all
+three conditions, an order above the adapt scope ($+0.0035$–$0.0057$) or the
+distance to centralised ($+0.0017$–$0.0021$). ATC's momentum mixing buys
+$+0.0081$–$0.0092$ for $2p$ per link rather than $p$ — a datapoint track C wants.
+
+**The $\gamma$ reference arms earned their place** (P5.24). Mis-tuning $\gamma$ to
+0.9995 costs the diffusion filter $+0.0097$, $+0.0097$, $+0.0091$ across the three
+conditions and the centralised filter only $+0.0018$, $+0.0021$, $+0.0017$ — a
+fivefold asymmetry, stable everywhere, and **1.7–2.8× the adapt-scope effect it
+would otherwise be confounded with**. A comparison run at one shared setting is
+confounded by an effect larger than the architectural difference it measures, in
+every regime, not just the one X20 caught it in.
+
+They also produced a result the RMSE table cannot show. Under **stationary** the
+$\gamma=1$ filters are under-confident (`variance_ratio` 0.81–0.84, over-covering
+at 0.927 against nominal 0.90), and the $\gamma<1$ arm corrects exactly that:
+1.0020 and 0.8975, the best-calibrated filter in the study. Under **linear** the
+$\gamma=1$ filters are already over-confident (1.07–1.14) and the same shift makes
+it worse (1.1386). `predictive_nll` is worse for the $\gamma$ arm in all three
+conditions, because better calibration does not pay for $+0.0097$ of error. So
+$\gamma=1$ stands — on error everywhere, on likelihood everywhere, on calibration
+everywhere except a stationary law.
+
+**Calibration has an arc worth reporting on its own**: under-confident at
+stationary (0.81–0.84), over-confident under linear (1.07–1.14), near-nominal
+under abrupt (0.968–1.000, coverage 0.900–0.906). The uncertainty model fits best
+under the schedule that keeps returning.
+
+**Drift costs, paired.** The one-hop filters pay least under linear
+($+0.0044$–$0.0047$ against the baselines' $+0.0063$–$0.0108$), but the claim
+"every filter pays less than every baseline" is false at the boundary: local adapt
+pays $+0.0065$ and `diffusion_atc_adamw` $+0.0063$. Under abrupt every cost is
+small with a spread of ~0.005 — `recurring` reflects at the 45° cap (D74), so the
+target keeps returning and barely damages anyone.
+
+**What this does not measure.** Four gaps, in the order they matter:
+
+1. **There is no non-cooperating filter arm.** Every filter here communicates;
+   even `diffusion_ekf` combines means. So the filter's own cooperation gain — the
+   number we can quote for both gradient families — is unmeasured, and "compared
+   to not distributing at all?" has no answer. The natural route is an edgeless
+   graph: Metropolis weighting gives $a_{vv}=1$ at degree zero, so the combine
+   becomes the identity and `diffusion_ekf` becomes a per-agent EKF. It needs **no
+   new learner and no new topology**: `disconnected` at `n_components = N` builds
+   an edgeless graph — verified, `build_graph(topology="disconnected", n_nodes=10,
+   params={"n_components": 10})` returns 0 edges, 10 components, and a Metropolis
+   weight diagonal of exactly 1.0000. Only a probe script is new, in the pattern of
+   `run_m5_linear_probe.py`: three cells at five seeds, paired per seed against the
+   existing `m6_*_a` cells. About three GPU-hours. **This is the next run.**
+2. **One graph, one $N$.** ER $p=0.3$ at $N=10$ only; P5.3's topology sweep and
+   the $N$ ladder have no Mackey–Glass analogue yet.
+3. **M5 tuned on `m_abrupt` alone** and carried to all three conditions. The
+   linear probe is the only evidence the setting travels; `m_stationary` was never
+   tuned, and the carried setting's ordering held there regardless.
+4. **The $e^\star$ comparison rests on a 32-block evaluation set** against
+   $e^\star$'s 4 000. Raising `series.eval_blocks` would tighten the headline, at
+   the cost of re-running the battery.
+
 ### ✅ D105. M5: the tie-break that could not break the tie, and the image task's $q$ pattern inverts
 
 `scripts/run_m5_diffusion.py` (16 cells × 2 seeds, ≈4.3 h GPU), its `--tie-break`
