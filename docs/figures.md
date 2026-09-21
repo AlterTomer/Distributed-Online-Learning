@@ -898,8 +898,11 @@ with bars over five seeds.
 
 Phase-0 values reproduce M6's abrupt column to 0.0003, so the finer recording
 changed the resolution and nothing else. The wound is ordered by how well informed
-the filter is: local adapt $+0.0025$, one-hop $+0.0015$, centralised $+0.0008$, and
-the whole transient is absorbed within five steps. ATC AdamW's $+0.0004$ is the
+the filter is: local adapt $+0.0025$, one-hop $+0.0015$, centralised $+0.0008$.
+⚠ Five steps is this figure's resolution, not the transient's length: on the
+per-step `prequential` stream the instantaneous cost is confined to the jump step
+itself, and all three filters take the *same* hit there (D107). ATC AdamW's
+$+0.0004$ is the
 smallest of the four, and that is **not** robustness — it sits ≈0.026 RMSE above
 every filter at every phase and barely reacts to a $\beta$ step at all.
 
