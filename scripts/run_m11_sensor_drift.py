@@ -269,9 +269,37 @@ def report(smoke: bool = False) -> None:
             mean = sum(now[s] - base[s] for s in shared) / len(shared)
             row += f"{mean:>+14.4f}"
         print(row)
-    print("\n  Read against M6's beta-drift damage. The prediction on record is that")
-    print("  one-hop's advantage SHRINKS here: a neighbour's batch is informative about")
-    print("  a moving law, and every agent's sensor moves identically.")
+    # ASCII only in anything printed: this console is cp1252 and a bare "warning"
+    # glyph raises UnicodeEncodeError mid-report, after two tables have already been
+    # written. The docstrings above keep their symbols -- those are never encoded to
+    # the terminal.
+    print("\n  NOTE: absolute damage above carries the TWIN's held-out draw, which is")
+    print("  drawn per (seed, channel value). One seed's twin draw being easy inflates")
+    print("  damage in every cell at once, so the SIGN of a small damage is not")
+    print("  trustworthy at five seeds (D108). The comparison below cancels it exactly.\n")
+
+    print("  channel against channel, paired per seed (the twin cancels)\n")
+    pairs = [("bias_linear", "gain_linear"), ("gain_linear", None),
+             ("bias_abrupt", "gain_abrupt"), ("gain_abrupt", None)]
+    print(f"    {'comparison':<34}{'learner':<38}{'diff':>10}{'SE':>7}")
+    for left, right in pairs:
+        sched = "linear" if left.endswith("linear") else "abrupt"
+        right_cell = cell_name(right) if right else f"m6_{sched}_a"
+        label = f"{left} - {right or 'beta ' + sched}"
+        for learner in arms:
+            a, b = _by_seed(cell_name(left), learner), _by_seed(right_cell, learner)
+            shared = sorted(set(a) & set(b))
+            if not shared:
+                continue
+            diffs = [a[s] - b[s] for s in shared]
+            mean = sum(diffs) / len(diffs)
+            sd = (sum((d - mean) ** 2 for d in diffs) / (len(diffs) - 1)) ** 0.5
+            se = abs(mean) / (sd / len(diffs) ** 0.5) if sd else float("inf")
+            print(f"    {label:<34}{learner:<38}{mean:>+10.4f}{se:>7.1f}")
+        print()
+    print("  Negative means the left channel costs less. D108: bias < gain < beta on")
+    print("  the linear schedule, unanimous across learners and seeds; under abrupt")
+    print("  gain and beta are indistinguishable, because both reflect at the cap.")
 
 
 if __name__ == "__main__":
