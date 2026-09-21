@@ -4248,11 +4248,32 @@ Only the stationary figure reproduces. **1.07–1.14 is not linear on either
 evalset** — it is `canonical` under *abrupt* (1.092–1.118). And **0.968–1.000
 appears nowhere**, in any condition, on either evalset; the nearest value in the
 study is 0.9688, which is `centralized_ekf_walk`'s realised coverage at *nominal
-0.95* in the MG8 cache, not a variance ratio. D106's inference from it — "the
-uncertainty model fits best under the schedule that keeps returning" — therefore has
-no support in the data as recomputed. The stationary half of the arc stands; the
-linear and abrupt halves should be treated as withdrawn pending a recheck of how
-that paragraph was assembled.
+0.95* in the MG8 cache, not a variance ratio.
+
+**Rechecked 2026-09-21, before retracting anything.** Six routes: a committed script
+that computes the arc (none exists); D106's own commit (it carries `design_notes.md`
+and nothing else, so no report shipped with it and none was deleted); four
+aggregations — settled, whole-run, final point, first half — across both evalsets;
+all seven arms and their subsets; the `m6_*_smoke` cells; and node selection (pooled,
+a single node, and a `mean` row, which the calibration metrics do not carry at all).
+
+- **1.07–1.14 never reproduces exactly.** The nearest reproductions are `canonical`
+  under *abrupt*: $1.092$–$1.118$ settled, $1.080$–$1.134$ whole-run. Whole-run
+  canonical *linear* matches the lower bound ($1.069$) but runs to $1.173$.
+- **0.968–1.000 reproduces nowhere**, by any route. The largest value in a
+  comparable slice is $0.964$.
+- **The arc exists only on `canonical`.** On `current` all three conditions sit at
+  $0.81$–$0.90$ with linear and abrupt almost equal, so there is no arc to report.
+  D106 names no evalset, and that omission is the defect that matters most — the
+  same paragraph is true or false depending on a choice it never states.
+
+**The conclusion survives; only the numbers fail.** On `canonical` the ordering is
+stationary $0.806$–$0.842$, abrupt $1.092$–$1.118$, linear $1.303$–$1.373$: abrupt
+*is* nearest nominal among the drifted conditions, so "the uncertainty model fits
+best under the schedule that keeps returning" holds on the measured data. The
+paragraph should therefore be **restated with measured values and a named evalset,
+not withdrawn**. Recording that here rather than editing D106's claim directly: the
+inference is the supervisor's to keep or drop.
 
 ### ✅ D106. M6: the main comparison, and an online filter that beats its offline reference
 
@@ -4354,10 +4375,14 @@ under abrupt (0.968–1.000, coverage 0.900–0.906). The uncertainty model fits
 under the schedule that keeps returning.
 
 ⚠ **Corrected 2026-09-21 — see D107.** Recomputing this from the M6 parquets
-reproduces only the stationary figure. 1.07–1.14 is `canonical` under *abrupt*, not
-linear; 0.968–1.000 appears in no condition on either evalset. The paragraph is left
-standing rather than deleted so the record is visible, but the linear and abrupt
-halves — and the inference drawn from them — should be treated as withdrawn.
+reproduces only the stationary figure, and a six-route recheck could not source the
+other two: 1.07–1.14 is nearest `canonical` under *abrupt* (1.092–1.118), and
+0.968–1.000 appears nowhere at all. The arc also exists **only** on `canonical` — on
+`current` there is no arc — and this paragraph names no evalset, which is the defect
+that matters most. **The conclusion stands:** on `canonical`, abrupt (1.092–1.118)
+is nearer nominal than linear (1.303–1.373), so the uncertainty model does fit best
+under the schedule that keeps returning. The sentence needs restating with measured
+values and a named evalset, not withdrawing.
 
 **Drift costs, paired.** The one-hop filters pay least under linear
 ($+0.0044$–$0.0047$ against the baselines' $+0.0063$–$0.0108$), but the claim
