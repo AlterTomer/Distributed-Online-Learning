@@ -745,7 +745,7 @@ transient rather than an average. This was first drawn as marker *size*, which
 looked fine until the legend swatch took its size from the first point plotted —
 making the key silently disagree with the data.
 
-## 15. The Mackey–Glass figures (MG1–MG8)
+## 15. The Mackey–Glass figures (MG1–MG12)
 
 `make_mg_figures.py`, excluded like every other builder (§1). All four draw from
 JSON the M-series already reduced — the pilot report, the reference sweep, the
@@ -850,6 +850,69 @@ those five and no others.
 ⚠ Identity here is carried by the legend, not by direct labels — every arm converges
 to nearly the same coverage at 0.95, and labelling them individually produced an
 unreadable smear.
+
+### MG9 — what cooperation is worth
+
+Settled RMSE for `diffusion_ekf` on an edgeless graph against the same learner, the
+same settings and the same seeds on the ER graph, read against $e^\star$.
+`disconnected` at `n_components = N` gives Metropolis self-weights of exactly 1, so
+the combination matrix is $\boldsymbol I$ and the arm is a per-agent EKF that never
+communicates — the paired difference is the communication and nothing else.
+
+The figure carries the causal form of the headline: the isolated filter sits
+**above** $e^\star$ (0.1480 against 0.1433) while the deployable one-hop form sits
+**below** it (0.1408). It is the communication that carries the online filter past a
+Transformer trained to convergence, not the filtering alone.
+
+### MG10 — disagreement, and why consensus is not the objective
+
+Mean pairwise disagreement and largest pairwise distance, for the edgeless graph and
+the two connected adapt scopes. Both panels are log scales: the collapse from an
+edgeless graph to a combining one is about four orders of magnitude (7.96 to 0.00059
+on the mean), and on a linear axis the two connected arms sit on top of each other
+at zero.
+
+The point is the inversion. The one-hop variant **disagrees more** than the
+mean-combine variant and **scores better** — its agents are individually better
+informed, so they need less averaging. Consensus is a means here, not the objective.
+
+### MG11 — what the drift costs each learner
+
+Settled RMSE under each drifted condition minus that same learner's own stationary
+run, paired per seed, with the seed spread as bars. Pairing a learner against its
+own twin removes its baseline skill, so the axis is what the drift *took* rather
+than who was better to begin with.
+
+⚠ Under abrupt the ranking is not resolved by five seeds: every value falls between
+$+0.0014$ and $+0.0051$ against spreads of ~0.005. `recurring` reflects at the 45°
+cap, so the target keeps returning and damages nobody much. The linear march away is
+the condition that actually tests tracking.
+
+### MG12 — the shift transient, phase-aligned
+
+Drawn from `m6cyc_abrupt`, the abrupt condition re-run at `eval_every = 5` so each
+25-step cycle carries five phase points. (a) RMSE minus that cycle's own mean
+against steps since the shift, averaged over the converged cycles with the seed
+spread as a band; (b) the wound — RMSE at the jump step minus twenty steps later —
+with bars over five seeds.
+
+Phase-0 values reproduce M6's abrupt column to 0.0003, so the finer recording
+changed the resolution and nothing else. The wound is ordered by how well informed
+the filter is: local adapt $+0.0025$, one-hop $+0.0015$, centralised $+0.0008$, and
+the whole transient is absorbed within five steps. ATC AdamW's $+0.0004$ is the
+smallest of the four, and that is **not** robustness — it sits ≈0.026 RMSE above
+every filter at every phase and barely reacts to a $\beta$ step at all.
+
+⚠ Only converged cycles are counted, and the early ones are **dropped rather than
+detrended**. Subtracting a cycle's mean removes its level, not a slope within it;
+phase 0 leads and phase 20 trails, so while a learner is still converging from the
+prior, any decaying error curve manufactures a transient out of nothing. On cycles
+0–11 that artefact reaches 0.024–0.082 — thirty times the real effect — and it ranks
+the arms in reverse, because the slowest converger collects the largest fake wound.
+
+⚠ Every curve in (a) is centred on its own cycle mean, so a curve's height is its
+flatness, not its skill: the flattest belongs to the worst learner. MG5 carries the
+levels; panel (b) is the one that ranks anything. See D107.
 
 ## 16. Still to come
 
