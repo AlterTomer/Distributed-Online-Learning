@@ -4419,6 +4419,10 @@ target keeps returning and barely damages anyone.
    image task's prior drift than to its rotation — and neither has been run. They
    are queued as M11 alongside per-agent $\tau$. Until then every claim here is a
    claim about a drifting **law**, not about drift in general.
+   **Written 2026-09-21**: `scripts/run_m11_sensor_drift.py` with four cells (gain
+   and bias × linear and abrupt), `span = 0.1` so the sensor moves one observation
+   noise sd at the cap, carrying M6's settings and paired per seed against
+   `m6_stationary_a`. The gap stays **open** until it has run.
 6. **The within-cycle transient is unobserved.** `jump_every` and `eval_every` are
    both 25 on the abrupt condition, so every recorded step lands on a jump
    boundary: MG11 can rank what the drift *costs* and nothing here shows what a
