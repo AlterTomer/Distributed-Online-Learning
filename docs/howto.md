@@ -429,8 +429,13 @@ Collected because each cost us a result before it became a rule.
 - **A seed's parquet appears when that seed *starts*, not when it finishes.** The
   runner rewrites the file as it goes, so five files present means the fifth seed
   is *running*. Size is the progress signal; the `_complete` marker is the only
-  finish signal. This misread cost a wrong ETA three separate times on 2026-09-20,
-  each about 35 minutes early, after first being learnt on M4.
+  finish signal. This misread cost a wrong ETA five separate times on 2026-09-20,
+  each about 35 minutes early, after first being learnt on M4 — and then twice
+  more *after this entry was written*, most recently on 2026-09-21, when four
+  files on the shift-cycle re-run were read as "one seed left" while two
+  remained. Writing the rule down has not stopped it. The only thing that has is
+  refusing to quote an ETA before converting the count out loud: *n* files means
+  seed *n−1* is running and 5 − *n* + 1 seeds remain.
 - **Do not do backslash work through the shell.** On 2026-09-20 a `\bm` →
   `\boldsymbol` sweep took five attempts because every shell route mangled the
   backslash *and returned a plausible wrong answer rather than an error*: `grep`
@@ -443,3 +448,12 @@ Collected because each cost us a result before it became a rule.
   Python file written to disk and invoked by path, with `[\]` bracket classes for
   any grep that must match a backslash. Verify counts before *and* after, and
   gate the write on an invariant check.
+- **A `ref:path` argument is rewritten before git ever sees it.** On 2026-09-20
+  `git show "origin/main:.gitignore"` arrived as `origin\main;.gitignore` —
+  twice, quotes and all. The cause is Git-for-Windows path translation, not
+  shell escaping, so none of the quoting fixes in the entry above touch it: any
+  argument shaped like a POSIX path is converted on the way in. Unlike the
+  backslash failures this one is loud, and the tell is that the error names a
+  string you never typed. The fix is to avoid the `ref:path` form entirely and
+  pass the path as its own argument — `git ls-tree origin/main .gitignore`, or
+  `git show origin/main -- .gitignore`, both of which survive intact.
