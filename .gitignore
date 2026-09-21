@@ -32,6 +32,22 @@ Thumbs.db
 # Meeting deliverables: the .docx summary and .pptx deck builders. They write to
 # a personal OneDrive folder and produce supervisor-facing documents, so they
 # help nobody run or check the benchmark. Kept on disk, out of the repo.
+#
+# A GLOB, because excluding these by name leaks. A builder written after the list
+# was last edited sits untracked *and* unignored -- one `git add -A` from
+# publication. That happened twice on the Mackey-Glass branch: once to
+# make_mg_status_docx.py, patched by adding its name, and then to
+# make_mg_presentation.py, which sat in that state for a day and stayed private
+# only because every push in the window happened to stage by explicit path. The
+# same weakness is here; nothing has fallen into it yet.
+#
+# The convention this rests on is stated further down: `report_*.py` is kept
+# because a reader checking a number wants it, while `make_*` builds a deliverable
+# and `run_*` runs an experiment. `plot_*.py` is already globbed on exactly that
+# reasoning; the make_* list was the odd one out. The individual names are kept
+# below because their comments record why each is out, not because the glob needs
+# them.
+/scripts/make_*.py
 /scripts/make_presentation.py
 /scripts/make_summary_docx.py
 /scripts/make_drift_presentation.py
