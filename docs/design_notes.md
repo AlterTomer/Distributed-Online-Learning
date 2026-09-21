@@ -4234,6 +4234,17 @@ target keeps returning and barely damages anyone.
 4. **The $e^\star$ comparison rests on a 32-block evaluation set** against
    $e^\star$'s 4 000. Raising `series.eval_blocks` would tighten the headline, at
    the cost of re-running the battery.
+5. **One drift channel of three.** `env/series.py` implements `beta`, `gain` and
+   `bias`; every cell here drifts $\beta$. Gain and bias move the *sensor* rather
+   than the law, so they are a different kind of non-stationarity — closer to the
+   image task's prior drift than to its rotation — and neither has been run. They
+   are queued as M11 alongside per-agent $\tau$. Until then every claim here is a
+   claim about a drifting **law**, not about drift in general.
+6. **The within-cycle transient is unobserved.** `jump_every` and `eval_every` are
+   both 25 on the abrupt condition, so every recorded step lands on a jump
+   boundary: MG11 can rank what the drift *costs* and nothing here shows what a
+   single shift *looks like*. `scripts/run_m6_shift_cycles.py` re-runs that
+   condition at a finer cadence for exactly this.
 
 **Amended 2026-09-21: gap 1 is closed.** `scripts/run_m6_isolated.py`, three cells
 × five seeds, 1 h GPU, zero divergences. `diffusion_ekf` on an edgeless graph
