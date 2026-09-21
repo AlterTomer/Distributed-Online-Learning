@@ -1,0 +1,20 @@
+# Mackey-Glass, sensor gain drifting abruptly: the scale factor jumps by a third of its span
+# every 25 rounds in an unpredictable direction, while the law is untouched.
+# This moves the SENSOR, not the law: the dynamics are identical to
+# mg_stationary and only the observation changes (D106 gap 5, M11).
+#
+# span 0.1, not beta's 0.02: the series is carried in standardised units, so a gain
+# excess of g perturbs the observation by about g, and 0.1 is exactly one
+# observation-noise standard deviation (sigma = 0.1). The bias channel takes the same
+# span for the same reason, which makes the two channels comparable by construction
+# rather than by assertion. The runner prints the realised drift at the cap so the
+# standardisation assumption is checkable from the first run.
+dataset: mackey_glass
+series:
+  channel: gain
+  span: 0.1
+drift:
+  schedule: recurring
+  jump_degrees: 15.0
+  jump_every: 25
+  jump_seed: 0

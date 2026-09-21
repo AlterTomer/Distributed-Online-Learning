@@ -1,0 +1,18 @@
+# Mackey-Glass, sensor bias drift (M11). The law is fixed; only the
+# observation moves. Damage is paired against m6_stationary_a, which shares the
+# learners, seeds, horizon, R scale and graph and differs in the drift alone.
+include:
+  env: mg_bias_linear
+  graph: erdos_renyi
+  model: mg_transformer
+
+learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
+
+run:
+  name: m_bias_linear
+  horizon: 1500
+  dtype: float64
+
+eval:
+  evalsets: [prequential, current, canonical]
+  batch_size: 64
