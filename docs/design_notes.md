@@ -4106,6 +4106,79 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D107. The shift transient: a finer cadence, and the confound that nearly inverted it
+
+`scripts/run_m6_shift_cycles.py --device cuda`, one cell (`m6cyc_abrupt`) × five
+seeds × four learners at `eval_every = 5`, 12:07–14:27 on 2026-09-21 (≈2 h 20 min
+GPU). Zero divergences. It writes no selection and nothing M6 reads. **Closes gap
+6 of D106.**
+
+**The finer cadence changed the resolution and nothing else.** M6's abrupt grid is
+phase-0-only by construction: its 61 recorded steps carry the phase histogram
+$\{0:60,\ 24:1\}$, the lone outlier being the final off-grid evaluation at
+$t=1499$. Restricting the new run to phase 0 reproduces M6's abrupt column.
+
+| arm | M6 | finer run, phase 0 | difference |
+|---|---|---|---|
+| centralised EKF | 0.1408 | 0.1409 | $+0.0001$ |
+| diffusion, local adapt | 0.1485 | 0.1488 | $+0.0003$ |
+| diffusion, one-hop | 0.1428 | 0.1429 | $+0.0002$ |
+| ATC AdamW | 0.1675 | 0.1677 | $+0.0002$ |
+
+An order of magnitude tighter than the 0.0030 seed effect D105 measured. The naive
+comparison — all five phases against M6's one — reads as a uniform $-0.0001$ to
+$-0.0016$ shift, and that is the phase mix, not the cadence.
+
+**The confound, which is why this note exists.** Detrending each cycle by its own
+mean removes the cycle's *level*; it does nothing about a slope *within* the
+cycle. Phase 0 leads and phase 20 trails, so while a learner is still converging
+from the prior, a globally decaying error curve manufactures a phase profile out
+of nothing.
+
+| window | centralised | local adapt | one-hop | ATC AdamW |
+|---|---|---|---|---|
+| cycles 0–11 | $+0.0241$ | $+0.0477$ | $+0.0270$ | $+0.0822$ |
+| all 60 cycles | $+0.0054$ | $+0.0116$ | $+0.0067$ | $+0.0168$ |
+| **cycles 30–59** | $+0.0008$ | $+0.0025$ | $+0.0015$ | $+0.0004$ |
+
+The artefact runs to thirty times the effect and **ranks the arms in the opposite
+order**, because the slowest converger collects the largest fake wound. Pooling
+all 60 cycles reproduces it almost exactly. The fix is to *drop* the early cycles,
+not to detrend them — a distinction worth carrying to any phase-aligned figure.
+
+**The window is not doing any work.** Cycles 30–44, cycles 45–59 and a linear
+detrend in $t$ across the whole late window return the same four amplitudes to
+four decimals.
+
+**The result.** Wound $=$ RMSE at the jump step minus 20 steps later, late window,
+spread over five seeds:
+
+| arm | wound | sd |
+|---|---|---|
+| diffusion, local adapt | $+0.0025$ | 0.0003 |
+| diffusion, one-hop | $+0.0015$ | 0.0003 |
+| centralised EKF | $+0.0008$ | 0.0002 |
+| ATC AdamW | $+0.0004$ | 0.0003 |
+
+**The wound is ordered by how well informed the filter is** — the same ordering
+D106 found for settled error, now on a second and independent quantity. AdamW's is
+the smallest of the four, and that is not robustness: it sits ≈0.026 RMSE above
+every filter at every phase and barely reacts to a $\beta$ step at all. A method
+that does not respond to the shift cannot show a response to it.
+
+⚠ $+0.0004$ is small, not absent. Per seed it is $+0.0005$, $+0.0002$, $+0.0000$,
+$+0.0007$, $+0.0006$ — about three standard errors from zero. The figure's bars
+are the seed *spread*, which is the wider quantity.
+
+**The whole transient lives in the first five steps**: every filter is back at or
+below its cycle mean by phase 5. ⚠ That is also the resolution limit. At
+`eval_every = 5` the interior of that first interval is unobserved, exactly as
+`jump_every = eval_every = 25` hid the cycle in M6. `--eval-every 1` would resolve
+it at five times the evaluation cost, and is the natural follow-up if the shape of
+the recovery ever matters.
+
+Figure MG12 in `make_mg_results_figures.py`.
+
 ### ✅ D106. M6: the main comparison, and an online filter that beats its offline reference
 
 `scripts/run_m6_comparison.py`, six cells (three conditions × two groups) × five
@@ -4244,7 +4317,8 @@ target keeps returning and barely damages anyone.
    both 25 on the abrupt condition, so every recorded step lands on a jump
    boundary: MG11 can rank what the drift *costs* and nothing here shows what a
    single shift *looks like*. `scripts/run_m6_shift_cycles.py` re-runs that
-   condition at a finer cadence for exactly this.
+   condition at a finer cadence for exactly this. **Closed 2026-09-21 by D107**,
+   which also records why the obvious way to read that run is wrong.
 
 **Amended 2026-09-21: gap 1 is closed.** `scripts/run_m6_isolated.py`, three cells
 × five seeds, 1 h GPU, zero divergences. `diffusion_ekf` on an edgeless graph
