@@ -874,9 +874,12 @@ the largest pairwise distance $\max\lVert\boldsymbol\theta_u -
 small. **They are not in the same units**, which is why they are two panels with two
 axis labels rather than one shared one.
 
-Both axes are logarithmic: the collapse from an edgeless graph to a combining one is
-about four orders of magnitude (7.96 to 0.00059 on $E_\mathrm{agree}$), and on a
-linear axis the two connected arms sit on top of each other at zero.
+The measured quantity is on a **log $y$-axis** and the three communication regimes are
+the columns — not the transpose, which is how MG9 and MG11 are drawn. Those two span
+narrow ranges (0.14–0.15 RMSE) where a horizontal dumbbell reads well; this one spans
+**four orders of magnitude**, which reads as a height, and it puts the printed numbers
+on the axis they are actually measured on. On a linear axis the two connected arms sit
+on top of each other at zero.
 
 ⚠ The value printed beside each row is the **stationary** condition — the column every
 disagreement number quoted here and in the deck comes from, and *not* the full-opacity
