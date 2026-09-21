@@ -866,11 +866,17 @@ Transformer trained to convergence, not the filtering alone.
 
 ### MG10 — disagreement, and why consensus is not the objective
 
-Mean pairwise disagreement and largest pairwise distance, for the edgeless graph and
-the two connected adapt scopes. Both panels are log scales: the collapse from an
-edgeless graph to a combining one is about four orders of magnitude (7.96 to 0.00059
-on the mean), and on a linear axis the two connected arms sit on top of each other
-at zero.
+Two panels, for the edgeless graph and the two connected adapt scopes. (a) is
+$E_\mathrm{agree}$, the mean over agents of $\lVert\boldsymbol\theta_v -
+\bar{\boldsymbol\theta}\rVert^2$ — a *squared* distance to the network mean. (b) is
+the largest pairwise distance $\max\lVert\boldsymbol\theta_u -
+\boldsymbol\theta_v\rVert$, which catches one agent drifting off while the mean stays
+small. **They are not in the same units**, which is why they are two panels with two
+axis labels rather than one shared one.
+
+Both axes are logarithmic: the collapse from an edgeless graph to a combining one is
+about four orders of magnitude (7.96 to 0.00059 on $E_\mathrm{agree}$), and on a
+linear axis the two connected arms sit on top of each other at zero.
 
 The point is the inversion. The one-hop variant **disagrees more** than the
 mean-combine variant and **scores better** — its agents are individually better
