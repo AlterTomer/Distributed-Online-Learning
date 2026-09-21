@@ -4179,6 +4179,81 @@ the recovery ever matters.
 
 Figure MG12 in `make_mg_results_figures.py`.
 
+**Amended 2026-09-21: the interior is observable after all, and three claims above
+are withdrawn.**
+
+The caveat that `--eval-every 1` is needed to see inside the first interval is
+**wrong for the prequential metrics**. `rmse`, `mse` and `nll` on the `prequential`
+evalset are recorded at *every* step — 1 500 points, not 301 — because prequential
+scoring is test-then-train on the incoming stream and needs no held-out set. All 25
+phases of every cycle are already on disk. Only the held-out `current` set is tied
+to `eval_every`, and that restriction is what the rest of this note measures.
+
+**The transient is one step, not five.** Deviation from the cycle mean at the jump
+step, late window, against the seed spread:
+
+| metric | centralised | local adapt | one-hop | ATC AdamW | best $p_1$ |
+|---|---|---|---|---|---|
+| `rmse` | 5.1σ | 5.0σ | 4.5σ | 0.7σ | 1.5σ |
+| `nll` | 6.5σ | 4.6σ | 4.6σ | 0.4σ | 1.9σ |
+| `mse` | 4.8σ | 4.8σ | 4.3σ | 0.5σ | 1.5σ |
+
+By phase 1 everything is inside a noise floor of ~0.0010, which phases 10–24 fix
+independently. So:
+
+1. ⚠ **"The whole transient lives in the first five steps" is withdrawn.** Five
+   steps is the resolution of the `current` grid, not a property of the transient.
+   On the per-step stream the instantaneous cost is confined to the jump step.
+2. ⚠ **The informed ordering at phase 1 is withdrawn.** It looked like local adapt
+   $+0.0020$, one-hop $+0.0012$, centralised $+0.0006$; those are 1.5σ, 0.9σ and
+   0.4σ. Five seeds do not support it.
+3. ⚠ **A lagged disagreement peak is withdrawn.** `max_pairwise_distance` appears
+   to peak five steps *after* the jump rather than at it, but $p_5-p_{20}$ is
+   $+0.0028\pm0.0021$ and $+0.0035\pm0.0026$ — about 1.3σ. `e_agree` shows no
+   transient at all: the combine absorbs the shift without the agents visibly
+   diverging.
+
+**At the jump step the three filters are indistinguishable** ($+0.0043$, $+0.0038$,
+$+0.0038$, all $\pm0.0008$) and ATC AdamW shows no resolvable hit. The instantaneous
+surprise is the *shift's own size* and is the same for every filter. What separates
+them — the 0.0008 / 0.0025 / 0.0015 ordering at 4–8σ on the held-out set — is how far
+the **model** is knocked off the new law, not how badly the next prediction misses.
+
+**Calibration takes the same shape, and harder.** These reproduce M6 at phase 0
+($+0.0012$, $+0.0041$, $+0.0024$ on `variance_ratio`; $-0.0004$, $-0.0007$,
+$-0.0007$ on `coverage_90`), so they are gated exactly as the error figures are.
+Wound at the jump step, `current`:
+
+| arm | `variance_ratio` | `predictive_nll` | `coverage_90` |
+|---|---|---|---|
+| centralised | $+0.0077$ (0.0016) | $+0.0049$ (0.0010) | $-0.0008$ (0.0014) |
+| local adapt | $+0.0409$ (0.0051) | $+0.0206$ (0.0026) | $-0.0066$ (0.0017) |
+| one-hop | $+0.0245$ (0.0049) | $+0.0125$ (0.0024) | $-0.0046$ (0.0013) |
+
+The same ordering again, on a third independent quantity. Coverage *falls* at the
+jump — the interval misses more often while the filter's uncertainty catches up —
+and the gradient baselines are absent because they report no predictive covariance.
+
+**Correction to D106's calibration arc.** D106 records "under-confident at
+stationary (0.81–0.84), over-confident under linear (1.07–1.14), near-nominal under
+abrupt (0.968–1.000, coverage 0.900–0.906)". Recomputed from the M6 parquets over
+all three conditions and both evalsets:
+
+| `variance_ratio`, $\gamma=1$ filters | stationary | linear | abrupt |
+|---|---|---|---|
+| `current` | 0.806–0.842 | 0.835–0.899 | 0.818–0.892 |
+| `canonical` | 0.806–0.842 | 1.230–1.373 | 1.092–1.118 |
+
+Only the stationary figure reproduces. **1.07–1.14 is not linear on either
+evalset** — it is `canonical` under *abrupt* (1.092–1.118). And **0.968–1.000
+appears nowhere**, in any condition, on either evalset; the nearest value in the
+study is 0.9688, which is `centralized_ekf_walk`'s realised coverage at *nominal
+0.95* in the MG8 cache, not a variance ratio. D106's inference from it — "the
+uncertainty model fits best under the schedule that keeps returning" — therefore has
+no support in the data as recomputed. The stationary half of the arc stands; the
+linear and abrupt halves should be treated as withdrawn pending a recheck of how
+that paragraph was assembled.
+
 ### ✅ D106. M6: the main comparison, and an online filter that beats its offline reference
 
 `scripts/run_m6_comparison.py`, six cells (three conditions × two groups) × five
@@ -4277,6 +4352,12 @@ everywhere except a stationary law.
 stationary (0.81–0.84), over-confident under linear (1.07–1.14), near-nominal
 under abrupt (0.968–1.000, coverage 0.900–0.906). The uncertainty model fits best
 under the schedule that keeps returning.
+
+⚠ **Corrected 2026-09-21 — see D107.** Recomputing this from the M6 parquets
+reproduces only the stationary figure. 1.07–1.14 is `canonical` under *abrupt*, not
+linear; 0.968–1.000 appears in no condition on either evalset. The paragraph is left
+standing rather than deleted so the record is visible, but the linear and abrupt
+halves — and the inference drawn from them — should be treated as withdrawn.
 
 **Drift costs, paired.** The one-hop filters pay least under linear
 ($+0.0044$–$0.0047$ against the baselines' $+0.0063$–$0.0108$), but the claim
