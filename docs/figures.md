@@ -878,6 +878,12 @@ Both axes are logarithmic: the collapse from an edgeless graph to a combining on
 about four orders of magnitude (7.96 to 0.00059 on $E_\mathrm{agree}$), and on a
 linear axis the two connected arms sit on top of each other at zero.
 
+⚠ The value printed beside each row is the **stationary** condition — the column every
+disagreement number quoted here and in the deck comes from, and *not* the full-opacity
+marker, which is abrupt. The three columns differ by under 10% and their ordering is
+identical, so one is representative; which one it is has to be said rather than left
+to be guessed.
+
 The point is the inversion. The one-hop variant **disagrees more** than the
 mean-combine variant and **scores better** — its agents are individually better
 informed, so they need less averaging. Consensus is a means here, not the objective.
