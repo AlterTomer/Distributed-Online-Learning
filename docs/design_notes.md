@@ -4106,6 +4106,113 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D108. M11: drift depends on what changed, not how much — and a confound in the pairing
+
+`scripts/run_m11_sensor_drift.py`, four cells (gain and bias × linear and abrupt) ×
+five seeds × six learners, 19:42–01:56 on 2026-09-21/22 (≈6 h 15 min GPU). **Zero
+divergences.** Filters carry M4's and M5's selections, gradient learners M3's rates by
+schedule, so these are the same learners M6 ran. **Closes D106's gap 5.**
+
+**Gate.** `drift_state` spans exactly what the design asked: gain 1.0000→1.0999
+(linear, 1 500 distinct) and 0.9000→1.1000 (abrupt, 7 levels); bias 0.0000→0.0999 and
+$-0.1000$→$+0.1000$. `span = 0.1` puts the sensor one observation-noise sd off at full
+displacement on both channels. Channel dispatch was verified in the code
+(`law_blocks` dispatches on `series.channel` for β, gain and bias, and `generate` does
+the same per sample) **and** empirically: bias shifts the mean by exactly $0.1000$ with
+a std ratio of $1.0000$, gain scales the spread by $1.0989$, β changes the dynamics
+($1.1386$).
+
+**The headline: damage follows the dimensionality of what changed, not the magnitude
+of the perturbation.** All three channels were scaled to one $\sigma$. Cell minus
+cell, paired per seed — the stationary twin appears in both damages and cancels
+exactly, which the next section explains is essential:
+
+| linear schedule | bias − gain | gain − β | bias − β |
+|---|---|---|---|
+| centralised EKF | $-0.0028$ (3.6σ) | $-0.0018$ (3.9σ) | $-0.0046$ (5.9σ) |
+| diffusion, one-hop | $-0.0027$ (4.2σ) | $-0.0021$ (3.8σ) | $-0.0049$ (6.0σ) |
+| local only | $-0.0077$ (9.1σ) | $-0.0055$ (7.1σ) | $-0.0132$ (11.0σ) |
+
+All six learners, all five seeds, the same sign: **bias < gain < β**. A scalar offset
+is absorbed outright, a scalar multiplier costs about half a law change, and changing
+the dynamics costs most. The weakest learner is the most sensitive to *which* channel
+drifts (`local_only` spans $-0.0132$ where the filters span $-0.0046$).
+
+⚠ **Under `abrupt` the ladder collapses at the top.** gain − β is $-0.0003$ to
+$-0.0017$ at **0.0–0.7σ — not resolved**. Both schedules reflect at the 45° cap and
+keep returning, so a bounded amplitude change and a bounded law change cost the same.
+Bias stays clearly below both ($-0.0033$ to $-0.0069$, 1.7–2.8σ).
+
+**⚠ The confound: absolute damage is the wrong quantity at five seeds.** Damage is
+`cell − stationary twin`, and `_build` draws the held-out set per (seed, channel
+value) — `numpy_rng("stream", "eval", key)`, derived from the run's master seed. Seed
+3's **twin** draw is the easiest of the five for five of six learners (centralised
+0.1342 against 0.1397–0.1411; one-hop 0.1360 against 0.1399–0.1437), which inflates
+damage at seed 3 in *every* cell for *every* learner. Because the twin term is common
+to all cells:
+
+- **cell-minus-cell differences cancel it exactly** — the ladder above is clean;
+- **absolute damage does not**, and its *sign* is not trustworthy.
+
+Concretely: the bias cells' apparently **negative** damage ($-0.0016$ to $-0.0038$, up
+to 5.3σ, five of five seeds on two arms) is **not** evidence that drift helps. It
+rides on the twin draw and is withdrawn. Measured draw noise: sd $0.0033$ on
+persistence RMSE across repeated draws of the same law, against a base of $0.2264$.
+Within-cell learner contrasts share one eval set and so cancel the draw — which is
+why they resolve far better than damages do.
+
+**The prediction on record is refuted.** The runner's docstring predicted one-hop's
+advantage would shrink under a sensor drift, since a neighbour's raw batch informs
+about a moving *law* while every agent's sensor moves identically. It does not
+collapse:
+
+| condition | median advantage | SE |
+|---|---|---|
+| β linear | $+0.0019$ | 6.2 |
+| β abrupt | $+0.0018$ | 3.8 |
+| gain linear | $+0.0008$ | 2.6 |
+| gain abrupt | $+0.0010$ | 4.3 |
+| bias linear, `current` | $+0.0003$ | 1.3 |
+| **bias linear, `canonical`** | $\mathbf{+0.0028}$ | **5.1** |
+
+Under bias it is unresolvable on `current` — but there is no tracking error for anyone
+there — while on `canonical` it is $+0.0034$ at 5.1σ, **positive on all five seeds**.
+One-hop's fit to the undrifted law degrades far less even where tracking is identical.
+D106's own stationary column was already refuting the mechanism: one-hop beats local
+adapt 0.1408 to 0.1442 with no drift at all to carry information about. The advantage
+is about better-informed agents, not about tracking a moving law.
+
+**`current` and `canonical` measure different things and both are needed.**
+
+| | `canonical` (how far the fit moved) | `current` (tracking error) |
+|---|---|---|
+| bias | $+0.011$–$0.015$ | $\approx 0$ |
+| gain | $+0.014$–$0.016$ | $+0.0025$–$0.0038$ |
+| β | $+0.026$–$0.030$ | $+0.0044$–$0.0065$ |
+
+A bias drift is **perfectly tracked, not absent**: the learner absorbs the offset so
+completely that predicting under the biased sensor costs nothing, while its fit to the
+*unbiased* law degrades by $0.011$–$0.015$ at 4.4–5.1σ. "Bias is inert" would have
+been wrong.
+
+**Calibration scales with error rather than disproportionately.** The runner argued a
+sensor drift is a mis-specified $\boldsymbol R$ and should stress calibration harder.
+It does not: `variance_ratio` damage scales by 0.53–0.56 against RMSE's 0.52–0.58 under
+gain. ⚠ Those are 1.1–2.1σ, with spreads exceeding the means — weak either way.
+
+**A lead, not a finding.** The distributed one-hop filter appears to move *less* from
+the true law than the centralised one ($+0.0042$ at 3.6σ under β-abrupt, $+0.0010$ at
+2.5σ under bias-linear) while centralised stays better on `current`. Resolved in only
+2 of 5 cells and $-0.0002$ in a third.
+
+**Seed structure worth carrying.** Seed 3 has the easy *twin* draw and inflates every
+damage; seed 4 shows the largest one-hop advantage in all ten comparisons, and that one
+is genuine, because the paired contrast cancels the draw. Medians, not means.
+
+**What this does not measure.** One graph, one $N$. Per-agent $\tau$ heterogeneity, the
+other half of D106's gap 5, is still unrun. And the abrupt cells cannot rank the
+channels at five seeds.
+
 ### ✅ D107. The shift transient: a finer cadence, and the confound that nearly inverted it
 
 `scripts/run_m6_shift_cycles.py --device cuda`, one cell (`m6cyc_abrupt`) × five
@@ -4419,10 +4526,12 @@ target keeps returning and barely damages anyone.
    image task's prior drift than to its rotation — and neither has been run. They
    are queued as M11 alongside per-agent $\tau$. Until then every claim here is a
    claim about a drifting **law**, not about drift in general.
-   **Written 2026-09-21**: `scripts/run_m11_sensor_drift.py` with four cells (gain
-   and bias × linear and abrupt), `span = 0.1` so the sensor moves one observation
-   noise sd at the cap, carrying M6's settings and paired per seed against
-   `m6_stationary_a`. The gap stays **open** until it has run.
+   **Closed 2026-09-22 by D108** for the channel half: `run_m11_sensor_drift.py` ran
+   four cells and found **bias < gain < β** — damage follows the dimensionality of
+   what changed, not the size of the perturbation, with a scalar offset absorbed
+   outright. ⚠ Per-agent $\tau$ heterogeneity, the other half of this gap, is still
+   unrun, so "a claim about a drifting law" now has a measured comparison but the
+   heterogeneity question stands.
 6. **The within-cycle transient is unobserved.** `jump_every` and `eval_every` are
    both 25 on the abrupt condition, so every recorded step lands on a jump
    boundary: MG11 can rank what the drift *costs* and nothing here shows what a
