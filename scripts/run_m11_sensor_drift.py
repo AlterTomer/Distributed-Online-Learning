@@ -172,7 +172,9 @@ def main(argv: list[str] | None = None) -> int:
                              "config's 0.1, one observation-noise sd)")
     args = parser.parse_args(argv)
     if args.report_only:
-        report()
+        # smoke passed through: `--report-only --smoke` must read the smoke cells, not
+        # silently report the real ones (and print dashes when they have not been run).
+        report(smoke=args.smoke)
         return 0
 
     centralised, diffusion, rates = load_settings(args.smoke)
