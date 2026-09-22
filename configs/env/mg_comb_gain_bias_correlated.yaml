@@ -1,0 +1,18 @@
+# Mackey-Glass, COMBINED drift (M12): gain and bias drift at
+# once -- a sensor scale factor and a sensor offset.
+#
+# Coupling 'correlated': both channels driven by ONE displacement, so they move together.
+#
+# Each channel keeps the span M11 used for it, so the individual damages
+# M6 and M11 measured are the terms the additivity test needs: beta 0.02
+# (the chaotic window) and the sensor channels 0.1 (one noise sd, D108).
+dataset: mackey_glass
+series:
+  channel: gain
+  span: 0.1
+  secondary_channel: bias
+  secondary_span: 0.1
+  coupling: correlated
+drift:
+  schedule: linear
+  total_degrees: 45.0

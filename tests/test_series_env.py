@@ -18,6 +18,7 @@ from dekf_bench.env.series import (
     build_series_environment,
     channel_value,
     pool,
+    secondary_value,
 )
 from dekf_bench.evaluation.series_evalsets import build_series_evalsets
 from dekf_bench.utils.config import load_config
@@ -95,6 +96,73 @@ def test_the_channel_moves_by_span_at_the_cap() -> None:
     assert channel_value(series, 45.0) == pytest.approx(0.24)
     assert channel_value(series, 0.0) == pytest.approx(0.2)
     assert channel_value(series, -22.5) == pytest.approx(0.18)
+
+
+# --------------------------------------------------------------- combined drift
+
+
+def combined(coupling: str, secondary: str = "gain", **series):
+    """A two-channel series config: beta primary, a sensor channel secondary."""
+    return {"channel": "beta", "span": 0.02, "secondary_channel": secondary,
+            "secondary_span": 0.1, "coupling": coupling, **series}
+
+
+def test_one_channel_runs_carry_no_secondary() -> None:
+    """The M12 fields are inert unless a config sets them -- every run before it."""
+    series = make_config(series={"channel": "gain", "span": 0.1}).env.series
+    assert series.secondary_channel == ""
+    assert secondary_value(series, 45.0) is None
+
+
+def test_the_secondary_takes_its_own_span_and_rest_position() -> None:
+    series = make_config(series=combined("correlated")).env.series
+    # beta rests at its base; a gain rests at 1, and moves by its OWN span, not beta's.
+    assert channel_value(series, 0.0) == pytest.approx(0.22)
+    assert secondary_value(series, 0.0) == pytest.approx(1.0)
+    assert secondary_value(series, 45.0) == pytest.approx(1.1)
+    bias = make_config(series=combined("correlated", secondary="bias")).env.series
+    assert secondary_value(bias, 0.0) == pytest.approx(0.0)
+    assert secondary_value(bias, 45.0) == pytest.approx(0.1)
+
+
+def test_anti_coupling_mirrors_the_secondary() -> None:
+    """The amplitude-cancelling arm: beta up while the gain goes down (D108)."""
+    together = build_series_environment(
+        make_config(series=combined("correlated"), drift=LINEAR), 0)
+    opposed = build_series_environment(
+        make_config(series=combined("anti"), drift=LINEAR), 0)
+    # Same law path, mirrored sensor path.
+    assert np.allclose(together.values, opposed.values)
+    assert together.second_values.max() > 1.0 and opposed.second_values.min() < 1.0
+    assert together.second_values[0, -1] - 1.0 == pytest.approx(
+        1.0 - opposed.second_values[0, -1])
+
+
+def test_independent_coupling_is_refused_on_a_deterministic_schedule() -> None:
+    """A linear ramp has one path however it is seeded, so this would duplicate
+    `correlated` in silence rather than test anything."""
+    with pytest.raises(SeriesError, match="same displacement path"):
+        build_series_environment(
+            make_config(series=combined("independent"), drift=LINEAR), 0)
+
+
+def test_independent_coupling_draws_its_own_jumps() -> None:
+    # drift=ABRUPT is not optional: without it `jumping_config` falls back to a
+    # stationary schedule, both displacement paths are all-zero, and the guard in
+    # build_series_environment refuses the run -- failing for the wrong reason.
+    config = jumping_config(series=combined("independent"), drift=ABRUPT)
+    other = jumping_config(series=combined("correlated"), drift=ABRUPT)
+    independent = build_series_environment(config, 0)
+    correlated = build_series_environment(other, 0)
+    # The primary is untouched by the coupling; only the secondary's path changes.
+    assert np.allclose(independent.values, correlated.values)
+    # Compare where jumps actually land: the rounds before the first are constant
+    # by construction, so a prefix slice would pass vacuously.
+    jump_every = config.env.drift.jump_every
+    jumped = slice(jump_every, None)
+    assert not np.allclose(
+        independent.second_values[:, jumped], correlated.second_values[:, jumped]
+    )
 
 
 ABRUPT = {"schedule": "recurring", "jump_degrees": 15.0, "jump_every": 25, "jump_seed": 0}

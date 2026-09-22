@@ -1,0 +1,21 @@
+# Mackey-Glass, COMBINED drift (M12): beta and bias drift at
+# once -- the law itself and a sensor offset.
+#
+# Coupling 'anti': the secondary takes the NEGATED displacement, so the two move in
+# opposite directions. On a deterministic schedule this is the only
+# meaningful contrast to correlated, and it is the sharp test of whether
+# two channels are confounded through the observed amplitude (D108).
+#
+# Each channel keeps the span M11 used for it, so the individual damages
+# M6 and M11 measured are the terms the additivity test needs: beta 0.02
+# (the chaotic window) and the sensor channels 0.1 (one noise sd, D108).
+dataset: mackey_glass
+series:
+  channel: beta
+  span: 0.02
+  secondary_channel: bias
+  secondary_span: 0.1
+  coupling: anti
+drift:
+  schedule: linear
+  total_degrees: 45.0

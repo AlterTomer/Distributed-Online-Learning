@@ -163,15 +163,43 @@ def agent_laws(series: Any, n_nodes: int) -> Laws:
     return Laws(beta=beta, tau=tau, sigma=sigma)
 
 
-def channel_value(series: Any, displacement: float | np.ndarray, base_beta: Any = None):
-    """The drifting channel's value at a schedule displacement (degree units)."""
+def value_of(channel: str, span: float, series: Any, displacement, base_beta=None):
+    """One channel's value at a schedule displacement (degree units).
+
+    Split out of `channel_value` so a *second* channel can be evaluated with its own
+    span (M12). The rest-position of each channel is what it must be when the
+    displacement is zero: beta sits at its base, a gain at 1, an offset at 0.
+    """
     fraction = np.asarray(displacement, dtype=np.float64) / MAX_WELL_POSED_DEGREES
-    if series.channel == "beta":
+    if channel == "beta":
         base = series.beta if base_beta is None else base_beta
-        return base + series.span * fraction
-    if series.channel == "gain":
-        return 1.0 + series.span * fraction
-    return series.span * fraction  # bias
+        return base + span * fraction
+    if channel == "gain":
+        return 1.0 + span * fraction
+    return span * fraction  # bias
+
+
+def channel_value(series: Any, displacement: float | np.ndarray, base_beta: Any = None):
+    """The primary drifting channel's value at a schedule displacement.
+
+    Unchanged signature: every pre-M12 caller, and the tests, use this positional
+    form. `secondary_value` is its companion for the second channel.
+    """
+    return value_of(series.channel, series.span, series, displacement, base_beta)
+
+
+def secondary_value(series: Any, displacement, base_beta: Any = None):
+    """The second channel's value, or ``None`` when only one channel drifts.
+
+    ⚠ Takes the displacement the *caller* has already resolved for this channel --
+    the same one under ``correlated``, its negation under ``anti``, an independently
+    drawn one under ``independent``. Coupling is applied where the displacement is
+    built, not here, so this function stays a pure channel-to-value map.
+    """
+    if not series.secondary_channel:
+        return None
+    return value_of(series.secondary_channel, series.secondary_span, series,
+                    displacement, base_beta)
 
 
 def law_blocks(
@@ -180,6 +208,7 @@ def law_blocks(
     n_trajectories: int,
     blocks_each: int,
     rng: np.random.Generator,
+    second: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Blocks from fresh trajectories at one *fixed* channel value.
 
@@ -187,12 +216,17 @@ def law_blocks(
     sensor -- what the held-out sets and the offline reference both need. Histories
     are drawn from ``rng`` before the noise, in that order. Shapes
     ``(n_trajectories, blocks_each, L - 1)``.
+
+    ``second`` is the secondary channel's value under combined drift (M12), and is
+    ``None`` for every single-channel run -- which is every run before M12, so the
+    default keeps those byte-identical.
     """
+    resolve = _channel_resolver(series, value, second)
     histories = mg.initial_histories(n_trajectories, rng)
     clean = mg.integrate(
         blocks_each * series.length,
         histories,
-        beta=value if series.channel == "beta" else series.beta,
+        beta=resolve("beta", series.beta),
         gamma=series.gamma,
         exponent=series.exponent,
         tau=series.tau,
@@ -204,10 +238,28 @@ def law_blocks(
         mg.standardise(clean),
         series.sigma,
         rng,
-        gain=value if series.channel == "gain" else 1.0,
-        bias=value if series.channel == "bias" else 0.0,
+        gain=resolve("gain", 1.0),
+        bias=resolve("bias", 0.0),
     )
     return mg.to_blocks(z, series.length)
+
+
+def _channel_resolver(series: Any, value, second):
+    """Map a channel name to its value this round, or to its rest position.
+
+    Both the held-out builder and the training generator need the same three
+    lookups -- beta, gain, bias -- against up to two drifting slots. Writing that
+    as six `if channel == ...` branches is how the two paths drift apart; a third
+    channel should be a data change, not another branch.
+    """
+    drifting = {series.channel: value}
+    if series.secondary_channel and second is not None:
+        drifting[series.secondary_channel] = second
+
+    def resolve(channel: str, at_rest):
+        return drifting.get(channel, at_rest)
+
+    return resolve
 
 
 def generate(
@@ -216,19 +268,25 @@ def generate(
     values: np.ndarray,
     histories: np.ndarray,
     noise: np.random.Generator,
+    second_values: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Integrate, standardise and observe; return blocks ``(N, T, n_blocks, L - 1)``.
 
-    ``values`` is the channel per agent per round, ``(N, T)``.
+    ``values`` is the channel per agent per round, ``(N, T)``. ``second_values`` is
+    the same for the secondary channel under combined drift (M12), already resolved
+    for the coupling, and ``None`` for every single-channel run.
     """
     n_nodes, n_rounds = values.shape
     per_round = series.n_blocks * series.length
     per_sample = np.repeat(values, per_round, axis=1)
-    beta = per_sample if series.channel == "beta" else laws.beta
+    second_per_sample = (
+        None if second_values is None else np.repeat(second_values, per_round, axis=1)
+    )
+    resolve = _channel_resolver(series, per_sample, second_per_sample)
     clean = mg.integrate(
         n_rounds * per_round,
         histories,
-        beta=beta,
+        beta=resolve("beta", laws.beta),
         gamma=series.gamma,
         exponent=series.exponent,
         tau=laws.tau,
@@ -236,9 +294,8 @@ def generate(
         delta=series.delta,
         burn_in=series.burn_in,
     )
-    gain = per_sample if series.channel == "gain" else 1.0
-    bias = per_sample if series.channel == "bias" else 0.0
-    z = mg.observe(mg.standardise(clean), laws.sigma, noise, gain=gain, bias=bias)
+    z = mg.observe(mg.standardise(clean), laws.sigma, noise,
+                   gain=resolve("gain", 1.0), bias=resolve("bias", 0.0))
     inputs, targets = mg.to_blocks(z, series.length)
     shape = (n_nodes, n_rounds, series.n_blocks, series.length - 1)
     return inputs.reshape(shape), targets.reshape(shape)
@@ -260,6 +317,12 @@ class SeriesEnvironment:
     laws: Laws
     #: The channel's value per agent per round, ``(N, T)``.
     values: np.ndarray
+    #: The SECOND channel's value per agent per round under combined drift (M12),
+    #: already resolved for the coupling, or ``None`` when one channel drifts.
+    #: The held-out builder reads this rather than re-deriving it: under
+    #: `independent` the secondary follows its own schedule, which the evalsets
+    #: have no way to reconstruct from `drift` alone.
+    second_values: np.ndarray | None
     inputs: torch.Tensor
     targets: torch.Tensor
     #: Which rounds each agent observes, ``(N, T)`` -- block availability.
@@ -336,6 +399,9 @@ class SeriesEnvironment:
             "span": series.span,
             "length": series.length,
             "n_blocks": series.n_blocks,
+            "secondary_channel": series.secondary_channel or None,
+            "secondary_span": series.secondary_span if series.secondary_channel else None,
+            "coupling": series.coupling if series.secondary_channel else None,
             "availability": float(self.available.float().mean()),
             "laws": self.laws.summary(),
             **{f"graph_{k}": v for k, v in self.graph.summary().items()},
@@ -376,9 +442,40 @@ def build_series_environment(config: Any, master_seed: int) -> SeriesEnvironment
     )
     values = channel_value(series, displacement, laws.beta[:, None])
 
+    # The secondary channel's displacement, per the coupling (M12). `correlated` and
+    # `anti` reuse the primary's path; `independent` draws its own -- and its jump
+    # seed is derived per run seed for the reason the comment above gives, or the
+    # coupling contrast would measure a fixed draw offset instead of the coupling.
+    second_displacement = None
+    if series.secondary_channel:
+        if series.coupling == "correlated":
+            second_displacement = displacement
+        elif series.coupling == "anti":
+            second_displacement = -displacement
+        else:
+            second_drift = build_drift(config, jump_seed=seeds.sub("stream", "jumps2"))
+            second_displacement = np.array(
+                [[second_drift.rotation_at(step, node) for step in range(horizon)]
+                 for node in range(n_nodes)]
+            )
+            if np.allclose(second_displacement, displacement):
+                raise SeriesError(
+                    "env.series.coupling='independent' produced the same displacement "
+                    f"path as the primary under schedule "
+                    f"'{config.env.drift.schedule}'. A deterministic schedule has one "
+                    "path however it is seeded, so this run would silently duplicate "
+                    "coupling='correlated'. Use a stochastic schedule (recurring), or "
+                    "coupling='anti' for the deterministic contrast."
+                )
+    second_values = (
+        None if second_displacement is None
+        else secondary_value(series, second_displacement, laws.beta[:, None])
+    )
+
     histories = mg.initial_histories(n_nodes, seeds.numpy_rng("stream", "histories"))
     inputs, targets = generate(
-        series, laws, values, histories, seeds.numpy_rng("stream", "noise")
+        series, laws, values, histories, seeds.numpy_rng("stream", "noise"),
+        second_values=second_values,
     )
     available = _label_mask(
         n_nodes, horizon, config.env.label_availability, seeds.torch_generator("stream", "blocks")
@@ -393,6 +490,7 @@ def build_series_environment(config: Any, master_seed: int) -> SeriesEnvironment
         drift=drift,
         laws=laws,
         values=values,
+        second_values=second_values,
         inputs=torch.tensor(inputs, dtype=dtype, device=device),
         targets=torch.tensor(targets, dtype=dtype, device=device),
         available=available,

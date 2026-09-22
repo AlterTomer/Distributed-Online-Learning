@@ -31,7 +31,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from dekf_bench.env.series import SeriesError, channel_value, law_blocks
+from dekf_bench.env.series import SeriesError, channel_value, law_blocks, secondary_value
 
 
 @dataclass(frozen=True)
@@ -81,20 +81,48 @@ class SeriesEvalSets:
         else:
             raise SeriesError(f"unknown evaluation set {name!r}")
         value = float(channel_value(self._series, displacement))
-        inputs, targets = self._build(value)
+        # The secondary comes from the environment's resolved path, never re-derived
+        # here: under coupling='independent' it follows its own schedule, which this
+        # builder cannot reconstruct from `drift`. Re-deriving it would build the
+        # held-out set at the wrong secondary value and mis-score the whole cell.
+        second = self._secondary_at(name, step, node)
+        inputs, targets = self._build(value, second)
         return SeriesEvalSet(
             name=name, inputs=inputs, targets=targets, rotation_degrees=value, step=step
         )
 
-    def _build(self, value: float) -> tuple[torch.Tensor, torch.Tensor]:
-        key = round(value, 12)
+    def _secondary_at(self, name: str, step: int, node: int | None) -> float | None:
+        """The secondary channel's value for this set, or None when one channel drifts."""
+        if not self._series.secondary_channel:
+            return None
+        if name == "canonical":
+            # Zero displacement on both channels: the undrifted law and rest sensor.
+            return float(secondary_value(self._series, 0.0))
+        resolved = getattr(self._environment, "second_values", None)
+        if resolved is None:
+            raise SeriesError(
+                "a secondary channel is configured but the environment carries no "
+                "second_values; the environment and the evaluation sets disagree"
+            )
+        if name == "current_mean":
+            return float(np.mean(resolved[:, step]))
+        return float(resolved[0 if node is None else node, step])
+
+    def _build(self, value: float, second: float | None = None
+               ) -> tuple[torch.Tensor, torch.Tensor]:
+        # Keyed on the PAIR: with two channels drifting, one scalar no longer
+        # identifies a held-out set, and a single key would serve the first
+        # secondary value seen for every later one.
+        key = (round(value, 12), None if second is None else round(second, 12))
         if key in self._cache:
             return self._cache[key]
         series = self._series
         seeds = self._environment.seeds
         per_trajectory = math.ceil(series.eval_blocks / series.eval_trajectories)
-        rng = seeds.numpy_rng("stream", "eval", f"{key:.12f}")
-        inputs, targets = law_blocks(series, value, series.eval_trajectories, per_trajectory, rng)
+        stamp = f"{key[0]:.12f}" if second is None else f"{key[0]:.12f}|{key[1]:.12f}"
+        rng = seeds.numpy_rng("stream", "eval", stamp)
+        inputs, targets = law_blocks(series, value, series.eval_trajectories, per_trajectory,
+                                     rng, second=second)
         width = series.length - 1
         env_inputs = self._environment.inputs
         built = tuple(

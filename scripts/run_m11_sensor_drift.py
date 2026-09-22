@@ -152,15 +152,26 @@ def r_scale_override(smoke: bool) -> dict:
 
 
 def announce_span(condition: str) -> None:
-    """Print the realised drift at the cap, so the span is checked rather than assumed."""
-    series = load_config(CONDITIONS[condition]).env.series
+    """Print the drift the cap allows, so the span is checked rather than assumed.
+
+    ⚠ A reflecting schedule explores BOTH signs of the cap and keeps returning, so
+    for those this prints the envelope. An earlier version printed only the +45 end,
+    which read as a one-way path the abrupt cells never take -- they run 0.9 to 1.1
+    on gain, not 1.0 to 1.1.
+    """
+    config = load_config(CONDITIONS[condition])
+    series = config.env.series
     from dekf_bench.env.series import channel_value  # noqa: PLC0415
 
-    at_cap = float(channel_value(series, 45.0))
-    start = float(channel_value(series, 0.0))
-    perturbation = abs(at_cap - start) if series.channel == "bias" else abs(at_cap - 1.0)
-    print(f"  {condition}: {series.channel} {start:.4f} -> {at_cap:.4f} at the cap, "
-          f"a perturbation of {perturbation:.4f} = {perturbation / series.sigma:.2f} sigma")
+    start, at_cap = float(channel_value(series, 0.0)), float(channel_value(series, 45.0))
+    perturbation = abs(at_cap - start)
+    if config.env.drift.schedule == "recurring":
+        low = float(channel_value(series, -45.0))
+        span = f"{low:.4f} <-> {at_cap:.4f} (reflects, rest {start:.4f})"
+    else:
+        span = f"{start:.4f} -> {at_cap:.4f}"
+    print(f"  {condition}: {series.channel} {span}, a perturbation of "
+          f"{perturbation:.4f} = {perturbation / series.sigma:.2f} sigma at the cap")
 
 
 def main(argv: list[str] | None = None) -> int:

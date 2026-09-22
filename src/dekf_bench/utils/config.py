@@ -285,6 +285,9 @@ class PriorDriftConfig:
 #: What a drift schedule moves on the series task (docs/mackey_glass_plan.md,
 #: decisions 7-8). `tau` is planned and not yet built.
 SERIES_CHANNELS = ("beta", "gain", "bias")
+#: How a second drifting channel's schedule relates to the first (M12, D108).
+#: `independent` needs a stochastic schedule to mean anything -- see SeriesConfig.
+SERIES_COUPLINGS = ("correlated", "anti", "independent")
 #: Models that map a block of L-1 inputs to L-1 one-step predictions.
 SEQUENCE_MODELS = ("causal_transformer", "linear_ar")
 
@@ -326,6 +329,26 @@ class SeriesConfig:
     #: The channel's displacement at the 45-degree cap. 0.02 for beta (D96): the
     #: cap then spans [0.20, 0.24] around beta = 0.22, the whole chaotic window.
     span: float = 0.02
+    #: A SECOND drifting channel, for the combined-drift runs (M12). Empty means
+    #: one channel, which is every run before M12 -- so these three fields are
+    #: inert unless a config sets them.
+    secondary_channel: str = ""
+    #: The secondary's displacement at the cap, in its own units. Defaults to the
+    #: sensor channels' 0.1 = one observation-noise sd (D108), not beta's 0.02.
+    secondary_span: float = 0.1
+    #: How the two channels' schedules relate.
+    #:
+    #: * ``correlated``   -- one displacement drives both, so they move together.
+    #: * ``anti``         -- the secondary takes the negated displacement. On a
+    #:   deterministic schedule this is the only meaningful contrast to
+    #:   ``correlated``, because a linear ramp is the same path however it is
+    #:   seeded. It is also the sharp test of whether gain and beta are
+    #:   confounded through the observed amplitude (D108).
+    #: * ``independent``  -- the secondary gets its own jump draw. Meaningful ONLY
+    #:   under a stochastic schedule (``recurring``); under ``linear`` it is
+    #:   identical to ``correlated``, and the config layer rejects that pairing
+    #:   rather than let a run quietly duplicate another.
+    coupling: str = "correlated"
     #: Heterogeneity (decision 22). beta offsets evenly spaced over [-s, s];
     #: noise evenly spaced over sigma * [1 - s, 1 + s]; delays cycled over agents.
     beta_spread: float = 0.0
@@ -337,6 +360,18 @@ class SeriesConfig:
 
     def __post_init__(self) -> None:
         _one_of(self.channel, SERIES_CHANNELS, "env.series.channel")
+        if self.secondary_channel:
+            _one_of(self.secondary_channel, SERIES_CHANNELS, "env.series.secondary_channel")
+            if self.secondary_channel == self.channel:
+                raise ConfigError(
+                    "env.series.secondary_channel must differ from channel, got "
+                    f"{self.channel!r} twice -- a channel cannot drift against itself"
+                )
+            if self.secondary_span <= 0:
+                raise ConfigError(
+                    f"env.series.secondary_span must be > 0, got {self.secondary_span}"
+                )
+        _one_of(self.coupling, SERIES_COUPLINGS, "env.series.coupling")
         if self.length < 3:
             raise ConfigError(f"env.series.length must be >= 3, got {self.length}")
         if self.n_blocks < 1:
