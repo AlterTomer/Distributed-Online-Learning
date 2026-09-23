@@ -240,9 +240,53 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+#: Per-CELL cache, not per (cell, learner). Caching on the pair saves almost nothing,
+#: because those keys are nearly all distinct -- it only collapses the twin's fifty-odd
+#: lookups down to six. This reads each parquet once, splits by learner, and takes 5
+#: columns instead of 25: --report-only went from 257s to 126s, output byte-identical.
+#:
+#: ⚠ It does not make the report FAST. The settled-RMSE table still calls `settled()`
+#: once per (cell, learner) -- 54 uncached calls, each re-reading five parquets -- and
+#: that is what now dominates. Routing it through this cache would change the table
+#: from a pooled mean to a mean-of-means. The two coincide on this grid, but silently
+#: altering how a *reported* number is derived, to save two minutes on a
+#: once-per-experiment report, is not a trade worth making.
+_CELL_CACHE: dict[str, dict[str, dict[int, float]]] = {}
+
+
+def _cell_values(cell: str) -> dict[str, dict[int, float]]:
+    """Every learner's per-seed settled RMSE for one cell, in a single pass."""
+    if cell in _CELL_CACHE:
+        return _CELL_CACHE[cell]
+    import pandas as pd  # noqa: PLC0415
+
+    out: dict[str, dict[int, float]] = {}
+    for path in sorted((ROOT / "results" / cell).glob("seed_*.parquet")):
+        frame = pd.read_parquet(
+            path, columns=["learner", "t", "evalset", "metric", "value"]
+        )
+        rows = frame[(frame["metric"] == "rmse") & (frame["evalset"] == "current")]
+        if rows.empty:
+            continue
+        seed = int(path.stem.split("_")[1])
+        # The cut is taken per learner, exactly as `_by_seed` does it. All learners
+        # share one t grid here, but deriving it per group keeps the two identical
+        # rather than equal-by-coincidence.
+        for learner, group in rows.groupby("learner"):
+            kept = group[group["t"] >= int(0.8 * group["t"].max())]
+            if len(kept):
+                out.setdefault(str(learner), {})[seed] = float(kept["value"].mean())
+    _CELL_CACHE[cell] = out
+    return out
+
+
+def _cached(cell: str, learner: str) -> dict[int, float]:
+    return _cell_values(cell).get(learner, {})
+
+
 def _damage(cell: str, learner: str, twin: dict[int, float]) -> dict[int, float]:
     """Per-seed damage of one cell against the shared twin."""
-    now = _by_seed(cell, learner)
+    now = _cached(cell, learner)
     return {s: now[s] - twin[s] for s in sorted(set(now) & set(twin))}
 
 
@@ -270,7 +314,28 @@ def report(smoke: bool = False) -> None:
         print("\n  Smoke numbers mean nothing: 60 rounds, one seed, placeholder settings.")
         return
 
-    print("\n\n  ADDITIVITY:  D(A+B) - D(A) - D(B),  paired per seed")
+    print("\n\n  COUPLING CONTRAST:  anti cell - correlated cell, paired per seed")
+    print("  THE HEADLINE. Identical channels, spans and schedule; the only difference")
+    print("  is the secondary's sign. Twin and BOTH single-channel damages cancel")
+    print("  algebraically, so this isolates the interaction and inherits none of their")
+    print("  noise -- nor any withdrawn quantity. (D108's D(bias,abrupt) contaminates")
+    print("  the additivity residual below; it cannot reach this.)")
+    print("  Negative = opposing the channels is CHEAPER than aligning them.")
+    print("  t is |mean|/SE on 4 df: the 5% critical value is 2.78, not 2.0.\n")
+    print(f"    {'pair':<12}{'learner':<38}{'anti-corr':>11}{'t':>7}{'verdict':>12}")
+    for left, right in PAIRS:
+        for learner in arms:
+            anti = _cached(cell_name(f"{left}_{right}_anti"), learner)
+            corr = _cached(cell_name(f"{left}_{right}_correlated"), learner)
+            shared = sorted(set(anti) & set(corr))
+            if not shared:
+                continue
+            mean, t = _stats([anti[s] - corr[s] for s in shared])
+            print(f"    {f'{left}+{right}':<12}{learner:<38}{mean:>+11.4f}{t:>7.1f}"
+                  f"{'INTERACTS' if t >= 2.78 else 'null':>12}")
+        print()
+
+    print("\n  ADDITIVITY:  D(A+B) - D(A) - D(B),  paired per seed")
     print("  positive = the pair costs MORE than its parts (they compound)")
     print("  negative = LESS (they mask, or cancel)\n")
     print("  NOTE: this residual is AB - A - B + twin, so one twin term survives. The")
@@ -278,7 +343,7 @@ def report(smoke: bool = False) -> None:
     print("  so a residual near zero means no DETECTABLE interaction, not exact")
     print("  additivity. Read the sigma column, not the sign alone.\n")
 
-    print(f"    {'cell':<26}{'learner':<38}{'residual':>10}{'SE':>7}")
+    print(f"    {'cell':<26}{'learner':<38}{'residual':>10}{'t':>7}")
     for condition in CONDITIONS:
         primary, secondary, _coupling = condition.split("_")
         schedule = RATES_FOR[condition]
