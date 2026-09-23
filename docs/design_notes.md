@@ -4106,6 +4106,138 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D110. M8 designed: $\tau$ drift is rejected on measurement, and per-agent delays are the axis that survives
+
+Decision 22's third heterogeneity axis, asked for as "let's test $\tau$ as well".
+Nothing has run: this note is the measurement that chose the experiment, and it is
+written now because two of its findings are retractions of things said earlier in
+the same session.
+
+**The estimator first.** $\lambda(\tau)$ uses [[D96]]'s own function verbatim, with
+only $\tau$ threaded through to `integrate` — `burn_in=0.0`, and the fit against
+**raw sample indices**, never rescaled by `delta`. At $\tau=17$ it returns
+$+0.00736$, reproducing D96's $+0.0074$. An earlier attempt of mine added a
+burn-in and scaled the abscissa, and disagreed by a factor of seventeen; every
+$\tau$ number I have quoted from that version is retired.
+
+⚠ **Longer spans are worse, not better.** $\lambda$ roughly halves from span 3000 to
+6000 ($\tau=25$: $0.00918\to0.00466$). Once the gap saturates it oscillates back
+below $10^{-3}$ and re-enters the fit window, adding flat late points. **Span 3000
+is the reference**, and $\lambda$ here is a relative indicator at fixed span, not an
+absolute exponent.
+
+**The chaotic region is ragged, unlike $\beta$'s.** $\beta$ has a clean interval
+$[0.20,0.24]$ and D96 centred the law at 0.22 so drift in either direction stays
+chaotic. $\tau$ has no such interval. Measured on the legal grid (multiples of
+$dt=0.1$ — `_whole_steps` rejects $\tau=16.25$ outright), from five initial
+histories each:
+
+| region | verdict |
+|---|---|
+| $\le 16.0$ | not chaotic |
+| 16.1 | chaotic, but isolated — 16.2–16.3 are not |
+| **16.4–18.3** | chaotic from every start (width 1.9) |
+| 18.4–18.6, 19.3–19.6 | **start-dependent** |
+| 18.7, 19.2 | marginal, min $\lambda\approx0.001$ |
+| **23.5–26.5** | chaotic from every start (width 3.0) |
+| $\gtrsim 31.5$ | ragged |
+
+*Start-dependent* is the dangerous one, and it is not a periodic window: at those
+delays some initial histories settle on a periodic attractor and others stay
+chaotic. Agents draw histories from $[0.5,1.5]$, so such a delay would leave some
+agents chaotic and others periodic **inside one run**.
+
+⚠ **A proxy of mine was wrong, and the correction is the point.** I judged $\tau$'s
+strength by how much it moved the observable spread, and concluded it was
+underpowered by 3–4×. Measured as [[D96]]'s $\beta$ map measures it — RMSE damage to
+a converged model — the proxy understates $\tau$ badly:
+
+| excursion | spread ratio | damage | vs $\beta$'s full span |
+|---|---|---|---|
+| $\beta$: 0.22→0.24 (the m6/m11 linear cell) | ×1.1386 | **+0.0160** | 100% |
+| $\tau$: 17→17.6 | ×1.0298 | +0.0021 | 13% |
+| $\tau$: 17→18.3 | — | +0.0046 | 29% |
+| $\tau$: 17→20.0 | — | +0.0132 | 83% |
+| $\tau$: 17→25.0 | ×1.1604 | **+0.0373** | **233%** |
+
+The spread ratio calls $\tau=25$ and $\beta$'s full span equivalent; the damage says
+$\tau$ is 2.3× larger. Changing the delay changes the attractor's structure, not
+just its marginals. **Any $\tau$ claim resting on the spread ratio is withdrawn.**
+
+**$\tau$ drift is rejected anyway, for a different reason.** The conclusion survives
+the retraction but the argument does not. A drift traverses everything between its
+endpoints, so it needs a contiguous chaotic interval; at base 17 that is $\pm0.6$
+before reaching 16.3, worth $+0.0021$ — 13% of $\beta$'s full span. It would also
+need real surgery: `beta` accepts $(n, n_\text{samples})$ and that is *why* it can
+drift, while `tau` is broadcast to $(n,)$ and consumed as a fixed integer offset
+with the buffer sized once from `lag.max()`. There is no per-sample axis to move.
+It is quantised to $dt$, so a ramp is a staircase. And `value_of` is
+`if beta / if gain / else bias`, so adding `"tau"` to `SERIES_CHANNELS` without a
+branch would silently give it bias semantics and pass validation. The plan defers
+it twice — decision 8's "if time", and "$\tau_t$ (later)".
+
+**Heterogeneity does not need a contiguous interval**, only individually safe
+values, so it can straddle the gaps a drift cannot. The quantity it depends on is
+the *cross*-$\tau$ mismatch — what an agent trained at one delay loses on a
+neighbour's — which cannot be read off the single row above:
+
+| pair | mismatch | verdict |
+|---|---|---|
+| 16.4 ↔ 17.6 (a $\pm0.6$ spread) | +0.0009 / +0.0015 | **below the floor** |
+| 16.4 ↔ 18.3 | +0.0039 / +0.0035 | at the floor |
+| 17.0 ↔ 20.0 | +0.0079 / +0.0067 | resolvable |
+| 16.4 ↔ 20.0 | +0.0120 / +0.0082 | resolvable |
+
+[[D109]] resolved contrasts of 0.0037–0.0146 at five seeds. **The narrow cell was
+measured, predicted null, and not run** — its largest possible effect is a fifth of
+the detection floor, and spending thirteen hours to reproduce the abrupt schedule's
+six consecutive nulls is a known failure mode, not a new one.
+
+**Three cells, because two would be a confound.** A set wide enough to detect cannot
+be centred on 17: chaos ends just below 16.4, so it runs upward and averages 18.21.
+The spread cell therefore differs from the `m6_stationary_a` twin in *two* ways —
+its agents disagree, and their mean delay is 1.2 higher — so `m8_tau_control` holds
+every agent at 18.2 and
+
+    spread  - control = heterogeneity, at a matched mean delay
+    control - twin    = the mean-delay shift alone
+
+18.2 satisfies both criteria that could set it, agreeing to within 0.1: the set's
+mean $\tau$ is 18.21, and its mean own-$\tau$ difficulty (the matrix diagonal,
+≈0.1768) corresponds to $\tau\approx18.1$. All three contrasts are cell-minus-cell
+and paired per seed, so the twin's draw cancels — and none takes a damage as an
+*input*, so neither [[D108]]'s twin confound nor [[D109]]'s withdrawn-quantity fault
+can reach them.
+
+⚠ **`tau` and `tau_values` are not redundant, and both are set.** `agent_laws` reads
+`tau_values` for the agents; `law_blocks` reads the scalar `tau` for the held-out
+sets. Left at the 17.0 default the spread cell would be scored on a delay no agent
+follows, offset by 1.2 from their mean. Set to 18.2 the spread and control cells
+share **byte-identical** evalsets — checked with `torch.equal`, not argued, because
+the whole decomposition rests on it.
+
+**A branch that had never executed.** Every run from M0 to M12 passed a scalar
+$\tau$, so `uniform` was always true and the gather path never ran. $\tau$
+heterogeneity is the first thing to take it. It now matches per-trajectory scalar
+runs to `0.000e+00`.
+
+**Predicted, before the run.** The ordering is the claim, not the magnitude:
+`local_only` hurt least — near zero, since it never mixes and cannot be pulled
+toward a consensus fitting nobody; the pooling arms hurt most; one-hop hurt *more*
+than mean-only diffusion, because it consumes a neighbour's raw batch and that batch
+now obeys another law. If `local_only` moves as much as the others, the effect is
+not about cooperation and the run says something else.
+
+Smoke passed: 2 cells × 6 learners, 1.5 min, and the full report path exercised
+against absent cells so the decomposition tables degrade to dashes rather than
+crashing — [[D108]]'s `UnicodeEncodeError` surfaced only after two tables had
+already printed.
+
+**Open.** The $\beta$ offset and $\sigma_v$ axes of decision 22 (`m8_beta_spread`,
+`m8_sigma_spread`). Whether a $\tau$ drift centred at 25 — band $\pm1.5$, and the
+damage curve steeper below it — would be worth the integrator work; nothing here
+measures that, since the damage map is anchored at a model trained at 17.
+
 ### ✅ D109. M12: two channels at once — drifts interact only when they contend for the same observable
 
 `scripts/run_m12_combined_drift.py`, nine cells (three channel pairs × three
