@@ -4106,6 +4106,98 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D109. M12: two channels at once — drifts interact only when they contend for the same observable
+
+`scripts/run_m12_combined_drift.py`, nine cells (three channel pairs × three
+couplings) × five seeds × six learners, 18:23–08:05 on 2026-09-22/23 (≈13 h 45 min
+GPU). **Zero divergences**, 5 seeds and 6 learners in every cell, each channel
+spanning exactly what `announce` promised — including the wider $0.2000\to0.2400$ on
+the reflecting cells, where a recurring schedule visits both signs of the cap.
+
+**The headline.** Take `anti − correlated`, paired per seed. Identical channels,
+spans and schedule; the only difference is the secondary's sign. The twin and **both**
+single-channel damages cancel algebraically, so this isolates the interaction:
+
+| pair | contends for an observable? | anti − correlated | $t$ |
+|---|---|---|---|
+| **beta+gain** | **yes — both move the spread** | $-0.0037$ to $-0.0146$ | **3.9–16.4**, 5−/0+ every learner |
+| beta+bias | no — mean vs spread | $-0.0004$ to $+0.0007$ | 0.1–1.0, mixed |
+| gain+bias | no — mean vs spread | $-0.0003$ to $+0.0007$ | 0.1–1.3, mixed |
+
+**Drift channels interact when and only when they compete for the same observable
+quantity.** Not because there is more drift — every channel is one observation-noise
+$\sigma$, so all three pairs carry the same total magnitude. Not because the drifts
+oppose — opposing bias against either β or gain does nothing at all. Only β+gain,
+where both move the signal's spread ($\times1.1386$ and $\times1.0989$ against bias's
+$\times1.0000$), cancels.
+
+The mechanism is **partial unidentifiability**: the learner sees one effective scale
+and cannot attribute it, so opposed scale drifts largely annihilate. The strongest
+form is in `local_only`, which pays $+0.0108$ for β alone and only $+0.0043$ once an
+opposing gain drift is added — **a second drift channel made the task easier**.
+
+**The prediction was half right, and the failed half is informative.** The runner
+predicted β+gain would be **super-additive when correlated** and **sub-additive when
+anti**. Correlated came back additive to four decimals ($-0.0000$ on the centralised
+filter against a predicted $+0.0069$); only the cancellation appeared. **Compounding
+is not symmetric with cancelling** — aligned drifts are absorbed into a correction the
+learner would have made anyway, while opposed ones destroy each other's evidence.
+
+**⚠ The additivity residual is the wrong instrument, and nearly cost a false finding.**
+The residual $D(A{+}B) - D(A) - D(B)$ expands to $AB - A - B + \text{twin}$, so one
+twin term survives — and worse, it takes the single-channel damages as *inputs*. On
+`beta_bias_independent` that produced residuals of $+0.0029$ to $+0.0046$ at up to
+$t=7.5$, which reads as a strong interaction. It is an artefact: the arithmetic
+subtracts `D(bias, abrupt)`, the spuriously negative damage **D108 explicitly
+withdrew**, and subtracting a wrongly-negative term inflates the result. Setting that
+term to zero drops ATC AdamW from $+0.0046$ to $+0.0020$, inside the cell's own
+threshold.
+
+**The contamination is exactly co-extensive with that term, which is how it was
+confirmed rather than assumed.** Residuals were recomputed for every bias-pair cell:
+
+| cell | schedule | residual | signs |
+|---|---|---|---|
+| `beta_bias_correlated` | linear | $-0.0004$ to $+0.0019$ | mixed |
+| `beta_bias_anti` | linear | $-0.0007$ to $+0.0026$ | mixed |
+| `gain_bias_correlated` | linear | $-0.0010$ to $+0.0014$ | mixed |
+| `gain_bias_anti` | linear | $-0.0013$ to $+0.0021$ | mixed |
+| **`beta_bias_independent`** | **abrupt** | $+0.0026$ to $+0.0046$ | **all positive** |
+| **`gain_bias_independent`** | **abrupt** | $+0.0012$ to $+0.0022$ | **all positive** |
+
+Both **abrupt** bias cells inflate uniformly positive across all six learners; all four
+**linear** bias cells are clean with mixed signs. That is the signature of a bad input
+rather than of a real effect — `D(bias, abrupt)` is withdrawn, `D(bias, linear)` is
+not. Both abrupt bias results are withdrawn, and the coupling contrast replaces the
+residual as the instrument throughout.
+
+> **A withdrawn quantity stays dangerous while it remains an input to something
+> else.** D108 retired that number in its own table; it re-entered the arithmetic one
+> level up, in a different note, and no gate caught it.
+
+**The abrupt schedule produced its fifth and sixth consecutive nulls.** Both
+`independent` cells returned 0.1–0.8 $t$. A reflecting schedule sends each seed on a
+different excursion, so the twin cancels only 0.54–0.69 there against 0.26 on the
+linear cells, and the threshold is roughly three times worse. After M6, M11, D108 and
+both of these, the abrupt schedule should be treated as **unable to separate channels
+at five seeds** rather than as evidence of absence.
+
+**Statistics.** All quoted $t$ are $|\text{mean}|/\text{SE}$ on **4 degrees of
+freedom** (5 seeds), where the 5% critical value is **2.78, not 2.0**. The weakest
+β+gain learner (one-hop, $t=3.9$) clears it with less margin than a $\sigma$ reading
+would suggest; the controls at $t\le1.3$ are nowhere near it.
+
+**A gradient worth watching, not yet claiming.** `local_only` has the largest
+magnitude in all three pairs and the filters the smallest, across all nine cells — a
+4× spread over the centralised filter in the interacting pair. Consistent with a
+weaker learner tracking one effective amplitude with less capacity to attribute
+causes, but it has not been tested directly.
+
+**What this does not measure.** One graph, one $N$. Only two of the three channels
+move the spread, so "contends for the same observable" rests on a single interacting
+pair. A τ channel — which would change the system's memory length rather than its
+scale or offset — is the obvious third axis and is not yet built (D108's gap).
+
 ### ✅ D108. M11: drift depends on what changed, not how much — and a confound in the pairing
 
 `scripts/run_m11_sensor_drift.py`, four cells (gain and bias × linear and abrupt) ×
