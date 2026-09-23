@@ -1,0 +1,22 @@
+# Mackey–Glass, per-agent delay heterogeneity (M8). Nothing drifts: this cell
+# differs from the m6_stationary_a twin in the delays alone, and shares its
+# learners, seeds, horizon, R scale and graph.
+#
+# Rates and filter settings are M3's `stationary` selection and M4's and M5's,
+# carried unchanged. Re-tuning at the heterogeneous delays would answer a
+# different question and would break the pairing, exactly as in M11.
+include:
+  env: mg_tau_spread
+  graph: erdos_renyi
+  model: mg_transformer
+
+learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
+
+run:
+  name: m_tau_spread
+  horizon: 1500
+  dtype: float64
+
+eval:
+  evalsets: [prequential, current, canonical]
+  batch_size: 64

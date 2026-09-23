@@ -1,0 +1,23 @@
+# Mackey–Glass, homogeneous delay at the spread cell's mean (M8). The control
+# that separates heterogeneity from the mean-delay shift; see
+# configs/env/mg_tau_control.yaml for the decomposition it buys.
+#
+# Identical to m_tau_spread in every respect but the delays, so the difference
+# between them is attributable to heterogeneity and nothing else. Its evalsets
+# are built at the same tau = 18.2, so the two cells are scored on the same
+# held-out law.
+include:
+  env: mg_tau_control
+  graph: erdos_renyi
+  model: mg_transformer
+
+learners: [centralized_sgd, diffusion_sgd_atc, diffusion_sgd_atc_plain, local_only]
+
+run:
+  name: m_tau_control
+  horizon: 1500
+  dtype: float64
+
+eval:
+  evalsets: [prequential, current, canonical]
+  batch_size: 64

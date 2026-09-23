@@ -1,0 +1,35 @@
+# Mackey–Glass, per-agent delay heterogeneity (M8, decision 22). Every agent
+# follows the same law and the same sensor, but its own tau. The schedule is
+# stationary: nothing drifts, and what varies is the delay across agents.
+#
+# The ten values are each verified chaotic from all five initial histories at
+# beta = 0.22. They skip the start-dependent regions 18.4-18.6 and 19.3-19.6,
+# where some initial histories settle on a periodic attractor and others do not
+# -- agents draw their histories from [0.5, 1.5], so a value there would make
+# some agents chaotic and others periodic inside one run. They also skip the
+# marginal-chaos points 18.7 (min lambda 0.00109) and 19.2 (0.00152). The
+# weakest value kept is 19.8 at 0.00298.
+#
+# The span is 16.4 to 20.0 because the measurement demands it, not taste. A
+# model converged at one tau and evaluated at another disagrees by 0.0009-0.0015
+# across a +-0.6 spread -- under the 0.0037 floor five seeds have ever resolved,
+# so that cell would be a null by construction -- and by 0.0082-0.0120 across
+# 16.4 to 20.0, inside the 0.0037-0.0146 band M12 did resolve.
+#
+# ⚠ tau = 17 sits near the LOWER edge of chaos: 16.2-16.3 are start-dependent
+# and 16.0 is periodic, so this set cannot be centred on 17. Its mean is 18.21,
+# which is why `mg_tau_control` exists.
+#
+# `tau` is set to the set's mean, and is NOT redundant with `tau_values`. The
+# two feed different paths: `agent_laws` gives each agent a value from
+# `tau_values`, while `law_blocks` builds the held-out sets from the scalar
+# `tau`. Left at the 17.0 default the evalsets would sit at a delay no agent
+# follows, offset by 1.2 from their mean. At 18.2 they instead match
+# `mg_tau_control`'s exactly, which is what makes the contrast clean.
+dataset: mackey_glass
+series:
+  tau: 18.2
+  tau_values: [16.4, 16.8, 17.2, 17.6, 18.0, 18.3, 18.9, 19.1, 19.8, 20.0]
+drift:
+  schedule: stationary
+  total_degrees: 0.0

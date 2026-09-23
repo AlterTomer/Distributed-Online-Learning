@@ -1,0 +1,28 @@
+# Mackey–Glass, homogeneous delay at the spread cell's mean (M8). Every agent
+# sits at tau = 18.2 and nothing drifts.
+#
+# This cell exists so heterogeneity can be separated from a shift in the mean
+# delay. `mg_tau_spread`'s ten values average 18.21, and they cannot be centred
+# on 17 because chaos ends just below 16.4. So the spread cell differs from the
+# `m6_stationary_a` twin in TWO ways at once: its agents disagree with each
+# other, and their average delay is 1.2 higher. Against this control only the
+# first survives:
+#
+#   spread  - control = heterogeneity, at a matched mean delay
+#   control - twin    = the mean-delay shift alone
+#   spread  - twin    = their sum
+#
+# Both are cell-minus-cell and paired per seed, so the twin's held-out draw
+# cancels -- the instrument D108 and D109 settled on after absolute damage
+# proved untrustworthy at five seeds.
+#
+# 18.2 satisfies both criteria that could set it, and they agree to within 0.1:
+# the set's mean tau is 18.21, and its mean own-tau difficulty -- the diagonal
+# of the cross-tau RMSE matrix, about 0.1768 -- corresponds to tau about 18.1.
+# Verified chaotic from every initial history, min lambda +0.00611.
+dataset: mackey_glass
+series:
+  tau: 18.2
+drift:
+  schedule: stationary
+  total_degrees: 0.0
