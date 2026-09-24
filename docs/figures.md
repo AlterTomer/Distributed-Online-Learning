@@ -745,7 +745,7 @@ transient rather than an average. This was first drawn as marker *size*, which
 looked fine until the legend swatch took its size from the first point plotted —
 making the key silently disagree with the data.
 
-## 15. The Mackey–Glass figures (MG1–MG12)
+## 15. The Mackey–Glass figures (MG1–MG17)
 
 `make_mg_figures.py`, excluded like every other builder (§1). All four draw from
 JSON the M-series already reduced — the pilot report, the reference sweep, the
@@ -931,6 +931,96 @@ the arms in reverse, because the slowest converger collects the largest fake wou
 ⚠ Every curve in (a) is centred on its own cycle mean, so a curve's height is its
 flatness, not its skill: the flattest belongs to the worst learner. MG5 carries the
 levels; panel (b) is the one that ranks anything. See D107.
+
+### MG13 — error against time, and the law underneath it
+
+The first of the *drift* figures (`scripts/make_mg_drift_figures.py`; MG5–MG12 draw
+the β story from M6, MG13–MG17 draw the drift story across all three channels).
+
+Prequential RMSE against $t$ for five arms, one panel per condition, with
+`drift_state` on a second row against the same axis. MG6 plots the same idea from
+`current` at 61 points; this reads `prequential` at all 1 500 and adds the law.
+
+Smoothing is a **25-step rolling mean, chosen by measurement**: raw step-to-step
+$|\Delta|$ is 0.0079 for the centralised filter and 0.0123 for `local_only`, and a
+25-window cuts both to 0.0011–0.0015. A 100-window buys almost nothing beyond that
+and starts to erase the response to a jump, which is the abrupt panel's whole
+subject.
+
+⚠ The first 100 steps are omitted — convergence from the prior, not a response to
+drift. `current` spans 0.1377 to 0.5271 over a run, so the transient is roughly 4×
+the settled value and would flatten every drift effect on a shared axis.
+
+The law row reads `prequential` rows, never `canonical`: canonical is pinned at zero
+displacement by definition and would draw a flat line under all three panels.
+
+### MG14 — tracking error against displacement of the fit
+
+One marker per (learner, cell): $x$ is damage on `current`, $y$ on `canonical`.
+Colour is the channel and shape is the learner, in **two** legends — merged into one,
+a circle meant "β" when blue and "centralised EKF" when grey.
+
+`current` sits at the law the agents face at that step and `canonical` at zero
+displacement, so $x$ is **tracking error** and $y$ is **how far the fit moved**. Bias
+is the clean case: $x\approx0$ because a constant offset is absorbed outright, while
+$y=+0.011$–$0.015$ because the fit genuinely moved. "Bias is inert" would have been
+wrong (D108).
+
+⚠ Read $y$ as displacement, not as badness. The filters sit high and `local_only`
+sits at the origin — not because `local_only` is better but because it barely
+adapted, and a learner that does not move cannot be displaced.
+
+### MG15 — the channel ladder
+
+D108's result drawn: `bias − gain`, `gain − β`, `bias − β`, cell minus cell and
+paired per seed, so the stationary twin appears in both terms and cancels exactly.
+Per-seed dots sit behind each bar because the claim is that all five agree in sign,
+and $t$ is marked only where it clears 2.78.
+
+Under **linear** every bar is negative — bias < gain < β. A scalar offset is absorbed
+outright, a scalar multiplier costs about half a law change, and changing the
+dynamics costs most.
+
+⚠ Under **abrupt** the ladder collapses at the top, and the dots show why: they
+scatter to ±0.008 against bars of ~0.003. Both schedules reflect at the 45° cap, so a
+bounded amplitude change and a bounded law change cost the same.
+
+### MG16 — the coupling contrast
+
+D109's instrument: `anti − correlated`, paired per seed. Identical channels, spans and
+schedule, differing only in the secondary's sign, so the twin **and both
+single-channel damages** cancel algebraically and what is left is the interaction.
+
+On `current` only β+gain separates ($t=3.9$–$16.4$, five of five seeds on every
+learner) while both controls straddle zero: channels interact when and only when they
+contend for the same observable, β and gain both moving the signal's spread where
+bias moves its mean.
+
+⚠ **The two panels do not test the same thing.** On `canonical` all three pairs
+separate, both controls included. That is not a stronger form of the finding —
+`canonical` measures how far the fit moved, so displacements that add under
+`correlated` and cancel under `anti` must differ there for *any* pair of channels,
+contending or not. The interaction claim rests on `current`, and the panel carries
+that warning on its face.
+
+⚠ `independent` appears in neither panel. Every `correlated`/`anti` cell is
+`schedule: linear` while all three `independent` cells are `schedule: recurring` —
+forced, because under a deterministic ramp an independently drawn schedule reproduces
+`correlated` exactly. A contrast between cells differing in schedule *and* coupling
+isolates neither.
+
+### MG17 — a second drift channel made the task easier
+
+Damage on `current` across three cells — β alone, β+gain aligned, β+gain opposed —
+one line per learner. `local_only` is drawn in ink rather than a hue: the three
+learner slots are already spent, and the emphasis colour first chosen was one-hop's
+own, so two different arms came out the same colour.
+
+It pays $+0.0108$ for β alone, $+0.0189$ once an aligned gain drift is added, and only
+$+0.0043$ once that drift opposes — the largest single damage in the battery and one
+of the smallest, from the same two channels. The mechanism is partial
+unidentifiability: the learner sees one effective scale and cannot attribute it, so
+opposed scale drifts largely annihilate each other's evidence (D109).
 
 ## 16. Still to come
 
