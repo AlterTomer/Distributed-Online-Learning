@@ -134,6 +134,59 @@ Carried over without re-running: $\alpha$ (X22), rejected monotonically on both
 adapt scopes. **About four to five weeks**: one and a half to two of build, the
 rest runs. B0 can extend it if the task proves too easy.
 
+**The many-to-one comparison** (added 2026-09-25). A reviewer will ask why the task
+predicts at every causal position instead of reading 31 samples and predicting the
+32nd. First raised in the 2026-09-23 review of `diff_ekf_summary.pdf` (point 2) and
+never recorded until now. The comparison has to answer two separate questions, and
+they need different arms:
+
+| item | what | answers | cost | status |
+|---|---|---|---|---|
+| M2O-a | Score the **last position alone** ($\hat x_L$, full 31-sample context) of a many-to-many run | "is the headline inflated by the short-context positions?" | one metric (`rmse_last`) + a run that records it | open |
+| M2O-b | **Supervision-matched** many-to-one: windows strided by **1**, only the last position scored, so each step still consumes 31 fresh targets | "why not many-to-one?" — the honest version | build 1–2 days (est.); GPU sized at pre-flight | open |
+| M2O-c | **Sample-matched** many-to-one: windows strided by $L$, one target per block | the rank-1 starvation that motivated the design | small, on M2O-b's plumbing | open |
+
+⚠ **M2O-a is not free from existing results.** The series runs record `rmse` (every
+position) and `rmse_full_context` (positions $\ge16$, a whole delay of context), not
+the last position alone. `rmse_full_context` already answers the question in its
+weaker form and should be quoted meanwhile. The proper answer needs `rmse_last` added
+and a run that records it: the cheapest is a fresh many-to-many reference cell run
+**alongside M2O-b**, at the same seeds, which M2O-b needs as its comparator anyway.
+
+**M2O-b is the experiment for reviewers; M2O-c is not.** Striding by $L$ with one
+target per block cuts supervision from 31 to 1 and the information increment to rank
+one per block, so its loss is foregone and a reviewer would call it a strawman. Keep it
+only as a labelled illustration. Striding by 1 is the fair competitor, for three
+reasons:
+
+1. **No temporal data incest.** Every sample is still a target exactly once. The
+   incest the non-overlap rule guards against (`phase5_plan.md`, P5.25) arises only
+   when *every* position of an overlapping window is scored.
+2. **The same information per step.** 31 targets, rank at most 31, and the same
+   Woodbury width $m=31$.
+3. **It may be more accurate.** Every target is predicted from a full 31-sample
+   context, where many-to-many's position $i$ sees only $i$ samples.
+
+The design also removes the confound flagged on 2026-09-23. All of M2O-b's targets
+sit at one position, so the filter's per-position $\boldsymbol R$ profile (which
+spans 3.69×) has nothing to exploit, and neither design carries a filter-specific
+advantage the other lacks.
+
+**What decides it is compute, and the resource note prices it.** With
+`Parameterized_Communication_Memory_Compute_Comparison.pdf` §4.6, stride 1 costs the
+filter $31(2C_F+C_B)\approx124\,C_F$ against $2C_F+31\,C_B\approx64\,C_F$ in $C_J$
+(about 2×), **nothing extra in $C_W$**, and the gradient baselines about 31× in
+forward and backward passes. So if M2O-b matches or beats many-to-many on accuracy,
+the paper's case for many-to-many is its cost: decisive for the baselines, modest
+for the filter. That is still a defensible argument, but it must be found out here
+rather than from a reviewer.
+
+**Order.** Stationary first, at the main law. Add an abrupt-$\beta$ cell only if the
+stationary comparison separates the designs. Implementation touches the series data
+layer (a window stride), the model output (the last position only, i.e. the
+selection $\boldsymbol C_{u,t}=\boldsymbol e_q^{\mathsf T}$ of the Diff-EKF note), and
+$\boldsymbol R$ (one variance, the last position's).
+
 ## Track C — reduce communication
 
 ### Where the communication actually stands
