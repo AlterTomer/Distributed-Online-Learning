@@ -21,6 +21,8 @@ dependencies = [
     "networkx>=3.0",
     "pyyaml>=6.0",
     "matplotlib>=3.8",
+    # t quantiles for paired intervals and equivalence tests (metrics/paired.py).
+    "scipy>=1.11",
 ]
 
 [project.optional-dependencies]
