@@ -96,6 +96,8 @@ from _args import sweep_parser  # noqa: E402
 from run_ekf_generalization import run_one  # noqa: E402
 from run_m3_rates import ADAMW_FAMILY, SGD_FAMILY, settled  # noqa: E402
 
+from dekf_bench.metrics.paired import Paired, holm  # noqa: E402
+from dekf_bench.metrics.paired import paired as compare  # noqa: E402
 from dekf_bench.utils.config import load_config  # noqa: E402
 
 #: cell suffix -> experiment config. Both are stationary, so unlike M11 there is no
@@ -267,17 +269,33 @@ def _by_seed(cell: str, learner: str) -> dict[int, float]:
     return out
 
 
-def _paired(left: str, right: str, learner: str):
-    """(mean difference, t) over the seeds both cells have, or None."""
-    a, b = _by_seed(left, learner), _by_seed(right, learner)
-    shared = sorted(set(a) & set(b))
-    if len(shared) < 2:
-        return None
-    diffs = [a[s] - b[s] for s in shared]
-    mean = sum(diffs) / len(diffs)
-    sd = (sum((d - mean) ** 2 for d in diffs) / (len(diffs) - 1)) ** 0.5
-    t = abs(mean) / (sd / len(diffs) ** 0.5) if sd else float("inf")
-    return mean, t
+#: Family-wise, per table (Holm).
+ALPHA = 0.05
+
+STAT_HEADER = f"{'diff':>9}  {'95% CI':^20}  {'t':>7}  {'p_holm':>7}"
+
+
+def _paired(left: str, right: str, learner: str) -> Paired | None:
+    """left - right over the seeds both cells have, or None below two of them.
+
+    The t it carries is signed. This helper used to return |t|, and the verdict
+    below it read `t > 2.78` as COSTS -- so a significant *improvement* would have
+    printed as a cost. None did, but nothing stopped it.
+    """
+    result = compare(_by_seed(left, learner), _by_seed(right, learner))
+    return result if result.n >= 2 else None
+
+
+def _stat_columns(result: Paired, p_adjusted: float) -> str:
+    lo, hi = result.ci(0.95)
+    interval = f"[{lo:+.4f}, {hi:+.4f}]"
+    return (f"{result.mean:>+9.4f}  {interval:<20}  {result.t:>+7.2f}"
+            f"  {p_adjusted:>7.3f}")
+
+
+def _holm_rows(results: list[Paired | None]) -> list[float]:
+    """Holm across a table's rows; a missing row spends no alpha."""
+    return holm([r.p if r else float("nan") for r in results])
 
 
 def report(smoke: bool = False) -> None:
@@ -306,25 +324,24 @@ def report(smoke: bool = False) -> None:
     print("  same learners and seeds; the only difference is that the agents")
     print("  disagree. The twin cancels, and so does the mean-delay shift.")
     print("  Positive = disagreeing agents cost more than agreeing ones.")
-    print("  t is |mean|/SE on 4 df: the 5% critical value is 2.78, not 2.0.\n")
-    print(f"    {'learner':<40}{'spread-control':>16}{'t':>8}   verdict")
-    for learner in arms:
-        got = _paired(spread, control, learner)
+    print("  H0: mean difference = 0, two-sided, t signed on n-1 df. p_holm is")
+    print(f"  adjusted across this table's rows; a verdict needs p_holm < {ALPHA}.\n")
+    print(f"    {'learner':<40}{STAT_HEADER}   verdict")
+    results = [_paired(spread, control, learner) for learner in arms]
+    for learner, got, p_adj in zip(arms, results, _holm_rows(results), strict=True):
         if got is None:
-            print(f"    {learner:<40}{'-':>16}{'-':>8}")
+            print(f"    {learner:<40}{'-':>9}")
             continue
-        mean, t = got
-        verdict = "COSTS" if t > 2.78 else "null"
-        print(f"    {learner:<40}{mean:>+16.4f}{t:>8.1f}   {verdict}")
+        verdict = ("COSTS" if got.mean > 0 else "HELPS") if p_adj < ALPHA else "null"
+        print(f"    {learner:<40}{_stat_columns(got, p_adj)}   {verdict}")
 
     print("\n  the mean-delay shift alone: control cell - twin, paired per seed")
     print("  Not the question, but it must be reported: the spread set could not be")
     print("  centred on the twin's tau = 17, because chaos ends just below 16.4.\n")
-    print(f"    {'learner':<40}{'control-twin':>16}{'t':>8}")
-    for learner in arms:
-        got = _paired(control, TWIN, learner)
-        print(f"    {learner:<40}" + (f"{got[0]:>+16.4f}{got[1]:>8.1f}"
-                                      if got else f"{'-':>16}{'-':>8}"))
+    print(f"    {'learner':<40}{STAT_HEADER}")
+    results = [_paired(control, TWIN, learner) for learner in arms]
+    for learner, got, p_adj in zip(arms, results, _holm_rows(results), strict=True):
+        print(f"    {learner:<40}" + (_stat_columns(got, p_adj) if got else f"{'-':>9}"))
 
     print("\n  the total: spread cell - twin, and the sum it must equal\n")
     print(f"    {'learner':<40}{'spread-twin':>14}{'sum of the two':>16}{'gap':>10}")
@@ -335,9 +352,9 @@ def report(smoke: bool = False) -> None:
         if not (total and het and shift):
             print(f"    {learner:<40}{'-':>14}{'-':>16}{'-':>10}")
             continue
-        parts = het[0] + shift[0]
-        print(f"    {learner:<40}{total[0]:>+14.4f}{parts:>+16.4f}"
-              f"{total[0] - parts:>+10.4f}")
+        parts = het.mean + shift.mean
+        print(f"    {learner:<40}{total.mean:>+14.4f}{parts:>+16.4f}"
+              f"{total.mean - parts:>+10.4f}")
     print("\n  The gap column is exact arithmetic, not a measurement: it is zero")
     print("  whenever the three contrasts share the same seeds. A non-zero entry")
     print("  means a cell is missing a seed, and the row above it is not comparable.")
