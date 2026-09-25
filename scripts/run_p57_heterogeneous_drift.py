@@ -131,7 +131,11 @@ DISPLACEMENT_TELL = "frozen_atc"
 #: 5% two-sided on 4 df (five seeds). Not 1.96, and not 2.0.
 CRITICAL_T = 2.78
 
-HORIZON, SEEDS, EVAL_EVERY = 1500, [0, 1, 2, 3, 4], 5
+#: 25, the project default and what X8 used -- not the 5 this runner's template
+#: carries. Under *global* drift a cadence of 5 costs 61 distinct rotations; under
+#: per-node it costs 398, because each of the ten agents has its own. The template
+#: was written for the cheap case.
+HORIZON, SEEDS, EVAL_EVERY = 1500, [0, 1, 2, 3, 4], 25
 
 DATA_ROOT = ROOT / "data"
 STATUS = ROOT / "results" / "p57_status.json"
@@ -243,6 +247,90 @@ def tune(args, train, test, suffix: str = "") -> int:
     return 0
 
 
+def preflight(args, test) -> bool:
+    """Price the run before it starts. False refuses it.
+
+    This exists because the first launch died out of memory halfway through its
+    first seed, and every number needed to predict that was available beforehand.
+    It is a cost predictor rather than a crash predictor now that the evalset
+    cache is bounded: what it reports is how much recomputation the bound implies,
+    and it refuses only when the part that *cannot* be evicted -- the covariances
+    -- will not fit.
+
+    The rotation count is measured, not multiplied, via the drift's own
+    accounting. Linear rotations alias: the agent at multiplier 0.5 on step 2t
+    sits at the same angle as the agent at 1.0 on step t, so the true count falls
+    well below points x agents (398 rather than 610 at this cadence).
+    """
+    import torch
+
+    from dekf_bench.env.drift import build_drift
+    from dekf_bench.evaluation.evalsets import MAX_CACHE_BYTES
+
+    rates = {name: LEARNING_RATES[0] for name in tuned_baselines()}
+    probe = config_for(args, "p57_preflight", "per_node", FULL_ROTATION,
+                       entries_for("a", rates))
+    itemsize = 8 if probe.run.dtype == "float64" else 4
+    n_nodes = probe.graph.n_nodes
+    side = probe.model.input_size
+    per_set = len(test) * side * side * itemsize
+
+    drift = build_drift(probe)
+    steps = list(range(0, args.horizon, EVAL_EVERY)) + [args.horizon - 1]
+    # Counted on the *evaluation* grid -- `should_evaluate`'s: every eval_every
+    # step plus the last one. The drift's own `distinct_rotations` walks
+    # range(0, horizon + 1, every) instead, which includes a step never evaluated
+    # and omits the final one; at T=20, every=25 that reports 2 rotations where
+    # the run builds 11.
+    #
+    # Two families, because `current_mean` is appended under per-node drift: the
+    # agents' own states, and the network mean that no agent occupies.
+    agents = {
+        round(drift.rotation_at(step, node), 9)
+        for step in steps for node in range(n_nodes)
+    }
+    means = {
+        round(sum(drift.rotation_at(step, node) for node in range(n_nodes)) / n_nodes, 9)
+        for step in steps
+    }
+    wanted = len(agents | means)
+    naive = len(steps) * n_nodes
+    held = max(1, MAX_CACHE_BYTES // per_set)
+    p = probe.model.num_params
+    covariance = p * p * itemsize
+    group_a = len(GROUP_A) * n_nodes * covariance
+    group_b = len(GROUP_B) * 2 * n_nodes * covariance   # the combine holds two sets
+
+    def gib(n: float) -> float:
+        return n / 2**30
+
+    print("  pre-flight")
+    print(f"    p = {p}, N = {n_nodes}, {probe.run.dtype}, eval_every {EVAL_EVERY}")
+    print(f"    distinct rotations   {wanted:>6}  ({len(agents)} per-agent + "
+          f"{len(means - agents)} network-mean; {naive} naive, aliased down)")
+    print(f"    one rotated set      {per_set / 2**20:>6.1f} MiB")
+    print(f"    cache bound holds    {held:>6}  -> {max(0, wanted - held)} of them "
+          f"rebuilt per seed")
+    print(f"    covariances, group A {gib(group_a):>6.2f} GiB")
+    print(f"    covariances, group B {gib(group_b):>6.2f} GiB  (two sets in combine)")
+
+    if args.device == "cpu" or not torch.cuda.is_available():
+        print("    host memory only: the cache has no device ceiling to breach")
+        return True
+    free, total = torch.cuda.mem_get_info()
+    worst = max(group_a, group_b) + min(MAX_CACHE_BYTES, wanted * per_set)
+    print(f"    CUDA free {gib(free):.1f} of {gib(total):.1f} GiB; worst cell "
+          f"needs about {gib(worst):.2f} GiB")
+    if max(group_a, group_b) > free:
+        print("\n  REFUSED: the covariances alone exceed free device memory, and "
+              "those\n  cannot be evicted. Use --device cpu (X8 ran per-node drift "
+              "there;\n  it is about 1.7x slower) or free the card.")
+        return False
+    if worst > free:
+        print("    tight: the bound will evict more than the estimate above.")
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = sweep_parser(__doc__.split("\n")[0], horizon=HORIZON, seeds=SEEDS)
     parser.add_argument("--lr", action="store_true",
@@ -271,6 +359,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no selected rates for {missing}: run --lr{' --smoke' if suffix else ''} "
               "first.\nA rate carried across conditions is the mistake D77 exists to "
               "record --\nit put a baseline at chance and inverted a damage ordering.")
+        return 1
+
+    if not preflight(args, test):
         return 1
 
     cells = [(label, scope, degrees, group)

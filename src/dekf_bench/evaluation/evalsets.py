@@ -35,10 +35,25 @@ one) the probe is **undefined and reported as such**, never as "no forgetting".
 **Sets are cached by rotation, not by step.** Two steps at the same rotation
 share one tensor, so a stationary run builds exactly one set rather than 1500,
 and a piecewise run builds one per regime.
+
+**The cache is bounded, and under a linear schedule it is nearly useless.** It
+pays when states *repeat* -- stationary (one state), piecewise (one per regime),
+sinusoidal (one per distinct phase). Under a linear schedule every step carries a
+new rotation, so every key is used exactly once and the cache is pure growth. That
+was invisible while drift was global: 301 rotations at ``eval_every=5`` is ~4.4 GiB
+at float64, large but survivable. Under ``per_node`` drift each of $N$ agents has
+its own rotation, and the same run needs 2 003 of them -- ~29 GiB, which is how
+P5.7 met an out-of-memory error halfway through its first seed.
+
+The bound is therefore not a tuning knob but a correctness-of-resource property:
+it is set above every repeating schedule's working set, so those never evict and
+their behaviour is unchanged, while a linear or per-node run stops accumulating
+tensors it will never read again. Eviction costs recomputation, never accuracy.
 """
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 
@@ -52,6 +67,13 @@ from dekf_bench.env.partition import largest_remainder
 #: Rotations closer than this are treated as the same state for caching, and as
 #: indistinguishable when checking that the backward probe is separated.
 ROTATION_TOLERANCE = 1e-6
+
+#: Ceiling on the rotated-image cache, in bytes. 1 GiB is ~68 sets at the MNIST
+#: size in float64 (10 000 x 1 x 14 x 14), which holds every *repeating* schedule
+#: whole: stationary needs 1, piecewise at ``jump_degrees=15`` needs 7, sinusoidal
+#: over three periods ~21. Only linear and per-node runs exceed it, and those get
+#: no hits from the entries evicted.
+MAX_CACHE_BYTES = 1 << 30
 
 
 class EvalSetError(ValueError):
@@ -107,6 +129,7 @@ class EvalSetBuilder:
         backward_separation_degrees: float = 15.0,
         priors: Any = None,
         n_classes: int = 10,
+        max_cache_bytes: int = MAX_CACHE_BYTES,
     ) -> None:
         if backward_separation_degrees <= 0:
             raise EvalSetError(
@@ -119,7 +142,17 @@ class EvalSetBuilder:
         self.separation = backward_separation_degrees
         self.priors = priors
         self.n_classes = n_classes
-        self._cache: dict[int, torch.Tensor] = {}
+        if max_cache_bytes < 1:
+            raise EvalSetError(f"max_cache_bytes must be >= 1, got {max_cache_bytes}")
+        #: Insertion-ordered so the oldest entry is the one evicted. A hit moves
+        #: its key to the end, so a repeating schedule's working set never ages out
+        #: behind the one-shot rotations a linear run streams through it.
+        self._cache: OrderedDict[int, torch.Tensor] = OrderedDict()
+        self._max_cache_bytes = max_cache_bytes
+        self._cache_bytes = 0
+        self._cache_hits = 0
+        self._cache_misses = 0
+        self._cache_evictions = 0
         self._by_class = [
             torch.nonzero(test.labels == c, as_tuple=True)[0] for c in range(n_classes)
         ]
@@ -340,6 +373,14 @@ class EvalSetBuilder:
             "backward_ever_available": first is not None,
             "distinct_rotations": self.distinct_rotations(),
             "cached_sets": len(self._cache),
+            # Reported because a low hit rate is the signal that this run is
+            # streaming one-shot rotations -- the per-node case -- rather than
+            # reusing a repeating schedule's states.
+            "cache_hits": self._cache_hits,
+            "cache_misses": self._cache_misses,
+            "cache_evictions": self._cache_evictions,
+            "cache_bytes": self._cache_bytes,
+            "cache_limit_bytes": self._max_cache_bytes,
             "prior_matched": self.priors is not None,
             # The evaluation sample size, which sets the floor on how finely a
             # break threshold can be located. Worth reporting before a run.
@@ -355,11 +396,31 @@ class EvalSetBuilder:
         return state.rotation_degrees
 
     def _images_at(self, rotation: float) -> torch.Tensor:
-        """Cached by rotation, so two steps at the same state share one tensor."""
+        """Cached by rotation, so two steps at the same state share one tensor.
+
+        Least-recently-used above ``max_cache_bytes``. Eviction costs a
+        recomputation and nothing else: the tensor is a pure function of
+        ``(test.images, rotation)``, so a re-derived set is bit-identical to the
+        one dropped and no score can move because of it.
+        """
         key = round(rotation / ROTATION_TOLERANCE)
-        if key not in self._cache:
-            self._cache[key] = self.transform.apply(self.test.images, rotation)
-        return self._cache[key]
+        cached = self._cache.get(key)
+        if cached is not None:
+            self._cache.move_to_end(key)
+            self._cache_hits += 1
+            return cached
+
+        self._cache_misses += 1
+        images = self.transform.apply(self.test.images, rotation)
+        self._cache[key] = images
+        self._cache_bytes += images.numel() * images.element_size()
+        # `len > 1` so the entry just inserted is never the one evicted: a single
+        # set larger than the whole budget must still be returned, not dropped.
+        while self._cache_bytes > self._max_cache_bytes and len(self._cache) > 1:
+            _, evicted = self._cache.popitem(last=False)
+            self._cache_bytes -= evicted.numel() * evicted.element_size()
+            self._cache_evictions += 1
+        return images
 
 
 def build_evalsets(config: Any, environment: Any, test: ImageSplit) -> EvalSetBuilder:

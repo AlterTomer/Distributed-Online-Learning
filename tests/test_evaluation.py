@@ -181,6 +181,66 @@ def test_sets_are_cached_by_rotation_not_by_step() -> None:
     assert len(builder._cache) == 1
 
 
+def bounded_builder(experiment: str, max_cache_bytes: int, **overrides) -> EvalSetBuilder:
+    """`builder_for` with an explicit cache ceiling; its **overrides go to the
+    config, not the constructor, so the budget cannot be passed through it."""
+    from dekf_bench.utils.config import deep_merge
+
+    config = load_config(experiment, overrides=deep_merge({"run": {"horizon": HORIZON}}, overrides))
+    train, test = split(600), split(300, seed=1)
+    return EvalSetBuilder(
+        test=test,
+        transform=build_transform(train.images, 14),
+        drift=build_drift(config),
+        horizon=config.run.horizon,
+        backward_separation_degrees=SEPARATION,
+        max_cache_bytes=max_cache_bytes,
+    )
+
+
+def test_the_rotation_cache_is_bounded_and_evicts_the_oldest() -> None:
+    """Unbounded, this grew one set per rotation. Under per-node drift that is one
+    per (step, agent) -- 2 003 sets and ~29 GiB on P5.7, which is how it was found."""
+    builder = bounded_builder("x2_rotating", max_cache_bytes=1)
+    first = builder.current(0)
+    # A budget of one byte still returns the set: the entry just inserted is never
+    # the one evicted, or a single oversized set could not be served at all.
+    assert len(builder._cache) == 1
+
+    one_set = first.images.numel() * first.images.element_size()
+    builder = bounded_builder("x2_rotating", max_cache_bytes=2 * one_set)
+    for step in range(6):
+        builder.current(step)
+    assert len(builder._cache) <= 2
+    assert builder._cache_bytes <= 2 * one_set
+    assert builder._cache_evictions > 0
+
+
+def test_a_repeating_schedule_never_evicts_at_the_default_bound() -> None:
+    """The bound is set above every repeating schedule's working set, so the
+    schedules the cache exists for are untouched by it."""
+    builder = builder_for("x5_abrupt_shift")
+    for step in range(HORIZON):
+        builder.current(step)
+    assert builder._cache_evictions == 0
+    # A piecewise run has a handful of regimes, so nearly every step is a hit.
+    assert builder._cache_hits > builder._cache_misses
+
+
+def test_a_set_re_derived_after_eviction_is_bit_identical() -> None:
+    """What licenses the bound: eviction costs a recomputation and nothing else.
+
+    The tensor is a pure function of (test.images, rotation), so a re-derived set
+    equals the one dropped exactly -- no score can move because the cache was full.
+    """
+    builder = bounded_builder("x2_rotating", max_cache_bytes=1)
+    before = builder.current(3).images.clone()
+    for step in (4, 5, 6):
+        builder.current(step)
+    assert builder._cache_evictions > 0
+    assert torch.equal(before, builder.current(3).images)
+
+
 def test_a_piecewise_run_builds_one_set_per_regime() -> None:
     # The shipped change point is at t=500; this fixture runs 120 steps, so the
     # jump has to be moved inside the horizon or there is only one regime.

@@ -4106,6 +4106,71 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D112. The evalset cache is bounded, because per-node drift turned it from a cache into a leak
+
+`src/dekf_bench/evaluation/evalsets.py` — shared code, on the path of *every*
+MNIST experiment, so this note exists to say what changed for all of them: nothing
+observable. P5.7's first launch (`--lr`, 2026-09-25 12:48) died with a CUDA
+out-of-memory error at 22.19 GiB allocated, roughly halfway through seed 0.
+
+**What the cache was for, and when it stopped working.** `EvalSetBuilder._images_at`
+keys rotated test images by rotation rather than by step, so two steps at the same
+state share one tensor. That is the right structure and it pays well: a stationary
+run builds one set rather than 1500, a piecewise run one per regime, a sinusoidal
+one per distinct phase. It had no bound because under *global* drift it never
+needed one — even the worst case was survivable.
+
+| regime | distinct rotations | cache |
+|---|---|---|
+| stationary | 1 | 15.0 MiB |
+| piecewise, one change point | 2 | 30.0 MiB |
+| linear, global, `eval_every=5` | 301 | ≈4.4 GiB |
+| **linear, per-node, `eval_every=5`** | **2 003** | **≈29 GiB** |
+
+One set is $10^4 \times 14 \times 14$ in float64 = 15.0 MiB. ⚠ The middle column is
+*measured, not multiplied*: linear rotations alias, because the agent at multiplier
+0.5 on step $2t$ sits at exactly the angle the agent at 1.0 occupied on step $t$.
+The naive product $\text{points} \times N$ overstates it (610 against a true 398 at
+`eval_every=25`), which is why this row has to be counted rather than estimated.
+
+Under a linear schedule every step carries a new rotation, so every key is used
+exactly once and the structure is pure growth with a zero hit rate. [[D21]]'s
+per-node scope multiplies that by $N$: each of the ten agents has its own rotation,
+and the cache becomes a leak that is *worse* the better the experiment is designed.
+
+**The fix, and why it is behaviour-preserving.** A byte-bounded LRU at 1 GiB, which
+holds 68 sets. The argument that licenses it is that eviction costs a recomputation
+and nothing else: `images` is a pure function of `(test.images, rotation)`, so a
+re-derived set is bit-identical to the one dropped and no score can move because
+the cache was full. That is asserted directly — `torch.equal` against a set that
+was evicted and rebuilt — rather than left as reasoning.
+
+So the bound is not a tuning knob but a correctness-of-resource property: it sits
+above every *repeating* schedule's working set, so the schedules the cache exists
+for never evict and are untouched, while a linear or per-node run stops hoarding
+tensors it will never read again. All 1 339 tests pass unchanged.
+
+**`EVAL_EVERY` 5 → 25** in the P5.7 runner. 25 is the project default and what X8
+used; the 5 came in with the template this runner was copied from, which was
+written for the cheap case. It costs 61 rotations under global drift and 398 under
+per-node — the cadence was never the expensive part until the scope changed.
+
+**A pre-flight, as a cost predictor rather than a crash predictor.** Every number
+needed to foresee this was available before the run started, so the runner now
+prints them and refuses only when the part that *cannot* be evicted — the
+covariances, 1.26 GiB for group A and 2.52 GiB for group B at $p=2908$ — will not
+fit. At the real horizon it reports 433 rotations (398 per-agent + 35 network-mean),
+365 rebuilds per seed, and a worst cell of 3.52 GiB against 6.9 GiB free.
+
+⚠ **The count must be taken on the evaluation grid.** `Drift.distinct_rotations`
+looks like the right instrument and is not: it walks `range(0, horizon + 1, every)`,
+whereas `protocol.should_evaluate` fires on `step % every == 0 or step == horizon - 1`.
+It therefore includes a step never evaluated and omits the one always evaluated. At
+$T=1500$ the two grids nearly coincide and the error hides; at the smoke's $T=20$
+with `every=25` it reports 2 rotations where the run builds 11. A number whose only
+job is to prevent an out-of-memory error must not be read off a different grid than
+the one the run uses.
+
 ### ✅ D111. M8: heterogeneous delays cost the filter and nothing else, and the reason is not disagreement
 
 `scripts/run_m8_tau_heterogeneity.py`, two cells × five seeds × six learners,
