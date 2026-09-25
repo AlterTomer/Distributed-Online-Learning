@@ -44,10 +44,41 @@ $N\in\{20,30\}$ below.
 | P5.12 | $E_{\text{agree}}$, $E_{\text{cent}}$ over time — already recorded, analysis only | — | open |
 | P5.24 | Mis-tuned arm: the number is in hand (+0.0161, $t=6.3$); carry it in the figures | — | open |
 | figures | Diff-EKF folder builder with a computed `SUMMARY.md` | — | open |
+| AdamW | Add AdamW arms to the main MNIST cells, **horizontally** — see below | ~20–30 h (est.) | queued |
 
-About 63 GPU-hours. At one sweep launched a day, with scripts, pre-flights and
-write-ups done while the previous sweep runs: **about ten days, to roughly 27
-September.**
+About 63 GPU-hours, plus the AdamW pass. At one sweep launched a day, with
+scripts, pre-flights and write-ups done while the previous sweep runs: **about ten
+days, to roughly 27 September.**
+
+**The AdamW pass** (added 2026-09-25). Mackey--Glass added AdamW as a baseline
+family (decision 19) and it is the *strongest* gradient baseline there — centralised
+AdamW 0.1628 against centralised SGD's 0.1750 (D106). MNIST has no AdamW arm at all,
+so the two tasks are compared against different baseline sets, which is the first
+thing a reviewer will notice. It is a **config change, not a port**: the image
+branch already validates `optimizer: "adamw"` (`OPTIMIZERS` in `utils/config.py`)
+and `optim_state.py` knows the kind.
+
+Three constraints, in the order they bite:
+
+1. **Its own rate grid.** The existing sweeps use $[0.2, 0.05, 0.01, 0.005, 0.001]$,
+   which is SGD-shaped; AdamW wants roughly $10^{-4}$ to $10^{-2}$. So each
+   experiment needs a second `--lr` grid, not an extra row in the current one.
+2. **Moments must be mixed.** `optimizer != "sgd"` with
+   `mix_optimizer_state: "none"` raises — unmixed adaptive state diverges across
+   agents. That puts a diffusion AdamW arm at $3p$ per link against momentum ATC's
+   $2p$, which Track C's bandwidth column has to carry.
+3. **Do it horizontally, one experiment at a time**, merging each run's `json` and
+   `parquet` into the existing outputs so the figures redraw over the union. Adding
+   AdamW to one experiment first would leave the baseline set differing *between*
+   experiments — a new asymmetry in place of the one the pass removes. P5.7 ships
+   without AdamW for exactly this reason and joins the pass with the others.
+
+⚠ **Gate the merge.** A rerun must differ from the recorded cells in the learner
+list and nothing else. Include one *existing* SGD arm in each AdamW run as a
+reproduction check: if it does not reproduce its recorded numbers, something is
+learner-dependent and the outputs are not poolable. Seeds derive by keyed hash of
+stream name (D8) precisely so this holds, but D102 is the standing reminder that a
+model-level setting can split cells and destroy seed-pairing silently.
 
 **Tier 2 — cheap and informative** (~12 GPU-hours, about three days):
 P5.4 sparse labels $n\times\pi_{\text{lab}}$ (X4 analogue — an unlabelled agent
