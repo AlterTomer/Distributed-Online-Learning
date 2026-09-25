@@ -247,7 +247,7 @@ def tune(args, train, test, suffix: str = "") -> int:
     return 0
 
 
-def preflight(args, test) -> bool:
+def preflight(args, test, with_filters: bool = True) -> bool:
     """Price the run before it starts. False refuses it.
 
     This exists because the first launch died out of memory halfway through its
@@ -300,6 +300,11 @@ def preflight(args, test) -> bool:
     covariance = p * p * itemsize
     group_a = len(GROUP_A) * n_nodes * covariance
     group_b = len(GROUP_B) * 2 * n_nodes * covariance   # the combine holds two sets
+    # The --lr pass sweeps the gradient baselines only. It builds the same rotated
+    # sets -- it is the pass that met the OOM -- but carries no covariance at all,
+    # so pricing it against the filters' footprint would refuse it for memory it
+    # never asks for.
+    resident = max(group_a, group_b) if with_filters else 0
 
     def gib(n: float) -> float:
         return n / 2**30
@@ -311,17 +316,20 @@ def preflight(args, test) -> bool:
     print(f"    one rotated set      {per_set / 2**20:>6.1f} MiB")
     print(f"    cache bound holds    {held:>6}  -> {max(0, wanted - held)} of them "
           f"rebuilt per seed")
-    print(f"    covariances, group A {gib(group_a):>6.2f} GiB")
-    print(f"    covariances, group B {gib(group_b):>6.2f} GiB  (two sets in combine)")
+    if with_filters:
+        print(f"    covariances, group A {gib(group_a):>6.2f} GiB")
+        print(f"    covariances, group B {gib(group_b):>6.2f} GiB  (two in combine)")
+    else:
+        print("    covariances            none  (--lr sweeps the baselines only)")
 
     if args.device == "cpu" or not torch.cuda.is_available():
         print("    host memory only: the cache has no device ceiling to breach")
         return True
     free, total = torch.cuda.mem_get_info()
-    worst = max(group_a, group_b) + min(MAX_CACHE_BYTES, wanted * per_set)
+    worst = resident + min(MAX_CACHE_BYTES, wanted * per_set)
     print(f"    CUDA free {gib(free):.1f} of {gib(total):.1f} GiB; worst cell "
           f"needs about {gib(worst):.2f} GiB")
-    if max(group_a, group_b) > free:
+    if resident > free:
         print("\n  REFUSED: the covariances alone exceed free device memory, and "
               "those\n  cannot be evicted. Use --device cpu (X8 ran per-node drift "
               "there;\n  it is about 1.7x slower) or free the card.")
@@ -351,6 +359,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
         return 1
     train, test = load_dataset(args.dataset, DATA_ROOT, download=False)
+    # Ahead of the --lr branch on purpose: that is the pass that met the OOM, and
+    # it builds the same rotated sets as the main one.
+    if not preflight(args, test, with_filters=not args.lr):
+        return 1
     if args.lr:
         return tune(args, train, test, suffix)
 
@@ -359,9 +371,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no selected rates for {missing}: run --lr{' --smoke' if suffix else ''} "
               "first.\nA rate carried across conditions is the mistake D77 exists to "
               "record --\nit put a baseline at chance and inverted a damage ordering.")
-        return 1
-
-    if not preflight(args, test):
         return 1
 
     cells = [(label, scope, degrees, group)

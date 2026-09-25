@@ -4162,6 +4162,13 @@ covariances, 1.26 GiB for group A and 2.52 GiB for group B at $p=2908$ — will 
 fit. At the real horizon it reports 433 rotations (398 per-agent + 35 network-mean),
 365 rebuilds per seed, and a worst cell of 3.52 GiB against 6.9 GiB free.
 
+⚠ It runs *ahead* of the `--lr` branch, not after it. `--lr` is the pass that
+actually met the OOM, and it builds the same rotated sets; a pre-flight placed
+after the early return would have guarded every path except the one that crashed.
+That pass sweeps the gradient baselines only, so it is priced without covariances
+(0.18 GiB, against 2.70 for the main pass) — charging it for a filter footprint it
+never allocates would refuse it for memory it does not ask for.
+
 ⚠ **The count must be taken on the evaluation grid.** `Drift.distinct_rotations`
 looks like the right instrument and is not: it walks `range(0, horizon + 1, every)`,
 whereas `protocol.should_evaluate` fires on `step % every == 0 or step == horizon - 1`.
