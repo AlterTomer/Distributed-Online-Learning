@@ -4106,6 +4106,74 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### 🔄 D114. N>10 holds the mixing gap and the horizon, and lets only the network grow
+
+`scripts/run_network_size.py`, written 2026-09-25; decided with the user the same day.
+Schedule Track A tier 1, "$N>10$". Every result so far is at $N=10$, and the question
+is whether the diffusion filter's gap to the centralised one grows with $N$ and
+whether cooperation pays more with more agents. Two things change with $N$ besides
+$N$ unless they are held on purpose, and both were measured before choosing.
+
+**The graph.** At a fixed ER $p=0.3$ the network gets denser as it grows:
+
+| $N$ | $p$ | mean degree | mixing gap | $\ln N/N$ |
+|---|---|---|---|---|
+| 10 | 0.3 | 2.9 | 0.119 | 0.230 |
+| 20 | 0.3 | 5.8 | 0.200 | 0.150 |
+| 30 | 0.3 | 8.7 | 0.291 | 0.113 |
+| 20 | **0.224** | 4.3 | **≈0.120** | 0.150 |
+| 30 | **0.167** | 4.8 | **≈0.120** | 0.113 |
+
+Mixing gaps are means over 120 draws with this repository's builder and Metropolis
+weights. A fixed $p$ would confound size with connectivity, and [[D103]] showed
+connectivity alone moves these results, non-monotonically. So $p$ is set per $N$ to
+hold the mixing gap -- the quantity consensus speed depends on -- at the $N=10$ value.
+Both matched values sit above the connectivity threshold, so no draw is conditioned
+on a rare event (the fault that removed ER 0.15 from P5.3). Rejected alternatives:
+fixed $p$ (the confound above), and the same margin above threshold,
+$p=1.303\ln N/N$, which lands at a gap of about 0.10.
+
+**The data budget.** Shards are disjoint and consumed once, so $NnT\le60\,000$
+([[D5]]), and $N=10$ at $n=4$, $T=1500$ already uses all 60 000 images. Three ways
+out, each confounding something:
+
+- **epochs**: the filter would assimilate a sample twice, the temporal form of data
+  incest. Rejected outright.
+- **lower $n$ at $T=1500$** ($n=2$ at $N=20$, $n=1$ at $N=30$): the per-agent data
+  rate would fall with $N$, confounding size with P5.4's axis.
+- **one common $T=500$ at $n=4$** for every $N$, the most $N=30$ allows. **Chosen.**
+  Only $N$ and $p$ differ along the axis, and $N=10$ is re-run at $T=500$ as the
+  in-experiment reference rather than borrowed from a $T=1500$ run.
+
+`EVAL_EVERY` drops to 10 so the settled window (the last 20%, 100 steps) still holds
+ten evaluations. The cost is a short horizon. The local filter adds up to $m=40$
+information directions a step, so it can span $p=2908$ in about 73 steps and settling
+by step 400 is plausible, but it is not yet shown; the abrupt condition holds 20
+jumps rather than 60.
+
+**Full sharing is on at $N=10$ and opt-in above it** (`--full-sharing`), one learner
+per process. The 2026-09-15 decision keeps all four variants in every comparison, and
+at $N=10$ they are known to fit. Above it they may not: X24 measured one full-sharing
+variant at 3.43 GiB of 8 at $N=10$, about five covariance-sized buffers per agent, and
+if that scales with $N$ one variant needs roughly 6--7 GiB at $N=20$ and 9--10 GiB at
+$N=30$. The schedule's earlier "two sets" estimate, which put $N=30$ within reach,
+undercounts what was measured.
+
+**A memory smoke, because that is an extrapolation.** `--probe-only` runs every
+planned (size, group) cell for 21 steps at one seed, reads the CUDA allocator's peak,
+adds the evaluation-set cache the full horizon will grow and the probe did not
+([[D112]]), and judges the total against 95% of *free* memory. An out-of-memory
+error in the probe is caught as the answer "does not fit"; a probe that diverges is
+**inconclusive**, never a pass, since it may stop before the peak. The main pass
+re-probes unless `--skip-probe` and refuses if any planned cell does not fit.
+
+**A reproduction check.** The $N=10$ stationary cell differs from P5.3's `er030` cell
+only in horizon and evaluation cadence, neither of which touches learning. The carried
+filters' prequential errors over the first 500 steps must therefore match P5.3's to
+the digit, and the report checks it.
+
+🔄 Open until the run: the memory smoke's verdicts at $N=20, 30$, and the results.
+
 ### ✅ D113. What a quoted $t$ tests, and three things the reports got wrong about it
 
 `src/dekf_bench/metrics/paired.py`, now the single implementation behind every
