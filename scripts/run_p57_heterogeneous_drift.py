@@ -61,9 +61,19 @@ reading the results. **The tell was `frozen_atc`**: it stops adapting, so its er
 tracks pure displacement, and it came out 0.10 *better* under per-node -- which no
 story about heterogeneity explains and "less drift" explains exactly.
 
-`frozen_atc` is carried here for that reason, and the report makes it a **gate**:
-if it separates the two cells beyond seed noise, the cells are not mean-matched and
-nothing else in the report may be read.
+The match is checked twice, and neither check is "the t-test did not reject"
+(D113):
+
+1. **Exactly, before the run.** Mean-matching is arithmetic, so the pre-flight
+   checks it as arithmetic: the per-node agents' mean rotation must equal the
+   control's rotation at every evaluated step, or the run is refused.
+2. **Empirically, after it, by equivalence test.** `frozen_atc` is carried because
+   it never adapts, so its error is a read-out of displacement. It is read at the
+   *same* rotation in both cells -- the per-node cell's `current_mean` against the
+   global cell's `current` -- and must be shown equal within a stated margin
+   (TOST). Reading the per-node agents at their own rotations instead would add a
+   Jensen term: error is not linear in displacement, so agents spread around a
+   mean average worse than one agent at it, even when the means match exactly.
 
 ## What is carried and what is re-tuned
 
@@ -82,7 +92,6 @@ experiments, which is the asymmetry the pass exists to remove. See `schedule.md`
 from __future__ import annotations
 
 import json
-import math
 import sys
 import time
 from pathlib import Path
@@ -102,9 +111,11 @@ from run_diffusion_skew import (  # noqa: E402
     settled,
 )
 from run_ekf_generalization import run_one  # noqa: E402
-from run_linearization_point import paired, per_seed  # noqa: E402
+from run_linearization_point import per_seed  # noqa: E402
 
 from dekf_bench.data.registry import dataset_is_cached, load_dataset  # noqa: E402
+from dekf_bench.metrics.paired import Paired, differences, holm  # noqa: E402
+from dekf_bench.metrics.paired import paired as compare  # noqa: E402
 from dekf_bench.utils.config import load_config  # noqa: E402
 
 #: The whole experiment: one treatment, one mean-matched control. `total_degrees`
@@ -128,8 +139,15 @@ GROUP_B = ["diffusion_ekf_full", "diffusion_ekf_onehop_receiver"]
 #: Never adapts, so its error is pure displacement. The mean-matching gate.
 DISPLACEMENT_TELL = "frozen_atc"
 
-#: 5% two-sided on 4 df (five seeds). Not 1.96, and not 2.0.
-CRITICAL_T = 2.78
+#: Family-wise, per table (Holm), and the size of each one-sided test in TOST.
+ALPHA = 0.05
+
+#: How far apart the two cells' `frozen_atc` may be, read at the same rotation,
+#: and still count as matched. Half the smallest heterogeneity effect X8 resolved
+#: (+0.0093 for diffusion_sgd_atc, +0.0095 for centralized_sgd): a mismatch below
+#: it cannot manufacture or erase an effect of the size this design detects. Fixed
+#: before the run, as an equivalence margin has to be; X8's own tell passes it.
+GATE_MARGIN = 0.005
 
 #: 25, the project default and what X8 used -- not the 5 this runner's template
 #: carries. Under *global* drift a cadence of 5 costs 61 distinct rotations; under
@@ -268,7 +286,8 @@ def preflight(args, test, with_filters: bool = True) -> bool:
     from dekf_bench.evaluation.evalsets import MAX_CACHE_BYTES
 
     rates = {name: LEARNING_RATES[0] for name in tuned_baselines()}
-    probe = config_for(args, "p57_preflight", "per_node", FULL_ROTATION,
+    degrees = {label: d for label, _scope, d in SCOPES}
+    probe = config_for(args, "p57_preflight", "per_node", degrees["per_node"],
                        entries_for("a", rates))
     itemsize = 8 if probe.run.dtype == "float64" else 4
     n_nodes = probe.graph.n_nodes
@@ -321,6 +340,23 @@ def preflight(args, test, with_filters: bool = True) -> bool:
         print(f"    covariances, group B {gib(group_b):>6.2f} GiB  (two in combine)")
     else:
         print("    covariances            none  (--lr sweeps the baselines only)")
+
+    # The exact half of the mean-matching gate (D53, D113): arithmetic, so checked
+    # as arithmetic here rather than inferred from a tell after the compute is spent.
+    control = build_drift(config_for(args, "p57_preflight", "global", degrees["global"],
+                                     entries_for("a", rates)))
+    gap = max(
+        abs(sum(drift.rotation_at(step, node) for node in range(n_nodes)) / n_nodes
+            - control.rotation_at(step))
+        for step in steps
+    )
+    matched = gap < 1e-9
+    print(f"    mean-matched         {'exact' if matched else 'NO':>6}  (largest per-step gap "
+          f"{gap:.1e} deg over {len(steps)} evaluated steps)")
+    if not matched:
+        print("\n  REFUSED: the control does not sit at the treatment's mean rotation, so")
+        print("  the cells would differ in drift amount as well as spread (D53).")
+        return False
 
     if args.device == "cpu" or not torch.cuda.is_available():
         print("    host memory only: the cache has no device ceiling to breach")
@@ -409,6 +445,18 @@ def _cell_of(learner: str, label: str, suffix: str = "") -> str:
     return cell_name(label, "b" if learner in GROUP_B else "a", suffix)
 
 
+STAT_HEADER = f"{'diff':>9}  {'95% CI':^20}  {'t':>7}  {'p_holm':>7}   n"
+
+
+def stat_columns(result: Paired, p_adjusted: float) -> str:
+    """One row's inference: signed mean, 95% interval, signed t, Holm p, seeds."""
+    lo, hi = result.ci(0.95)
+    interval = f"[{lo:+.4f}, {hi:+.4f}]"   # padded: a NaN interval is narrower
+    mark = "*" if p_adjusted < ALPHA else " "
+    return (f"{result.mean:>+9.4f}  {interval:<20}  {result.t:>+7.2f}"
+            f"  {p_adjusted:>7.3f}{mark}  {result.n}")
+
+
 def report(suffix: str = "") -> None:
     """The gate first, then the headline, then the gap that P5.7 exists to move."""
     mean = lambda d: sum(d.values()) / len(d) if d else float("nan")  # noqa: E731
@@ -421,26 +469,37 @@ def report(suffix: str = "") -> None:
         print("  is that every code path below ran.\n")
 
     # ---- the gate -----------------------------------------------------------
+    tell_name = DISPLACEMENT_TELL
     print("  GATE: is the control mean-matched?\n")
-    print("  `frozen_atc` never adapts, so its error is pure displacement. The two")
-    print("  cells are matched on mean rotation, so it must NOT separate them. If it")
-    print("  does, the control is mis-matched and nothing below may be read (D53).\n")
-    tell = {label: per_seed(cell(DISPLACEMENT_TELL, label), DISPLACEMENT_TELL)
-            for label in labels}
-    gate_diff, gate_t, gate_n = paired(tell["per_node"], tell["global"])
-    # Three verdicts, not two. With one seed there is no standard error, so t is
-    # NaN and `abs(t) < CRITICAL_T` is False -- which printed FAIL and read as a
-    # finding about mean-matching when it only meant "too few seeds to tell".
-    if gate_n < 2 or not math.isfinite(gate_t):
-        verdict = f"UNDECIDABLE -- {gate_n} seed(s), no standard error"
-    elif abs(gate_t) < CRITICAL_T:
-        verdict = "PASS -- the cells are mean-matched"
+    print("  1. exactly: the pre-flight checked, as arithmetic, that the per-node")
+    print("     agents' mean rotation equals the control's at every evaluated step.")
+    print(f"  2. empirically: `{tell_name}` never adapts, so its error reads out")
+    print("     displacement. It is compared at the SAME rotation in both cells --")
+    print("     per-node `current_mean` against global `current` -- and must be SHOWN")
+    print(f"     equal within +/-{GATE_MARGIN} by TOST. Failing to find a difference is")
+    print("     not showing equality: at five seeds a real mismatch does that easily.\n")
+    own = per_seed(cell(tell_name, "per_node"), tell_name)
+    at_mean = per_seed(cell(tell_name, "per_node"), tell_name, evalset="current_mean")
+    tell = compare(at_mean, per_seed(cell(tell_name, "global"), tell_name))
+    # Four verdicts. Equivalence and difference are separate questions, so "neither
+    # shown" is a real outcome -- and with one seed there is no standard error at all.
+    equal = tell.equivalent(GATE_MARGIN, ALPHA)
+    if equal is None:
+        verdict = f"UNDECIDABLE -- {tell.n} seed(s), no standard error"
+    elif equal:
+        verdict = "PASS -- shown equal within the margin"
+    elif tell.p < ALPHA:
+        verdict = "FAIL -- the cells differ; read nothing below (D53)"
     else:
-        verdict = "FAIL -- not mean-matched; read nothing below"
-    print(f"    {DISPLACEMENT_TELL}: per_node {mean(tell['per_node']):.4f} vs "
-          f"global {mean(tell['global']):.4f}")
-    print(f"    difference {gate_diff:+.4f}  t={gate_t:.2f}  n={gate_n}   {verdict}")
-    print(f"    (5% two-sided on 4 df is {CRITICAL_T}, not 2.0)\n")
+        verdict = ("INCONCLUSIVE -- neither shown equal nor shown different; "
+                   "the exact check stands alone")
+    lo, hi = tell.ci(1.0 - 2.0 * ALPHA)
+    print(f"    at-mean minus global  {tell.mean:+.4f}   90% CI [{lo:+.4f}, {hi:+.4f}]   "
+          f"TOST p={tell.tost_p(GATE_MARGIN):.3f}   n={tell.n}")
+    print(f"    {verdict}")
+    jensen = compare(own, at_mean)
+    print(f"    for scale only, not a gate -- agents at their own rotations minus at the mean:"
+          f"\n    {jensen.mean:+.4f} (t={jensen.t:+.2f}). That is the Jensen term the gate avoids.\n")
 
     # ---- levels -------------------------------------------------------------
     print("  settled error by drift scope\n")
@@ -453,25 +512,35 @@ def report(suffix: str = "") -> None:
 
     # ---- headline -----------------------------------------------------------
     print("\n  what heterogeneity costs each learner")
-    print("    per_node minus global, paired per seed; positive = heterogeneity hurt\n")
-    for learner in every:
-        diff, t, n = paired(per_seed(cell(learner, "per_node"), learner),
-                            per_seed(cell(learner, "global"), learner))
-        print(f"    {learner:<36}{diff:>+10.4f}  t={t:>6.2f}  n={n}")
+    print("    per_node minus global, paired per seed; positive = heterogeneity hurt.")
+    print("    t is signed, on n-1 df; p_holm is adjusted across this table's rows and")
+    print(f"    * marks p_holm < {ALPHA}.\n")
+    print(f"    {'learner':<36}{STAT_HEADER}")
+    costs = [(learner, compare(per_seed(cell(learner, "per_node"), learner),
+                               per_seed(cell(learner, "global"), learner)))
+             for learner in every]
+    for (learner, result), p_adj in zip(costs, holm([r.p for _l, r in costs]), strict=True):
+        print(f"    {learner:<36}{stat_columns(result, p_adj)}")
 
     # ---- the question -------------------------------------------------------
+    central = "centralized_ekf_gamma"
     print("\n  THE QUESTION: does diffusion close its gap to centralised?")
-    print("    centralised minus diffusion, per scope. Positive = diffusion is ahead.")
-    print("    P5.7 predicts this rises from global to per_node, and a sign change")
+    print("    gap = centralised minus diffusion; positive = diffusion is ahead.")
+    print("    The test is the CHANGE in the gap, per_node minus global, taken seed by")
+    print("    seed as a difference of differences (D54): two gaps printed side by side")
+    print("    are not a test. P5.7 predicts it is positive; a per_node gap above zero")
     print("    would be the first time a distributed variant beats the pooled one.\n")
+    print(f"    {'':<36}{'gap, global':>12}{'per_node':>10}   change{STAT_HEADER[9:]}")
+    rows = []
     for diffuse in GROUP_A + GROUP_B:
-        row = f"    {diffuse:<36}"
-        for label in labels:
-            diff, t, _n = paired(per_seed(cell("centralized_ekf_gamma", label),
-                                          "centralized_ekf_gamma"),
-                                 per_seed(cell(diffuse, label), diffuse))
-            row += f"{diff:>+10.4f} (t={t:>5.2f})"
-        print(row)
+        gaps = {label: differences(per_seed(cell(central, label), central),
+                                   per_seed(cell(diffuse, label), diffuse))
+                for label in labels}
+        rows.append((diffuse, gaps, compare(gaps["per_node"], gaps["global"])))
+    for (diffuse, gaps, change), p_adj in zip(rows, holm([c.p for *_r, c in rows]),
+                                              strict=True):
+        print(f"    {diffuse:<36}{mean(gaps['global']):>+12.4f}{mean(gaps['per_node']):>+10.4f}"
+              f"{stat_columns(change, p_adj)}")
 
     print("\n  ⚠ If the effect appears, M8 says to look at calibration rather than")
     print("  consensus: there the cost fell on the filters, the most damaged arm had")

@@ -4106,6 +4106,110 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D113. What a quoted $t$ tests, and three things the reports got wrong about it
+
+`src/dekf_bench/metrics/paired.py`, now the single implementation behind every
+report's inference; `run_linearization_point.paired` delegates to it and keeps its
+`(mean, t, n)` shape for the finished runners.
+
+**The instrument.** Every $t$ in these notes is a paired test on per-seed
+differences. A seed's value is the *settled* error, the mean over the last 20% of
+the horizon, so a run's time steps are averaged down to one number before any test
+and their autocorrelation never inflates the degrees of freedom. Two cells sharing
+a seed share the graph, the data stream and $\boldsymbol\theta_0$ (D8), so
+$d_s = a_s - b_s$ cancels them. The null is always $\mu_d = 0$, two-sided:
+
+$$t = \frac{\bar d}{s_d/\sqrt n}, \qquad \text{df} = n-1 = 4, \qquad t_{0.975,4} = 2.776.$$
+
+What $\mu_d=0$ *says* depends on what was differenced: for a damage, drift did
+nothing; for a contrast of damages, the two drifts cost the same (the twin cancels,
+which is why contrasts are the reliable instrument); for P5.7, heterogeneity costs
+nothing beyond its mean.
+
+**1. A non-rejection was read as a match.** P5.7's gate printed "PASS -- the cells
+are mean-matched" whenever $|t| < 2.78$. That is absence of evidence: at five seeds
+a real mismatch fails to reject easily. A claim of *sameness* needs an equivalence
+test against a margin fixed in advance: TOST, both one-sided nulls
+$|\mu_d| \ge \Delta$ rejected, which is the 90% interval lying inside $\pm\Delta$.
+
+Fixing that exposed a second problem with the gate, measured on X8, which is the
+same design already run:
+
+| `frozen_atc`, X8, five seeds | mean | $t$ | 90% CI | TOST at ±0.005 |
+|---|---|---|---|---|
+| per-node agents − global (the old gate) | $+0.0020$ | 1.15 | $[-0.0017, +0.0057]$ | $p=0.082$, not shown |
+| per-node agents − same cell at the mean rotation | $+0.0035$ | 2.37 | | |
+| **per-node at the mean − global** (the new gate) | $-0.0015$ | $-2.24$ | $[-0.0028, -0.0001]$ | $\mathbf{p=0.003}$, **shown** |
+
+Error is not linear in displacement, so agents spread around a mean rotation average
+worse than one agent sitting at it, *even when the means match exactly* (Jensen).
+The old gate read the agents at their own rotations and carried that term plus 2.7×
+the noise. It could not have passed a TOST on a correctly matched design. The new
+gate reads both cells at the same rotation (`current_mean` against `current`) and
+passes on X8 decisively.
+
+$\Delta = 0.005$ is half the smallest heterogeneity effect X8 resolved ($+0.0093$,
+`diffusion_sgd_atc`): a mismatch below it cannot manufacture or erase an effect of
+the size this design detects. The gate now has four outcomes: PASS (shown equal),
+FAIL (shown different), INCONCLUSIVE (neither), UNDECIDABLE (under two seeds).
+
+And because mean-matching is arithmetic, it is now *also* checked as arithmetic: the
+P5.7 pre-flight compares the per-node agents' mean rotation with the control's at
+every evaluated step and refuses the run on any gap. D53's bug would be caught there,
+before any compute, with no statistics at all.
+
+**The same decomposition, for the adaptive learners.** X8's per_node − global splits
+into "agents − at-mean" and "at-mean − global", and the second part is null for every
+adaptive arm ($t=0.30$ for `diffusion_sgd_atc`, $0.07$ for `centralized_sgd`) while the
+first carries the whole effect ($+0.0091$, $t=25.6$). The cost of heterogeneity for a
+pooling learner is a consensus that fits no agent, and the residual being null is
+direct evidence the mean-matching works.
+
+**2. A table is a family.** Ten rows at 5% each expect half a false positive by
+chance. Reports now print Holm-adjusted $p$ per table: step-down, uniformly more
+powerful than Bonferroni, valid under the dependence that shared seeds induce. A row
+with under two seeds spends no alpha.
+
+**3. The sign is part of the result.** $t$ is now signed everywhere and every row
+carries its 95% interval. M8's helper returned $|t|$ and its verdict was
+`"COSTS" if t > 2.78`, so a significant *improvement* would have printed as a cost.
+None did, but nothing stopped it.
+
+P5.7's question is also now a test. "Does diffusion close its gap to centralised?" was
+printed as two gaps side by side, the pattern [[D54]] rejects. It is now the change in
+the gap, per_node minus global, taken per seed as a difference of differences.
+
+**M8, re-read.** The only finished experiment whose report was rewired:
+
+| learner | spread − control | 95% CI | $t$ | $p_{\text{holm}}$ | was | now |
+|---|---|---|---|---|---|---|
+| centralised EKF | $+0.0045$ | $[+0.0029, +0.0061]$ | $+7.90$ | 0.008 | costs | **costs** |
+| diff-EKF, local adapt | $+0.0023$ | $[+0.0013, +0.0033]$ | $+6.45$ | 0.015 | costs | **costs** |
+| diff-EKF, one-hop | $+0.0040$ | $[+0.0013, +0.0066]$ | $+4.17$ | 0.056 | costs | **null** |
+| centralised AdamW | $+0.0001$ | $[-0.0003, +0.0006]$ | $+0.71$ | 1.000 | null | null |
+| ATC AdamW | $+0.0008$ | $[-0.0015, +0.0030]$ | $+0.94$ | 1.000 | null | null |
+| local only | $-0.0007$ | $[-0.0028, +0.0014]$ | $-0.95$ | 1.000 | null | null |
+
+[[D111]]'s finding stands in shape and narrows in reach. The two established costs
+are filters, the gradient arms are null with intervals no wider than ±0.0023, and the
+mechanism result survives at $p_{\text{holm}}=0.008$: the centralised EKF has exactly
+zero disagreement and is still the most damaged arm. One-hop is suggestive, not
+established. For the mean-delay shift all six arms are positive ($+0.0029$ to
+$+0.0044$), but only the centralised EKF clears Holm ($0.014$; the rest $0.075$–$0.098$).
+
+⚠ **Nothing earlier was retrofitted.** Every $t$ in D1–D112 is per-row and
+uncorrected, and D109's "|mean|/SE" convention is unsigned. The notes stay as
+recorded; this note is the rule for reading them. On four df, Holm's first step needs
+$|t| > 3.96$ in a table of three rows, $4.85$ of six and $5.60$ of ten; a row between
+2.78 and that bound is suggestive unless stronger rows in the same table carry it
+through the step-down.
+
+**What cannot be fixed at five seeds.** Normality is assumed, not checked, and there
+is no nonparametric way out: a sign-flip permutation test has $2^5 = 32$ arrangements,
+so its smallest two-sided $p$ is $2/32 = 0.0625$. It can never reject at 5%. The
+t-test is the only test here that can, and it buys that power from the normality
+assumption.
+
 ### ✅ D112. The evalset cache is bounded, because per-node drift turned it from a cache into a leak
 
 `src/dekf_bench/evaluation/evalsets.py` — shared code, on the path of *every*
@@ -4232,6 +4336,12 @@ filters.** The mean-delay shift is resolved for all six arms at 2.6–6.9; the
 disagreement is resolved for the three filters and null for the three gradient
 methods. The three-cell design is what separates them, and the decomposition is
 exact: `spread − twin` minus the sum of the two parts is $0.0000$ on every learner.
+
+⚠ *Corrected in part by [[D113]]. Under Holm across each table's six rows the
+disagreement cost is established for the centralised EKF and the local-adapt filter
+only; one-hop's $+0.0040$ is $p_{\text{holm}}=0.056$. The mean-delay shift is
+established for the centralised EKF alone, and "all six at 2.6–6.9" was wrong even
+uncorrected: 2.6 is below this note's own 2.78.*
 
 For scale, $+0.0045$ is about 3% of a 0.1391 base — and almost exactly what the
 *full* $\beta$ drift costs the same filter in M6 ($+0.0044$). It does not reverse

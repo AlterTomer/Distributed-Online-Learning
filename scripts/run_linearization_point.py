@@ -57,6 +57,7 @@ from run_diffusion_skew import cell_name as x25_cell  # noqa: E402
 from run_ekf_generalization import run_one  # noqa: E402
 
 from dekf_bench.data.registry import dataset_is_cached, load_dataset  # noqa: E402
+from dekf_bench.metrics.paired import paired as paired_comparison  # noqa: E402
 from dekf_bench.utils.config import load_config  # noqa: E402
 
 SENDER, RECEIVER = "diffusion_ekf_onehop_mean", "diffusion_ekf_onehop_mean_receiver"
@@ -88,8 +89,14 @@ def config_for(args, name: str, skew: float, drift: dict | None):
     )
 
 
-def per_seed(run: str, learner: str, metric: str = "error_rate") -> dict[int, float]:
-    """Settled value per seed: the mean over the last 20% of the horizon."""
+def per_seed(run: str, learner: str, metric: str = "error_rate",
+             evalset: str = "current") -> dict[int, float]:
+    """Settled value per seed: the mean over the last 20% of the horizon.
+
+    ``evalset`` applies to error_rate only; `current_mean` reads a per-node cell
+    at the network-mean rotation, which is how a per-node cell is compared with a
+    global one at the *same* rotation.
+    """
     import pandas as pd  # noqa: PLC0415
 
     directory = ROOT / "results" / run
@@ -101,23 +108,21 @@ def per_seed(run: str, learner: str, metric: str = "error_rate") -> dict[int, fl
         rows = frame[(frame["learner"] == learner) & (frame["metric"] == metric)
                      & (frame["t"] >= int(0.8 * frame["t"].max()))]
         if metric == "error_rate":
-            rows = rows[rows["evalset"] == "current"]
+            rows = rows[rows["evalset"] == evalset]
         if len(rows):
             values[int(path.stem.split("_")[1])] = float(rows["value"].mean())
     return values
 
 
 def paired(a: dict[int, float], b: dict[int, float]) -> tuple[float, float, int]:
-    """Mean of a - b over shared seeds, its t statistic, and the seed count."""
-    seeds = sorted(set(a) & set(b))
-    diffs = [a[s] - b[s] for s in seeds]
-    if not diffs:
-        return math.nan, math.nan, 0
-    mean = sum(diffs) / len(diffs)
-    if len(diffs) < 2:
-        return mean, math.nan, len(diffs)
-    sd = math.sqrt(sum((d - mean) ** 2 for d in diffs) / (len(diffs) - 1))
-    return mean, (mean / (sd / math.sqrt(len(diffs))) if sd > 0 else math.inf), len(diffs)
+    """Mean of a - b over shared seeds, its signed t, and the seed count.
+
+    Kept in this shape for the finished runners that print from it. New reports
+    use `dekf_bench.metrics.paired` directly, which also carries the interval,
+    the p-value and the equivalence test.
+    """
+    result = paired_comparison(a, b)
+    return result.mean, result.t, result.n
 
 
 def load_status() -> dict:
