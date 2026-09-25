@@ -4106,6 +4106,103 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D111. M8: heterogeneous delays cost the filter and nothing else, and the reason is not disagreement
+
+`scripts/run_m8_tau_heterogeneity.py`, two cells × five seeds × six learners,
+18:56–21:44 on 2026-09-23 (≈2 h 48 min GPU), both cells `ok`, zero divergences.
+Decision 22's $\tau_v$ axis; the $\beta$-offset and $\sigma_v$ axes remain.
+
+**The three cells.** Ten agents each, stationary throughout — nothing drifts here.
+
+| cell | delays | mean |
+|---|---|---|
+| **spread** | 16.4, 16.8, 17.2, 17.6, 18.0, 18.3, 18.9, 19.1, 19.8, 20.0 | 18.21 |
+| **control** | 18.2 for all ten | 18.2 |
+| **twin** (`m6_stationary_a`) | 17.0 for all ten | 17.0 |
+
+**Why the twin sits at $\tau=17$, and why that is not a choice.** 17 is the
+canonical Mackey--Glass setting ($\beta=0.2$, $\gamma=0.1$, $n=10$, $\tau=17$),
+inherited as `SeriesConfig`'s default, and *every* cell from M0 to M12 runs there.
+The twin is M6's own stationary cell, so it carries 17 because that is where the
+whole study lives — not because this experiment selected it. 18.2 is the opposite:
+it was chosen, by measurement, as the spread set's mean. ⚠ And [[D110]] found 17
+sits near the **lower edge** of chaos (onset 16.4), which is exactly why the spread
+set could not be centred on it and why a third cell was needed at all.
+
+**How chaos was measured.** [[D96]]'s own estimator, verbatim: two trajectories
+$10^{-8}$ apart, `burn_in=0`, $\log|\Delta|$ regressed on the **raw sample index**
+over the window $(10^{-7},10^{-3})$ at span 3000, from five initial histories
+(0.6, 0.75, 0.9, 1.05, 1.2). At $\tau=17$ it returns $+0.00736$, reproducing D96's
+$+0.0074$. ⚠ It is *not* span-invariant: $\lambda$ roughly halves from span 3000 to
+6000, because once the gap saturates it oscillates back below $10^{-3}$ and
+re-enters the fit window, flattening the slope. Span 3000 is therefore the
+reference and $\lambda$ is a relative indicator at fixed span, never an absolute
+exponent. The ten delays are individually chaotic from **all five** starts; the
+list steps over 18.4–18.6 and 19.3–19.6, where some histories settle on a periodic
+attractor and others do not, and over the marginal points 18.7 and 19.2. Agents
+draw histories from $[0.5,1.5]$, so a delay in those bands would have left some
+agents chaotic and others periodic *inside one run*.
+
+**The headline.** Settled RMSE on `current`, paired per seed, $t$ on 4 df (5% at
+2.78):
+
+| learner | disagreement (spread − control) | mean shift (control − twin) | total |
+|---|---|---|---|
+| centralised EKF | **+0.0045** (7.9) | +0.0029 (6.9) | +0.0074 |
+| diff-EKF, one-hop | **+0.0040** (4.2) | +0.0031 (4.1) | +0.0071 |
+| diff-EKF, local adapt | **+0.0023** (6.5) | +0.0044 (3.5) | +0.0067 |
+| centralised AdamW | +0.0001 (0.7) | +0.0043 (3.0) | +0.0044 |
+| ATC AdamW | +0.0008 (0.9) | +0.0030 (2.6) | +0.0037 |
+| local only | $-0.0007$ (1.0) | +0.0039 (3.3) | +0.0032 |
+
+**A harder delay costs everyone; agents disagreeing about the delay costs only the
+filters.** The mean-delay shift is resolved for all six arms at 2.6–6.9; the
+disagreement is resolved for the three filters and null for the three gradient
+methods. The three-cell design is what separates them, and the decomposition is
+exact: `spread − twin` minus the sum of the two parts is $0.0000$ on every learner.
+
+For scale, $+0.0045$ is about 3% of a 0.1391 base — and almost exactly what the
+*full* $\beta$ drift costs the same filter in M6 ($+0.0044$). It does not reverse
+the ordering: inside the spread cell the centralised EKF is 0.1464 against
+centralised AdamW's 0.1672, so the filter's margin narrows from 0.0251 to 0.0208
+and it keeps five sixths of its advantage.
+
+**⚠ The prediction on record is refuted, and by the arm that should have confirmed
+it.** The runner predicted `local_only` hurt least, the pooling arms most, and
+one-hop more than mean-only — all three resting on agents being pulled toward a
+consensus that fits nobody. The ordering half-holds; the mechanism does not.
+`centralized_ekf_walk` holds **one pooled parameter vector**, so its `e_agree` and
+`max_pairwise_distance` are exactly $0.00000$ — inter-agent disagreement cannot
+exist for it — **and it is the most damaged arm of the six**. Meanwhile
+`centralized_adamw` pools the same ten heterogeneous batches and pays $+0.0001$.
+So it is not pooling and it is not consensus. It is filtering.
+
+**What the calibration says, and what it does not.** The natural fallback — that
+the filter over-trusts — is *not* supported in absolute terms: it stays
+under-confident throughout (coverage 0.907–0.915 against nominal 0.90, variance
+ratio 0.92–0.96, never above 1). What is supported is narrower and sufficient:
+
+| spread − control | range | $t$ |
+|---|---|---|
+| coverage 90 | $-0.0065$ to $-0.0133$ | 3.8–12.1 |
+| variance ratio | $+0.053$ to $+0.075$ | 5.4–15.9 |
+| predictive NLL | $+0.018$ to $+0.037$ | 5.0–11.3 |
+
+Error rises, the intervals *tighten relative to it*, and the whole predictive score
+degrades — so this is not merely a worse mean. **The covariance does not respond to
+heterogeneity.** The filter carries one state and one $\boldsymbol R$ and has no way
+to represent "these ten batches came from different laws", so it keeps accumulating
+information at the same rate while its errors grow. A gradient method has no
+uncertainty model to mis-specify, which is why the AdamW arms are untouched.
+
+**What this does not measure.** One graph, one $N$. The disagreement metrics for
+the *diffusion* arms are equivocal — `max_pairwise_distance` resolves for local
+adapt ($+0.0285$, $t=3.1$) but `e_agree` does not ($t=1.5$–1.6) — so "the agents
+end up further apart" is suggested, not established, and in any case it is not the
+mechanism. `canonical` adds nothing: M8 is stationary, so both evalsets sit at the
+same law. And this is heterogeneity in $\tau$, **not drift in $\tau$**, which
+[[D110]] rejected and which remains unbuilt.
+
 ### ✅ D110. M8 designed: $\tau$ drift is rejected on measurement, and per-agent delays are the axis that survives
 
 Decision 22's third heterogeneity axis, asked for as "let's test $\tau$ as well".
