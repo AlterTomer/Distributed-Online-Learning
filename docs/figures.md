@@ -821,7 +821,15 @@ families are read on one axis without one family's floor flattering the other. T
 four series sit side by side at each $N$ so their seeds do not stack. Labels carry
 the paired $N=10\to30$ change and $p_\text{holm}$ within each family, the runner's
 two tables exactly; one-hop's also carries the one-sided test that its gap grows by
-less than 0.005. Read it as: local adapt rises in both families, one-hop is flat.
+less than 0.005.
+
+**The tiers are drawn** ([[D118]]). Solid lines are the filter family, the table D114
+named before the run — confirmatory. Dashed lines are the gradient family, added to
+the report afterwards — exploratory, and labelled so. One-hop's bound carries its own
+`[exploratory]` tag: the 0.005 margin predates the run, applying it here did not. So
+the title claims only what is confirmatory — the centralised filter pulls away from
+local adapt, and one-hop's growth is not detected; "the same in the gradient family"
+and "one-hop's growth is bounded" are read from the dashed lines and the tag.
 
 ### 42 — the checks
 
