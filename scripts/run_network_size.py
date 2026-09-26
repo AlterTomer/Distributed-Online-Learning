@@ -176,12 +176,26 @@ def tuned_baselines() -> dict[str, dict]:
     return {**BASELINES, PLAIN["name"]: {k: v for k, v in PLAIN.items() if k != "name"}}
 
 
+#: Rates a learner is swept at beyond the shared grid. The first --lr pass
+#: (2026-09-26) put `atc_plain`'s argmin on the grid's TOP edge at N=30 -- 0.2 beat
+#: 0.05 by 0.0064 (stationary) and 0.0098 (abrupt) on both seeds, so the curve was
+#: still falling there. Plain SGD has no momentum, so at a given lr its effective
+#: step is ~10x smaller than the momentum baselines'. Extended at every N, so each
+#: learner's grid stays uniform across the axis; an edge is reported, never accepted.
+EXTRA_RATES: dict[str, list[float]] = {PLAIN["name"]: [1.0, 0.5]}
+
+
+def grid_for(name: str) -> list[float]:
+    """This learner's own grid, largest rate first."""
+    return sorted({*LEARNING_RATES, *EXTRA_RATES.get(name, [])}, reverse=True)
+
+
 def selected_rates(size: str, condition: str, suffix: str = "") -> dict[str, float] | None:
     """Each baseline's own argmin in this cell, or None when it is unswept."""
     rates: dict[str, float] = {}
     for name in tuned_baselines():
         scored = [(settled(lr_run_name(size, condition, r, suffix), name), r)
-                  for r in LEARNING_RATES]
+                  for r in grid_for(name)]
         scored = [(v, r) for v, r in scored if v != float("inf")]
         if not scored:
             return None
@@ -368,14 +382,17 @@ def tune(args, train, test, suffix: str = "") -> int:
     """The gradient baselines only, per (N, condition); the filter carries X20's."""
     status = load_status()
     seeds = args.seeds if suffix else LR_SEEDS
+    rates = sorted({r for name in tuned_baselines() for r in grid_for(name)}, reverse=True)
     cells = [(size, n, p, condition, rate) for size, n, p in SIZES
-             for condition in CONDITIONS for rate in LEARNING_RATES]
+             for condition in CONDITIONS for rate in rates]
     print(f"N>10 lr{' SMOKE' if suffix else ''}: {len(SIZES)} sizes x {len(CONDITIONS)} "
-          f"conditions x {len(LEARNING_RATES)} rates at {len(seeds)} seed(s)\n", flush=True)
+          f"conditions x {len(rates)} rates at {len(seeds)} seed(s); a rate outside the "
+          "shared grid carries only the learners extended to it\n", flush=True)
     started = time.time()
     for index, (size, n, p, condition, rate) in enumerate(cells, start=1):
         name = lr_run_name(size, condition, rate, suffix)
-        entries = [{"name": b, "lr": rate, **o} for b, o in tuned_baselines().items()]
+        entries = [{"name": b, "lr": rate, **o} for b, o in tuned_baselines().items()
+                   if rate in grid_for(b)]
         note = run_one(config_for(args, name, n, p, condition, entries, seeds=seeds),
                        train, test, args.fresh)
         status[name] = note
@@ -390,7 +407,7 @@ def tune(args, train, test, suffix: str = "") -> int:
         for condition in CONDITIONS:
             rates = selected_rates(size, condition, suffix)
             if rates:
-                edge = [b for b in names if rates[b] in (LEARNING_RATES[0], LEARNING_RATES[-1])]
+                edge = [b for b in names if rates[b] in (grid_for(b)[0], grid_for(b)[-1])]
                 print(f"  {size + '/' + condition:>18}"
                       + "".join(f"{rates[b]:>26g}" for b in names)
                       + (f"   <- grid edge: {', '.join(edge)}" if edge else ""))
@@ -431,6 +448,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.lr:
         return tune(args, train, test, suffix)
 
+    # Every rate in every learner's grid must have been run -- a diverged cell counts,
+    # it is a measured bad rate. Without this, a grid extended after the first --lr
+    # pass would be skipped silently and the old argmin carried (D77's failure).
+    unswept = sorted({f"{lr_run_name(s, c, r, suffix)}" for s, _n, _p in SIZES
+                      for c in CONDITIONS for b in tuned_baselines() for r in grid_for(b)
+                      if not any((ROOT / "results" / lr_run_name(s, c, r, suffix) / m).exists()
+                                 for m in ("_complete", "_diverged"))})
+    if unswept:
+        print(f"  REFUSED: {len(unswept)} lr cell(s) never ran, e.g. {unswept[0]}.")
+        print(f"  Run --lr{' --smoke' if suffix else ''} first; completed cells are cached.")
+        return 1
     missing = [f"{s}/{c}" for s, _n, _p in SIZES for c in CONDITIONS
                if selected_rates(s, c, suffix) is None]
     if missing:
@@ -438,6 +466,14 @@ def main(argv: list[str] | None = None) -> int:
               "first.\nA rate carried across conditions is the mistake D77 exists to "
               "record --\nit put a baseline at chance and inverted a damage ordering.")
         return 1
+    edges = [f"{s}/{c}: {b} at {r:g}" for s, _n, _p in SIZES for c in CONDITIONS
+             for b, r in selected_rates(s, c, suffix).items()
+             if r in (grid_for(b)[0], grid_for(b)[-1])]
+    if edges:
+        print("  ⚠ selected rates on their grid's edge -- the optimum may lie outside it:")
+        for edge in edges:
+            print(f"    {edge}")
+        print("  Extend EXTRA_RATES and re-run --lr before trusting that baseline.\n")
     if not args.skip_probe and not probe_memory(args, train, test, plan):
         print("  REFUSED: the memory smoke says a planned cell does not fit.")
         return 1

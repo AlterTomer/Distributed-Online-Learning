@@ -5011,6 +5011,12 @@ the smallest of the four, and that is not robustness: it sits ≈0.026 RMSE abov
 every filter at every phase and barely reacts to a $\beta$ step at all. A method
 that does not respond to the shift cannot show a response to it.
 
+⚠ *Corrected 2026-09-26: "≈0.026 above every filter" is the gap to the **best**
+filter only. The smallest lead at any phase is **0.019**, over local adapt at the
+jump step (0.1686 against 0.1493); over the centralised filter it is ≈0.027. The
+conclusion stands -- even the weakest filter is 0.019 better -- and MG12 now carries
+the absolute level as panel (a), with the minimum computed from the data.*
+
 ⚠ $+0.0004$ is small, not absent. Per seed it is $+0.0005$, $+0.0002$, $+0.0000$,
 $+0.0007$, $+0.0006$ — about three standard errors from zero. The figure's bars
 are the seed *spread*, which is the wider quantity.

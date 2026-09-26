@@ -182,7 +182,26 @@ for the filter. That is still a defensible argument, but it must be found out he
 rather than from a reviewer.
 
 **Order.** Stationary first, at the main law. Add an abrupt-$\beta$ cell only if the
-stationary comparison separates the designs. Implementation touches the series data
+stationary comparison separates the designs.
+
+**M12b — the coupling contrast on the abrupt schedule** (added 2026-09-26). M12's
+three `independent` cells ran abrupt (a linear ramp cannot express independence), so
+nothing could be subtracted from them, and their only instrument, the additivity
+residual, was withdrawn for both bias pairs because it subtracts D108's withdrawn
+D(bias, abrupt) ([[D109]]). M12b adds `correlated` and `anti` for the three pairs on the
+same `recurring` schedule — six cells, each its pair's `independent` config with only
+the coupling overridden — so **independent − correlated** and **anti − correlated
+(abrupt)** become cell-minus-cell contrasts with no twin and no withdrawn term. The
+primary channel's jumps come from their own seed sub-stream under every coupling, and
+the report checks that path is identical per seed rather than assuming it.
+
+| item | cells | GPU | status |
+|---|---|---|---|
+| M12b | 3 pairs × {correlated, anti}, abrupt, 5 seeds | ~9 h (6/9 of M12's 13.75 h) | runner written 2026-09-26 (`scripts/run_m12b_abrupt_coupling.py`, mg branch); after N>10 |
+
+⚠ Abrupt has returned nulls five times at five seeds. These contrasts avoid the reason
+(each seed's twin wandering on its own excursion), so they should resolve better — a
+prediction, not a guarantee. Implementation touches the series data
 layer (a window stride), the model output (the last position only, i.e. the
 selection $\boldsymbol C_{u,t}=\boldsymbol e_q^{\mathsf T}$ of the Diff-EKF note), and
 $\boldsymbol R$ (one variance, the last position's).
