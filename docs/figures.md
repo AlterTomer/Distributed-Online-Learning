@@ -906,10 +906,15 @@ the condition that actually tests tracking.
 ### MG12 — the shift transient, phase-aligned
 
 Drawn from `m6cyc_abrupt`, the abrupt condition re-run at `eval_every = 5` so each
-25-step cycle carries five phase points. (a) RMSE minus that cycle's own mean
-against steps since the shift, averaged over the converged cycles with the seed
-spread as a band; (b) the wound — RMSE at the jump step minus twenty steps later —
-with bars over five seeds.
+25-step cycle carries five phase points. (a) Absolute RMSE on `current` against steps
+since the shift, over the same converged cycles, with an arrow marking the gradient
+baseline's smallest lead over any filter at any phase — computed, not typed; (b) RMSE
+minus that cycle's own mean, the seed spread as a band; (c) the wound — RMSE at the
+jump step minus twenty steps later — with bars over five seeds.
+
+Panel (a) was added 2026-09-26. Read alone, (b) and (c) invite the conclusion that
+the gradient baseline copes with an abrupt shift *better* than the filters, and (a)
+is what forbids it.
 
 Phase-0 values reproduce M6's abrupt column to 0.0003, so the finer recording
 changed the resolution and nothing else. The wound is ordered by how well informed
@@ -918,8 +923,11 @@ the filter is: local adapt $+0.0025$, one-hop $+0.0015$, centralised $+0.0008$.
 per-step `prequential` stream the instantaneous cost is confined to the jump step
 itself, and all three filters take the *same* hit there (D107). ATC AdamW's
 $+0.0004$ is the
-smallest of the four, and that is **not** robustness — it sits ≈0.026 RMSE above
-every filter at every phase and barely reacts to a $\beta$ step at all.
+smallest of the four, and that is **not** robustness — it sits at least 0.019 RMSE
+above every filter at every phase (0.019 over local adapt, ≈0.027 over the
+centralised filter) and barely reacts to a $\beta$ step at all. ⚠ This entry and
+D107 first said "≈0.026 above every filter"; that is the gap to the *best* filter
+only, and panel (a) now computes the true minimum.
 
 ⚠ Only converged cycles are counted, and the early ones are **dropped rather than
 detrended**. Subtracting a cycle's mean removes its level, not a slope within it;
@@ -928,9 +936,9 @@ prior, any decaying error curve manufactures a transient out of nothing. On cycl
 0–11 that artefact reaches 0.024–0.082 — thirty times the real effect — and it ranks
 the arms in reverse, because the slowest converger collects the largest fake wound.
 
-⚠ Every curve in (a) is centred on its own cycle mean, so a curve's height is its
-flatness, not its skill: the flattest belongs to the worst learner. MG5 carries the
-levels; panel (b) is the one that ranks anything. See D107.
+⚠ Every curve in (b) is centred on its own cycle mean, so a curve's height is its
+flatness, not its skill: the flattest belongs to the worst learner. Panel (a) carries
+the levels; panel (c) is the one that ranks the wound. See D107.
 
 ### MG13 — error against time, and the law underneath it
 
