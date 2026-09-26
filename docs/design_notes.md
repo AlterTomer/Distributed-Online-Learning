@@ -4106,7 +4106,86 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D118. Confirmatory and exploratory: which $p$ a claim may rest on
+
+Decided 2026-09-26. [[D113]] made every table a Holm family. That fixed the
+multiplicity but treated every row alike, and the rows are not alike: a few contrasts
+are what an experiment was **built** to answer, and the rest are breakdowns read
+afterwards. Holm across both costs the planned tests power they should not lose, and
+it lets a breakdown that happens to clear its table read as though it had been
+predicted. This note splits them.
+
+**Confirmatory.** A contrast is confirmatory when a design note or runner docstring
+**committed before the main pass started** names it, together with its direction or
+its margin. The commit timestamp is the record; nothing is confirmatory on anyone's
+recollection. Each one is reported with its own $p$ and 95% interval, with no
+correction against unrelated rows. When several confirmatory rows make **one** claim
+— "every learner", "at every $N$" — Holm runs across exactly those rows and no others.
+A claim of sameness needs an equivalence (TOST) or one-sided test whose margin was
+also fixed in advance; without one, a null is "not detected at five seeds".
+
+**Exploratory.** Everything else: per-learner and per-condition breakdowns, tables
+added to a report after the run, and any test or margin chosen after seeing the data.
+Reported with Holm per table — the table as the runner prints it, which is fixed in
+code before the run — together with the seed-sign count, and labelled exploratory in
+the paper.
+
+**The words follow the tier.**
+
+| status | may be called |
+|---|---|
+| confirmatory, $p<0.05$ (or its family's $p_\text{holm}<0.05$) | **established** |
+| exploratory, $p_\text{holm}<0.05$ | **found**, flagged as exploratory |
+| exploratory, raw $p<0.05$ but not Holm, seed signs consistent | **suggestive** |
+| any non-rejection without an equivalence test | **not detected at five seeds** — never "absent" |
+
+**No retroactive promotion.** A contrast cannot become confirmatory by being
+re-labelled after its results exist. It is promoted only by a new run that names it in
+advance, as M12b does for M12's `independent` cells. Past experiments are therefore
+not reclassified in bulk: each is classified when its section of the paper is
+written, confirmatory only where a note that predates its run names the contrast, and
+exploratory by default.
+
+**Classified now, where the record is clear:**
+
+- **P5.7** ([[D115]]). The runner docstring records the prediction before the run —
+  diffusion closes or reverses its gap to centralised under per-node drift — and
+  D113 (commit `01116fd`, 14:36 on 2026-09-25; the main pass ran 15:25–20:55) made it a test: the
+  change in the gap, per-node minus global, per seed. Confirmatory family: the
+  four diffusion variants' changes, Holm across the four — the one claim "diffusion closes its
+  gap". The gate (TOST at ±0.005 on `current_mean` against `current`) is a validity
+  check on the design, not a finding. The misfit/residual decomposition is
+  exploratory.
+- **N>10** ([[D117]]). D114 (commit `deb23e9`, 2026-09-25, before `--lr`) names two
+  questions: whether the diffusion filters' gap to the centralised filter grows with
+  $N$, and whether cooperation pays more with more agents. Those two tables, as the
+  runner printed them before the run, are confirmatory. **Established:** local
+  adapt's gap grows ($p_\text{holm}$ 0.023 stationary, 0.015 abrupt). **Not
+  detected:** one-hop's growth (0.414, 0.284). The gradient family's gap, one-hop's
+  lead as a change in $N$, the one-sided "grows by less than 0.005" test and the
+  mixing-gap regression were all added after the run and are **exploratory**. The
+  0.005 margin predates the run (D113) but choosing to apply it here did not.
+- **M12b** (mg branch, runner committed `b701627`, 2026-09-26, before the run; its
+  results do not exist as this is written). The docstring predicts, in advance:
+  β+gain `anti − correlated` negative, and β+gain `independent − correlated` between
+  that and zero. Confirmatory families, fixed here: **(1)** β+gain
+  `anti − correlated` across the six learners, Holm across those six; **(2)** β+gain
+  `independent − correlated` across the six, Holm across those six. Two-sided, as
+  every test here. The "above anti" half of "between" names no test the report prints
+  (it would be `independent − anti`), so it is exploratory. The bias pairs are
+  predicted null with no margin, so they can only be "not detected" — exploratory,
+  read from the report's 18-row Holm tables as printed.
+
+**The floor this cannot lift.** At five seeds a sign test cannot go below
+$2/2^5 = 0.0625$ two-sided: five seeds agreeing is not, alone, significant, and the
+$t$-test's extra reach comes from assuming normal differences. Where a claim matters
+and misses, more seeds buy more than any choice of correction.
+
 ### ✅ D117. N>10: local-adapt diffusion falls behind the centralised learner as $N$ grows; one-hop does not
+
+⚠ *Tiered by [[D118]]: "local adapt falls behind" is confirmatory and established; "one-hop
+does not" is confirmatory only as a non-detection — its bound (growth $<0.005$) and
+every follow-up below are exploratory, added after the run.*
 
 `scripts/run_network_size.py` ([[D114]]'s design), $N\in\{10,20,30\}$ × {stationary,
 abrupt} × five seeds, 22 cells (group A, the two mean-only filters in their own
@@ -4388,7 +4467,7 @@ history it conditions on, while no single classifier can serve every rotation.
    Untested.
 4. P5.7 ships without AdamW arms and joins the horizontal AdamW pass (`schedule.md`).
 
-### 🔄 D114. N>10 holds the mixing gap and the horizon, and lets only the network grow
+### ✅ D114. N>10 holds the mixing gap and the horizon, and lets only the network grow
 
 `scripts/run_network_size.py`, written 2026-09-25; decided with the user the same day.
 Schedule Track A tier 1, "$N>10$". Every result so far is at $N=10$, and the question
@@ -4503,7 +4582,7 @@ have shared P5.3's graphs; with conditioned draws it cannot, and $N=10$'s own re
 exist at $T=1500$ already. $N=10$ is still re-run here, because a settled error read
 over steps 400--500 is not comparable with one read over 1200--1500.
 
-🔄 Open until the run: the results.
+✅ Run 2026-09-26: the results are [[D117]], tiered by [[D118]].
 
 ### ✅ D113. What a quoted $t$ tests, and three things the reports got wrong about it
 
