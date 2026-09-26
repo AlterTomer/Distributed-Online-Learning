@@ -174,7 +174,7 @@ spans 3.69×) has nothing to exploit, and neither design carries a filter-specif
 advantage the other lacks.
 
 **What decides it is compute, and the resource note prices it.** With
-`Parameterized_Communication_Memory_Compute_Comparison.pdf` §4.6, stride 1 costs the
+`Diff_EKF_Resource_Complexity.pdf` §4.6 (the Diff-EKF folder), stride 1 costs the
 filter $31(2C_F+C_B)\approx124\,C_F$ against $2C_F+31\,C_B\approx64\,C_F$ in $C_J$
 (about 2×), **nothing extra in $C_W$**, and the gradient baselines about 31× in
 forward and backward passes. So if M2O-b matches or beats many-to-many on accuracy,
@@ -198,7 +198,7 @@ the report checks that path is identical per seed rather than assuming it.
 
 | item | cells | GPU | status |
 |---|---|---|---|
-| M12b | 3 pairs × {correlated, anti}, abrupt, 5 seeds | ~9 h (6/9 of M12's 13.75 h) | runner written 2026-09-26 (`scripts/run_m12b_abrupt_coupling.py`, mg branch); **next** — N>10 is done |
+| M12b | 3 pairs × {correlated, anti}, abrupt, 5 seeds | ~9 h (6/9 of M12's 13.75 h) | runner written 2026-09-26 (`scripts/run_m12b_abrupt_coupling.py`, mg branch); **running** since 2026-09-26; confirmatory families fixed in [[D118]] |
 
 ⚠ Abrupt has returned nulls five times at five seeds. These contrasts avoid the reason
 (each seed's twin wandering on its own excursion), so they should resolve better — a
