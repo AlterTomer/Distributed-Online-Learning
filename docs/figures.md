@@ -796,7 +796,45 @@ cheaper", and it is why the deck's payload tables were rewritten (D94, D99).
 conditions only, so the IID panel has no such measurement and none is invented; the
 loop skips the key where the data do not exist.
 
-## 16. Still to come
+## 16. The network-size figures (40–42)
+
+What N>10 taught ([[D117]]), drawn by `plot_network_size.py` (not in the repository,
+as above). Every statistic on them is computed from the parquets through the
+runner's own `per_seed`, `paired` and `holm`, so a figure cannot disagree with
+`run_network_size.py --report-only`.
+
+### 40 — settled error by N
+
+Every learner at $N=10,20,30$, both conditions; lines the seed mean, bands the seed
+range, direct labels at the right end. The centralised learners improve because they
+see $Nn$ samples a step; `local_only` is flat and printed as text, because it sits
+off scale above everything else. Full sharing is omitted — it ran at $N=10$ only and
+the footer carries its null. **A surprise** would be `local_only` moving with $N$:
+it sees the same $n$ at every size, so a slope there would mean the sizes differ in
+something other than $N$.
+
+### 41 — the decentralisation gap
+
+The headline. Each diffusion learner minus its **own** centralised learner — filters
+against the centralised EKF, gradient methods against centralised SGD — so the two
+families are read on one axis without one family's floor flattering the other. The
+four series sit side by side at each $N$ so their seeds do not stack. Labels carry
+the paired $N=10\to30$ change and $p_\text{holm}$ within each family, the runner's
+two tables exactly; one-hop's also carries the one-sided test that its gap grows by
+less than 0.005. Read it as: local adapt rises in both families, one-hop is flat.
+
+### 42 — the checks
+
+(a) The realised mixing gaps seed by seed, hollow where all three draws missed the
+band — seed 0 at $N=10$ (0.246) is the drift. (b) Local adapt's gap against the
+realised mixing gap, grey lines joining one seed across $N$: the points order by
+$N$, not by gap, and the fixed-effects coefficients are printed. (c) The share of
+the centralised batch one update sees, against the gap to the centralised EKF, with
+$N$ growing to the right: both shares fall, only local adapt's gap rises. That is
+the answer to "one-hop only scales because degree grows with $N$" — degree grows
+(2.92 / 4.34 / 4.59) and one-hop's share still halves.
+
+## 17. Still to come
 
 **F11** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is
 `diffusion_sgd_atc_plain`, not the momentum variant, because the filter sends one
