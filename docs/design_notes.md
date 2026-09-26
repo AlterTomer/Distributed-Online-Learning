@@ -4818,6 +4818,14 @@ single-channel damages cancel algebraically, so this isolates the interaction:
 | beta+bias | no — mean vs spread | $-0.0004$ to $+0.0007$ | 0.1–1.0, mixed |
 | gain+bias | no — mean vs spread | $-0.0003$ to $+0.0007$ | 0.1–1.3, mixed |
 
+⚠ *Corrected 2026-09-26 by [[D113]]: the $t$ column is uncorrected and unsigned. Under
+Holm across all 18 rows (three pairs × six learners, current set), β+gain is
+established for **four of six** learners ($p_\text{holm}$ 0.001–0.046); the
+centralised EKF (0.214) and diff-EKF one-hop (0.224) miss, though every seed is
+negative for every learner. Both bias pairs sit at $p_\text{holm}=1.000$. The
+qualitative claim — only the contending pair separates — stands; "every learner" does
+not.*
+
 **Drift channels interact when and only when they compete for the same observable
 quantity.** Not because there is more drift — every channel is one observation-noise
 $\sigma$, so all three pairs carry the same total magnitude. Not because the drifts
