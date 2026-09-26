@@ -4106,6 +4106,54 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D116. $e^\star$ has an error bar: the online filters match the offline reference, they do not beat it
+
+`scripts/run_m2_references.py --levels 0.22 --seeds 0 1 2 3 4` (mg branch), 4.4 min CPU,
+`results/m2_reference_seeds.json`. [[D106]]'s headline was that a single-pass online
+filter beats $e^\star$, the Transformer trained offline to convergence on the same
+15 000-block budget, and D106's own amendment made it causal: communication carries the
+filter *past* $e^\star$. Both rested on **one** training run of the reference, which D106
+itself flagged ("$e^\star$ carries no error bar at all"). `ReferenceSettings.seed` drives
+the initialisation, the minibatch order and every data draw, so five seeds are five
+independent references; seed 0 is M2's own run.
+
+| seed | 0 | 1 | 2 | 3 | 4 | mean | sd | se |
+|---|---|---|---|---|---|---|---|---|
+| $e^\star$, $\beta=0.22$ | 0.1433 | 0.1435 | 0.1471 | 0.1388 | 0.1431 | **0.1432** | 0.0029 | 0.0013 |
+
+**Seed 0 was typical, but the reference is noisier than D97 inferred.** Its run-to-run
+sd is 0.0029, twice the 0.0015 D97 read off the residual about its fitted line -- a
+residual averages over neighbouring levels, and so understates a single run's scatter.
+D97 listed several reference seeds as the alternative; it is the better instrument.
+
+**Against it, unpaired** -- the online runs and the references share no data, so
+Welch's test, 5 against 5:
+
+| arm | RMSE | minus $e^\star$ | Welch $t$ | $p$ |
+|---|---|---|---|---|
+| centralised EKF | 0.1391 | $-0.0041$ | $-2.27$ | 0.053 |
+| diffusion, one-hop | 0.1408 | $-0.0024$ | $-1.27$ | 0.24 |
+| diffusion, local adapt | 0.1442 | $+0.0011$ | $+0.61$ | 0.56 |
+| isolated filter (no communication) | 0.1480 | $+0.0048$ | $+2.60$ | 0.032 |
+
+None survives Holm across the four (the smallest, the isolated filter, becomes 0.128).
+
+**What is withdrawn.** "An online filter beats its offline reference" (D106's title
+and headline) and "communication carries the filter *past* $e^\star$" (D106's
+amendment, deck slide 33). The centralised filter misses 5% and one-hop is well inside
+the reference's own spread.
+
+**What stands, and is still strong.** A single online pass reaches the level of a
+Transformer trained offline to convergence on identical data -- the ordering against
+every gradient baseline is untouched (the best, centralised AdamW, is 0.1628). The
+non-communicating filter sits above that level and the communicating ones at it, so
+communication brings the filter **to** its offline reference. The paired decomposition
+behind that sentence -- communication $+0.0038$, adapt scope $+0.0035$, exactly
+additive (D106) -- is measured on shared seeds and is not affected by any of this.
+
+⚠ Only $\beta=0.22$ has seeds. The other twelve M2 levels, and every damage figure read
+against the fitted line, still carry one reference run each.
+
 ### ✅ D115. P5.7: heterogeneous drift costs every shared model the same, and diffusion does not personalise
 
 `scripts/run_p57_heterogeneous_drift.py`, four cells × five seeds, 15:25–20:55 on
@@ -5164,6 +5212,11 @@ blocks; M6's `current` set is 32 blocks per seed. The 0.0042 margin is about
 three standard errors of the filter's own seed spread (0.0028), and $e^\star$
 carries no error bar at all. The *ordering* is safe; the margin is not.
 
+⚠ *Corrected 2026-09-26 by [[D116]]: the ordering was not safe either. Five reference
+seeds put $e^\star$ at $0.1432\pm0.0029$ (sd); against them the centralised filter's
+$-0.0041$ is $p=0.053$ and one-hop's $-0.0024$ is $p=0.24$ (Welch). The filters
+**match** the offline reference; "beats" is withdrawn.*
+
 **Full covariance sharing buys nothing — on error and on uncertainty.** Paired
 per seed, six measurements:
 
@@ -5313,6 +5366,11 @@ is the raw batch rather than a belief.
 isolated filter scores 0.1480 — *above* $e^\star$'s 0.1433 — while the one-hop
 form scores 0.1408, below it. So it is the communication that carries the online
 filter past a Transformer trained to convergence, not the filtering alone.
+
+⚠ *Corrected 2026-09-26 by [[D116]]: "past" is withdrawn. Against five reference seeds
+the isolated filter sits above $e^\star$ ($+0.0048$, $p=0.032$ uncorrected) and the
+one-hop form at it ($p=0.24$), so communication brings the filter **to** its offline
+reference. The paired decomposition in this paragraph's table is unaffected.*
 
 Two framings survive together, and the second is the stronger. Cooperation buys
 the filter about 60–65% of what it buys a gradient method. But the filter's
