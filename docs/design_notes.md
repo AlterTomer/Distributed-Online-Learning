@@ -4106,6 +4106,139 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D115. P5.7: heterogeneous drift costs every shared model the same, and diffusion does not personalise
+
+`scripts/run_p57_heterogeneous_drift.py`, four cells × five seeds, 15:25–20:55 on
+2026-09-25 (≈5 h 30 min GPU), all `ok`, zero divergences; baselines re-tuned per scope
+by `--lr` first (D77). ER 0.3, $N=10$, linear drift. **Treatment**: `per_node` at 45°
+with spread 0.5, so agent $i$ rotates at multiplier $0.5+0.5\,i/9$ and the agents end
+between 22.5° and 45°. **Control**: `global` at 33.75°, the treatment's mean (D53).
+
+**The prediction, recorded before the run, is refuted.** Agents drifting *differently*
+was meant to be one of two rows where per-agent beliefs could beat a pooled one: a
+single shared state must average incompatible ones. Diffusion did not close its gap to
+the centralised filter. The change in the gap, per_node minus global, taken per seed as a
+difference of differences (D54), with Holm across the four rows (D113):
+
+| variant | gap, global | gap, per_node | change | 95% CI | $t$ | $p_{\text{holm}}$ |
+|---|---|---|---|---|---|---|
+| local adapt | $-0.0181$ | $-0.0200$ | $-0.0019$ | $[-0.0043, +0.0004]$ | $-2.26$ | 0.346 |
+| one-hop | $-0.0120$ | $-0.0124$ | $-0.0004$ | $[-0.0029, +0.0020]$ | $-0.47$ | 1.000 |
+| local, full | $-0.0168$ | $-0.0177$ | $-0.0009$ | $[-0.0029, +0.0012]$ | $-1.16$ | 0.927 |
+| one-hop, full | $-0.0123$ | $-0.0126$ | $-0.0003$ | $[-0.0037, +0.0032]$ | $-0.22$ | 1.000 |
+
+Gap = centralised minus diffusion, so negative means the centralised filter is ahead.
+All four changes are null, and all four point the wrong way.
+
+**The control is matched, and shown to be.** The gate reads `frozen_atc` at the *same*
+rotation in both cells (D113): at-mean minus global is $-0.0014$, 90% CI
+$[-0.0029, +0.0001]$, equivalent within $\pm0.005$ by TOST at $p=0.004$. The Jensen term
+the gate avoids -- agents at their own rotations minus the same models at the mean --
+is $+0.0035$ ($t=5.43$), reproducing X8's $+0.0035$ exactly.
+
+**Heterogeneity costs every shared model about the same, and nothing else.** Settled
+error on `current`, and per_node minus global paired per seed, Holm across the ten rows:
+
+| learner | global | per_node | cost | $t$ | $p_{\text{holm}}$ |
+|---|---|---|---|---|---|
+| centralised EKF | 0.0618 | 0.0701 | $+0.0083$ | 10.76 | 0.001 |
+| diff-EKF, one-hop | 0.0738 | 0.0826 | $+0.0088$ | 15.29 | 0.001 |
+| diff-EKF, one-hop full | 0.0741 | 0.0827 | $+0.0086$ | 9.96 | 0.001 |
+| diff-EKF, local full | 0.0787 | 0.0878 | $+0.0092$ | 16.58 | $<0.001$ |
+| diff-EKF, local | 0.0799 | 0.0902 | $+0.0103$ | 18.03 | $<0.001$ |
+| centralised SGD | 0.0900 | 0.0992 | $+0.0092$ | 66.36 | $<0.001$ |
+| ATC, momentum | 0.0917 | 0.1006 | $+0.0089$ | 26.94 | $<0.001$ |
+| `atc_plain` | 0.1023 | 0.1117 | $+0.0094$ | 23.05 | $<0.001$ |
+| `local_only` | 0.1548 | 0.1543 | $-0.0005$ | $-1.44$ | 0.224 |
+| `frozen_atc` (the gate's tell) | 0.3605 | 0.3626 | $+0.0021$ | 11.21 | 0.001 |
+
+`frozen_atc`'s cost here is read at each agent's own rotation, so it carries the Jensen
+term; at the same rotation it is the gate above, and null.
+
+**The ordering is unchanged**: the same nine learners rank identically under both
+scopes, the one-hop pair tied throughout. So the filter's lead over the gradient
+baselines survives heterogeneity intact, because every shared model pays the same.
+
+**Why: the whole cost is misfit.** Each per-node cell also logged `current_mean` --
+every agent scored at the network-mean rotation -- which splits the cost exactly into
+*misfit*, the agents at their own rotations minus the same models at the mean, and a
+*residual*, at-mean minus global, where only the models differ:
+
+| learner | total | misfit | residual |
+|---|---|---|---|
+| centralised EKF | $+0.0083$ | $+0.0078$ | $+0.0005$ (null) |
+| diff-EKF, local | $+0.0103$ | $+0.0100$ | $+0.0002$ (null) |
+| diff-EKF, one-hop | $+0.0088$ | $+0.0085$ | $+0.0003$ (null) |
+| centralised SGD | $+0.0092$ | $+0.0097$ | $-0.0005$ (null) |
+| ATC, momentum | $+0.0089$ | $+0.0094$ | $-0.0005$ (null) |
+| `local_only` | $-0.0005$ | $\mathbf{-0.0107}$ | $\mathbf{+0.0102}$ |
+
+For all eight shared models the misfit is the whole cost ($p_{\text{holm}}<0.001$ each)
+and every residual is null ($p_{\text{holm}}\ge0.77$ each), which also shows the
+mean-matching works: at the same rotation the per-node and global models are
+indistinguishable. `local_only` is the exception that confirms the reading -- it
+*personalises*, gaining 0.0107 at its own rotation and losing the same at the mean, so
+its net cost is exactly zero.
+
+**And diffusion never leaves consensus.** No disagreement metric was logged in these
+cells, so the proxy is the spread of per-agent error when every agent is scored at
+*one* rotation -- zero for one shared model, large for personalised ones. Across-agent
+standard deviation, mean over seeds:
+
+| | per_node (`current_mean`) | global (`current`) |
+|---|---|---|
+| centralised EKF, SGD | 0.0000 | 0.0000 |
+| the four diffusion filters | 0.0012–0.0018 | 0.0011–0.0014 |
+| ATC, momentum | 0.0013 | 0.0012 |
+| `local_only` | **0.0258** | 0.0067 |
+
+Under heterogeneous drift the diffusion agents stay as tightly together as when there
+is nothing to personalise. They inherit the shared model's misfit and keep less
+information than the pooled filter, which is the whole of the refuted prediction:
+beating a centralised state needs agents that *stop agreeing*, and the combine step as
+tuned under global drift does not let them. X8's cells show the same for SGD once
+decomposed the same way ([[D113]]); this is the filter's version of it.
+
+**Who pays: the agents at the edges, and the fastest most.** Per-agent settled error at
+each agent's own rotation, mean over seeds:
+
+| multiplier | 0.50 | 0.61 | 0.67 | 0.78 | 0.89 | 1.00 |
+|---|---|---|---|---|---|---|
+| centralised EKF | 0.0659 | 0.0598 | **0.0595** | 0.0643 | 0.0765 | 0.0975 |
+| diff-EKF, one-hop | 0.0799 | 0.0731 | **0.0705** | 0.0765 | 0.0884 | 0.1102 |
+| centralised SGD | 0.0917 | **0.0857** | 0.0858 | 0.0920 | 0.1078 | 0.1353 |
+| `local_only` | 0.1433 | 0.1518 | 0.1476 | 0.1537 | 0.1588 | 0.1706 |
+
+Every shared model is U-shaped with its minimum *below* the mean multiplier of 0.75, and
+worst at 1.00. The asymmetry is the task's, not the method's: rotated digits get harder
+with angle, which is why even `local_only`, fitted to its own rotation, climbs 0.143 to
+0.171 across the range. A shared model compromises toward the easier, slower agents.
+
+**Calibration is not where the filter pays here, unlike M8.** Per_node minus global at
+each agent's own rotation, Holm across rows: ECE and overconfidence are null for every
+filter except the local-adapt diff-EKF's ECE ($+0.0042$, $p_{\text{holm}}=0.035$), and
+NLL rises $+0.025$ to $+0.031$ uniformly across all eight shared models, tracking their
+error. [[D111]] found the opposite shape on Mackey--Glass -- per-agent delays cost the
+filters *only*, through a covariance that failed to expand, while every gradient method
+paid nothing. Two heterogeneity experiments, two mechanisms. ❓ A hypothesis, not a
+measurement: one Transformer can serve every delay, since the delay is visible in the
+history it conditions on, while no single classifier can serve every rotation.
+
+**What is carried forward.**
+
+1. For the paper, P5.7 is a clean negative with its mechanism measured: heterogeneous
+   drift costs any shared model about 0.009 here, entirely as misfit, and leaves every
+   ordering intact.
+2. The row is not closed as a *possibility*. Personalisation needs a combine that lets
+   agents disagree -- a smaller neighbour weight, fewer combine rounds, or a multitask or
+   clustered diffusion -- and the filter here carries settings chosen under global
+   drift, where consensus is exactly right. That is a new experiment, for the
+   supervisor.
+3. ⚠ Spread 0.5 is not the top of the axis (D21 caps it below 1). If misfit grows faster
+   than diffusion's information deficit, the ordering could change at a larger spread.
+   Untested.
+4. P5.7 ships without AdamW arms and joins the horizontal AdamW pass (`schedule.md`).
+
 ### 🔄 D114. N>10 holds the mixing gap and the horizon, and lets only the network grow
 
 `scripts/run_network_size.py`, written 2026-09-25; decided with the user the same day.
