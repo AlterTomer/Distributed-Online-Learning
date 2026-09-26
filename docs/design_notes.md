@@ -4446,6 +4446,21 @@ information directions a step, so it can span $p=2908$ in about 73 steps and set
 by step 400 is plausible, but it is not yet shown; the abrupt condition holds 20
 jumps rather than 60.
 
+**Why abrupt and not linear** (added 2026-09-26, after [[D117]]). The choice was
+not about which drift damages MNIST more; the short horizon made it. X17's
+recurring abrupt schedule — 15° every 25 steps — is defined **per step**, so at
+$T=500$ it is the same condition as every earlier abrupt cell (X17, X20, X25), holding
+20 jumps instead of 60, and its results stay comparable with the rest of the
+benchmark. `linear` is defined by its **total**: it reaches `total_degrees` at the
+horizon, at rate `total_degrees / horizon`. Shortening $T$ to a third forces a choice
+with no good side — hold the total and the rate triples (a harsher condition than any
+linear cell measured), or hold the rate and it rotates a third as far (a milder one);
+and the settled window, the last 20%, lands at a different point on the ramp either
+way. Stationary and abrupt are the pair along which **only $N$ changes**. A linear arm
+at the earlier cells' degrees-per-step rate is possible (≈3.5 h plus its own `--lr`,
+from D117's 429 min for two conditions) and is left to the supervisor, as are label
+skew and non-IID partitions at larger $N$ — worth running only if the calendar allows.
+
 **A memory smoke, measured rather than extrapolated.** `--probe-only` runs every
 planned (size, group) cell for 21 steps at one seed, reads the CUDA allocator's peak,
 adds the evaluation-set cache the full horizon will grow and the probe did not
