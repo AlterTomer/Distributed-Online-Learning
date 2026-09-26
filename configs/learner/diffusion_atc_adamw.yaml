@@ -1,0 +1,9 @@
+# Diffusion ATC with AdamW (decision 19). Both moments are mixed alongside the
+# parameters -- unmixed adaptive state diverges across agents (WORKPLAN 3.4) -- so
+# each link carries 3p per step, the most expensive gradient baseline. The rate is
+# a placeholder until M3.
+name: diffusion_atc_adamw
+optimizer: adamw
+lr: 0.01
+mix_optimizer_state: all
+adapt_scope: local

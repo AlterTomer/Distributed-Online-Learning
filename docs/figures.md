@@ -799,7 +799,11 @@ loop skips the key where the data do not exist.
 ## 16. The network-size figures (40–42)
 
 What N>10 taught ([[D117]]), drawn by `plot_network_size.py` (not in the repository,
-as above). Every statistic on them is computed from the parquets through the
+as above). **AdamW** ([[D119]]): 40 and 41 draw the AdamW arms wherever their cells
+exist and skip them where they do not — centralised and ATC AdamW as lines in 40,
+`local_adamw` beside `local_only` in the no-cooperation line, the AdamW family as a
+solid (confirmatory) series in 41, and one-hop against ATC AdamW in 40's footer once
+the merge gate holds. Every statistic on them is computed from the parquets through the
 runner's own `per_seed`, `paired` and `holm`, so a figure cannot disagree with
 `run_network_size.py --report-only`.
 

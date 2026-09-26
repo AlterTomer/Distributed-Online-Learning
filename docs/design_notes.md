@@ -4106,6 +4106,62 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### 🔄 D119. The AdamW pass starts with N>10: own grid, own cell, a gate, two questions named in advance
+
+Decided 2026-09-26: every figure the paper carries must include the AdamW baselines,
+so every runner behind one must carry them (schedule.md, "The AdamW pass"). N>10 is
+first. Written and smoked before any AdamW cell ran; this note and the runner
+docstring are the D118 record.
+
+**The arms are Mackey–Glass's, not new ones.** `centralized_adamw`,
+`diffusion_atc_adamw` and `local_adamw`, ported to main from mg-task unchanged: the
+registry lines, and `configs/learner/*.yaml` carrying `optimizer: adamw` and
+`mix_optimizer_state: all`. So ATC AdamW mixes both moments and sends $3p$ per link
+(8 724 scalars at $p=2908$), and the two tasks compare against baselines that share
+a definition, not just a name. `weight_decay` is 0 in `optim_state` on both
+branches, so this "AdamW" is Adam; $\beta_1$ comes from `momentum`, 0.9. The port
+also fixed a ledger bug the names exposed: `cost_for` matched the two literal names
+`local_only` and `centralized_sgd`, so the pooled and local AdamW arms would have
+been billed $3p$ per link. It now routes by the registry's `POOLING` and `DIFFUSING`
+sets (`tests/test_adamw_learners.py`).
+
+**Own grid, own names, own cell.** AdamW is close to scale-invariant, so it is tuned
+on `ADAMW_RATES` = 3e-2 … 1e-4 in half-decade steps, per (N, condition), under
+`nsz_lr_adamw_*`. Separate names are required, not tidy: the SGD grid holds 0.01
+too, and that SGD cell is finished and cached, so a shared name would silently
+return a run without AdamW in it (D101). The arms run in their own cell,
+`nsz_{size}_{condition}_adamw`, at the same seeds as every other cell of that
+(size, condition). `--lr` and the main pass are cumulative, so the existing
+commands run only the new cells.
+
+**The merge gate.** The AdamW cell also carries `centralized_sgd` at the rate group
+A recorded it with, and the report compares the two seed by seed. It must agree to
+1e-9, which is bitwise on the same hardware (D101). If not, something is
+learner-dependent: the within-cell AdamW rows still stand, but anything pairing the
+AdamW cell with another is withheld. The CPU smoke reproduced at 0.0e+00 in all six
+(size, condition) cells.
+
+**Named before the AdamW cells ran — confirmatory under [[D118]]:**
+
+1. **Does ATC AdamW fall behind centralised AdamW as $N$ grows?** The change in
+   `diffusion_atc_adamw − centralized_adamw` from $N=10$ to 30, per seed, per
+   condition. Predicted: it grows, as ATC's and local-adapt diff-EKF's did
+   ([[D117]]), since ATC AdamW also adapts on its own batch and then combines.
+2. **Does one-hop beat ATC AdamW at every $N$?** `one-hop − diffusion_atc_adamw` per
+   $N$, Holm across the three, per condition, at 3 696 against 8 724 scalars per link.
+   Predicted: negative at every $N$. Cross-cell, so reported only once the gate holds.
+
+Everything else the AdamW rows print — the cooperation change against
+`local_adamw`, the settled levels — is exploratory.
+
+**Figures.** `plot_network_size.py` draws the AdamW arms wherever their cells exist
+and skips them where they do not: 40 adds centralised and ATC AdamW and prints
+`local_adamw` with `local_only` as the no-cooperation floors; 41 adds the AdamW
+family as a solid, confirmatory series; 40's footer carries question 2 once the gate
+holds.
+
+🔄 Open until the run: `--lr`, then the main pass.
+
 ### ✅ D118. Confirmatory and exploratory: which $p$ a claim may rest on
 
 Decided 2026-09-26. [[D113]] made every table a Holm family. That fixed the

@@ -1,0 +1,7 @@
+# Each agent alone, with AdamW: the no-cooperation floor for the AdamW arm
+# (decision 19). Never communicates, so the mixing policy is inert; "all" only
+# satisfies the rule that an adaptive optimiser must name one. Rate set by M3.
+name: local_adamw
+optimizer: adamw
+lr: 0.01
+mix_optimizer_state: all

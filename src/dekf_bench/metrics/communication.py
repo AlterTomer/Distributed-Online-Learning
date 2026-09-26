@@ -190,17 +190,25 @@ def local_only_cost(learner: str) -> CommunicationCost:
 def cost_for(
     learner_config: Any, num_params: int, n_edges: int, **kwargs: Any
 ) -> CommunicationCost:
-    """The cost of whichever learner a config names."""
+    """The cost of whichever learner a config names.
+
+    Routed by the registry's own sets rather than by name, so a new pooled or
+    non-communicating learner is costed correctly without an edit here. Matching
+    the two literal names sent `centralized_adamw` and `local_adamw` to the
+    diffusion branch, billing each 3p per link for messages it never sends.
+    """
+    from dekf_bench.learners.registry import DIFFUSING, POOLING  # noqa: PLC0415
+
     name = learner_config.name
-    if name == "local_only":
-        return local_only_cost(name)
-    if name == "centralized_sgd":
+    if name in POOLING:
         return centralized_cost(
             name,
             n_nodes=kwargs["n_nodes"],
             samples_per_step=kwargs["samples_per_step"],
             input_dim=kwargs["input_dim"],
         )
+    if name not in DIFFUSING:
+        return local_only_cost(name)
     return diffusion_cost(
         learner=name,
         num_params=num_params,

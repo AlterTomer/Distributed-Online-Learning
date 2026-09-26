@@ -7,7 +7,9 @@ r"""N>10 -- network size at fixed connectivity: does decentralisation cost more 
     python scripts/run_network_size.py --report-only
     python scripts/run_network_size.py --lr --smoke       # then --smoke, to prove the path
 
-`--lr` must run first and the main pass refuses without it (D77).
+`--lr` must run first and the main pass refuses without it (D77). Both commands are
+cumulative: finished cells are cached by name, so after the AdamW pass was added
+(2026-09-26) the same `--lr` then main pass run only the new AdamW cells.
 
 ## The question
 
@@ -77,6 +79,33 @@ driver can spill allocations past the card into shared system memory instead of
 raising -- which is how the first probe *reserved* 8.64 GiB on an 8 GiB card and
 completed. Slow, silent, and not a fit. The verdict therefore rests on the budget
 comparison; a caught error is only the extreme case of it.
+
+## The AdamW pass (added 2026-09-26, D119)
+
+Every figure the paper carries must include the AdamW baselines, and N>10 is the
+first experiment to get them (schedule.md, "The AdamW pass"). The three arms are
+Mackey--Glass's -- `centralized_adamw`, `diffusion_atc_adamw` (both moments mixed,
+3p per link), `local_adamw` -- defined in `configs/learner/`. They are tuned per
+(N, condition) on their own grid, `ADAMW_RATES`, under their own `nsz_lr_adamw_*`
+names, and run in their own cell, `nsz_{size}_{condition}_adamw`, at the same seeds
+as every other cell of that size and condition.
+
+**The merge gate.** That cell also carries `centralized_sgd` at the rate group A
+recorded it with. The report compares its settled error with group A's, seed by
+seed; it must agree to `REPRODUCTION_TOLERANCE` -- bitwise, on the same hardware --
+or the AdamW cell cannot be paired with the rest, and the cross-cell comparison
+below is withheld.
+
+**Named before the AdamW cells run** (confirmatory under D118; everything else the
+AdamW rows print is exploratory):
+
+1. **Does ATC AdamW fall behind centralised AdamW as N grows?** The change in
+   `diffusion_atc_adamw - centralized_adamw` from N=10 to N=30, per seed, per
+   condition. Predicted: it grows, as ATC's and local-adapt diff-EKF's did (D117) --
+   ATC AdamW also adapts on its own batch and then combines.
+2. **Does one-hop beat ATC AdamW at every N?** `one-hop - diffusion_atc_adamw`
+   per N, Holm across the three, per condition; one-hop sends 3 696 scalars per link
+   against ATC AdamW's 8 724. Predicted: negative at every N.
 """
 
 from __future__ import annotations
@@ -145,6 +174,27 @@ GROUP_A = list(MEAN_ONLY.values())  # the mean-only filters, for the report's ro
 #: Where full sharing runs without --full-sharing: the size known to fit.
 FULL_SHARING_BY_DEFAULT = {"n10"}
 
+#: The AdamW pass (schedule.md; D119): the three arms Mackey--Glass carries, defined
+#: once in configs/learner/*.yaml -- optimizer "adamw", both moments mixed -- so an
+#: entry needs only a name and a rate. They get their own cell, never a place in a
+#: finished one: a cell is cached by name, and asking a finished cell for more
+#: learners silently returns the old answer (D101).
+ADAMW = ["centralized_adamw", "diffusion_atc_adamw", "local_adamw"]
+ADAMW_GROUP = "adamw"
+#: AdamW is close to scale-invariant, so it gets its own grid rather than rows in
+#: the SGD one: half-decade steps over the 1e-4 to 1e-2 the schedule expects, one
+#: step past the top because Mackey--Glass's AdamW chose the top of its first grid
+#: every time (M0). An argmin on either edge is reported, never accepted.
+ADAMW_RATES = [3e-2, 1e-2, 3e-3, 1e-3, 3e-4, 1e-4]
+#: The merge gate ("Gate the merge", schedule.md): an arm group A already recorded,
+#: re-run inside the AdamW cell at its recorded rate. If it does not reproduce per
+#: seed, something is learner-dependent and the AdamW cell cannot be paired with
+#: the others.
+REPRODUCTION_ARM = "centralized_sgd"
+#: Bitwise on the same hardware and software (D101 reproduced to 0.0e+00); any
+#: difference above rounding in the settled mean is a split, not noise.
+REPRODUCTION_TOLERANCE = 1e-9
+
 #: The memory smoke: two evaluations in, so the evaluation path is inside the peak.
 PROBE_HORIZON = 2 * EVAL_EVERY + 1
 #: Mid-grid, so no baseline diverges before the peak is reached.
@@ -156,8 +206,17 @@ DATA_ROOT = ROOT / "data"
 STATUS = ROOT / "results" / "nsz_status.json"
 
 
-def lr_run_name(size: str, condition: str, rate: float, suffix: str = "") -> str:
-    return f"nsz_lr_{size}_{condition}_lr{rate:g}".replace(".", "p") + suffix
+def family_of(name: str) -> str:
+    """Which rate sweep a learner belongs to: its own grid and its own run names."""
+    return "adamw" if name in ADAMW else "sgd"
+
+
+def lr_run_name(size: str, condition: str, rate: float, suffix: str = "",
+                family: str = "sgd") -> str:
+    # The AdamW sweep has its own names: its grid shares 0.01 with the SGD one, and
+    # the SGD cell of that name is finished and cached without AdamW in it.
+    stem = "nsz_lr_adamw" if family == "adamw" else "nsz_lr"
+    return f"{stem}_{size}_{condition}_lr{rate:g}".replace(".", "p") + suffix
 
 
 def cell_name(size: str, condition: str, group: str, suffix: str = "") -> str:
@@ -168,12 +227,17 @@ def groups_for(size: str, full_sharing: bool) -> list[str]:
     groups = ["a", *MEAN_ONLY]
     if full_sharing or size in FULL_SHARING_BY_DEFAULT:
         groups += list(FULL_SHARING)
-    return groups
+    return [*groups, ADAMW_GROUP]
 
 
 def tuned_baselines() -> dict[str, dict]:
     """The three X25 baselines plus `atc_plain`, all re-tuned per (N, condition)."""
     return {**BASELINES, PLAIN["name"]: {k: v for k, v in PLAIN.items() if k != "name"}}
+
+
+def tuned_learners() -> dict[str, dict]:
+    """Every learner with a rate sweep: the SGD baselines, then the AdamW arms."""
+    return {**tuned_baselines(), **{name: {} for name in ADAMW}}
 
 
 #: Rates a learner is swept at beyond the shared grid. The first --lr pass
@@ -187,14 +251,16 @@ EXTRA_RATES: dict[str, list[float]] = {PLAIN["name"]: [1.0, 0.5]}
 
 def grid_for(name: str) -> list[float]:
     """This learner's own grid, largest rate first."""
-    return sorted({*LEARNING_RATES, *EXTRA_RATES.get(name, [])}, reverse=True)
+    base = ADAMW_RATES if name in ADAMW else LEARNING_RATES
+    return sorted({*base, *EXTRA_RATES.get(name, [])}, reverse=True)
 
 
 def selected_rates(size: str, condition: str, suffix: str = "") -> dict[str, float] | None:
-    """Each baseline's own argmin in this cell, or None when it is unswept."""
+    """Each tuned learner's own argmin in this cell, or None when any is unswept."""
     rates: dict[str, float] = {}
-    for name in tuned_baselines():
-        scored = [(settled(lr_run_name(size, condition, r, suffix), name), r)
+    for name in tuned_learners():
+        family = family_of(name)
+        scored = [(settled(lr_run_name(size, condition, r, suffix, family), name), r)
                   for r in grid_for(name)]
         scored = [(v, r) for v, r in scored if v != float("inf")]
         if not scored:
@@ -225,6 +291,12 @@ def config_for(args, name: str, n: int, p: float, condition: str, entries: list[
 
 
 def entries_for(group: str, rates: dict[str, float]) -> list[dict]:
+    if group == ADAMW_GROUP:
+        learners = [{"name": name, "lr": rates[name]} for name in ADAMW]
+        # The reproduction arm, at the rate group A recorded it with.
+        learners.append({"name": REPRODUCTION_ARM, "lr": rates[REPRODUCTION_ARM],
+                         **BASELINES[REPRODUCTION_ARM]})
+        return learners
     if group in FULL_SHARING:
         return [{"name": FULL_SHARING[group], **FILTER, "combine_exponent": 1.0}]
     if group in MEAN_ONLY:
@@ -248,7 +320,7 @@ def preflight(args, suffix: str = "") -> bool:
     from dekf_bench.env.graph import build_graphs
     from dekf_bench.runner.seeding import Seeds
 
-    rates = {name: PROBE_RATE for name in tuned_baselines()}
+    rates = {name: PROBE_RATE for name in tuned_learners()}
     print("  pre-flight")
     print(f"    n = {SAMPLES_PER_AGENT}, T = {args.horizon}, eval_every {EVAL_EVERY}; "
           f"mixing gap target {TARGET_MIXING_GAP}")
@@ -286,7 +358,7 @@ def _cache_allowance(args, test, condition: str, n: int, p: float) -> int:
 
     def cached(horizon: int) -> int:
         config = config_for(args, "nsz_preflight", n, p, condition,
-                            entries_for("a", {k: PROBE_RATE for k in tuned_baselines()}),
+                            entries_for("a", {k: PROBE_RATE for k in tuned_learners()}),
                             horizon=horizon)
         side = config.model.input_size
         per_set = len(test) * side * side * (8 if config.run.dtype == "float64" else 4)
@@ -322,7 +394,8 @@ def probe_memory(args, train, test, plan: list[tuple]) -> bool:
     print(f"\n    {'cell':<24}{'learners':>9}{'peak':>9}{'+cache':>9}{'needs':>9}"
           f"{'budget':>9}   verdict")
 
-    rates = {name: PROBE_RATE for name in tuned_baselines()}
+    # 0.01 sits in both grids, so no arm diverges before the peak is reached.
+    rates = {name: PROBE_RATE for name in tuned_learners()}
     # One probe per (size, group): the condition changes the drift, not what is
     # resident, and the abrupt drift is the one that grows the evaluation cache.
     pairs = sorted({(size, n, p, group) for size, n, p, _c, group in plan},
@@ -379,20 +452,27 @@ def probe_memory(args, train, test, plan: list[tuple]) -> bool:
 
 
 def tune(args, train, test, suffix: str = "") -> int:
-    """The gradient baselines only, per (N, condition); the filter carries X20's."""
+    """The gradient baselines only, per (N, condition); the filter carries X20's.
+
+    Two families, each on its own grid and under its own run names: the SGD
+    baselines, whose cells are finished and cached, and the AdamW arms.
+    """
     status = load_status()
     seeds = args.seeds if suffix else LR_SEEDS
-    rates = sorted({r for name in tuned_baselines() for r in grid_for(name)}, reverse=True)
-    cells = [(size, n, p, condition, rate) for size, n, p in SIZES
-             for condition in CONDITIONS for rate in rates]
+    grids = {family: sorted({r for name in tuned_learners() if family_of(name) == family
+                             for r in grid_for(name)}, reverse=True)
+             for family in ("sgd", "adamw")}
+    cells = [(size, n, p, condition, family, rate) for size, n, p in SIZES
+             for condition in CONDITIONS for family, grid in grids.items() for rate in grid]
     print(f"N>10 lr{' SMOKE' if suffix else ''}: {len(SIZES)} sizes x {len(CONDITIONS)} "
-          f"conditions x {len(rates)} rates at {len(seeds)} seed(s); a rate outside the "
-          "shared grid carries only the learners extended to it\n", flush=True)
+          f"conditions x ({len(grids['sgd'])} SGD + {len(grids['adamw'])} AdamW) rates at "
+          f"{len(seeds)} seed(s); a rate outside the shared grid carries only the learners "
+          "extended to it\n", flush=True)
     started = time.time()
-    for index, (size, n, p, condition, rate) in enumerate(cells, start=1):
-        name = lr_run_name(size, condition, rate, suffix)
-        entries = [{"name": b, "lr": rate, **o} for b, o in tuned_baselines().items()
-                   if rate in grid_for(b)]
+    for index, (size, n, p, condition, family, rate) in enumerate(cells, start=1):
+        name = lr_run_name(size, condition, rate, suffix, family)
+        entries = [{"name": b, "lr": rate, **o} for b, o in tuned_learners().items()
+                   if family_of(b) == family and rate in grid_for(b)]
         note = run_one(config_for(args, name, n, p, condition, entries, seeds=seeds),
                        train, test, args.fresh)
         status[name] = note
@@ -401,7 +481,7 @@ def tune(args, train, test, suffix: str = "") -> int:
               f"{(time.time() - started) / 60:.0f} min", flush=True)
 
     print(f"\nlr complete in {(time.time() - started) / 60:.1f} min\n")
-    names = list(tuned_baselines())
+    names = list(tuned_learners())
     print(f"  {'cell':>18}" + "".join(f"{b:>26}" for b in names))
     for size, _n, _p in SIZES:
         for condition in CONDITIONS:
@@ -451,10 +531,10 @@ def main(argv: list[str] | None = None) -> int:
     # Every rate in every learner's grid must have been run -- a diverged cell counts,
     # it is a measured bad rate. Without this, a grid extended after the first --lr
     # pass would be skipped silently and the old argmin carried (D77's failure).
-    unswept = sorted({f"{lr_run_name(s, c, r, suffix)}" for s, _n, _p in SIZES
-                      for c in CONDITIONS for b in tuned_baselines() for r in grid_for(b)
-                      if not any((ROOT / "results" / lr_run_name(s, c, r, suffix) / m).exists()
-                                 for m in ("_complete", "_diverged"))})
+    unswept = sorted({lr_run_name(s, c, r, suffix, family_of(b)) for s, _n, _p in SIZES
+                      for c in CONDITIONS for b in tuned_learners() for r in grid_for(b)
+                      if not any((ROOT / "results" / lr_run_name(s, c, r, suffix, family_of(b))
+                                  / m).exists() for m in ("_complete", "_diverged"))})
     if unswept:
         print(f"  REFUSED: {len(unswept)} lr cell(s) never ran, e.g. {unswept[0]}.")
         print(f"  Run --lr{' --smoke' if suffix else ''} first; completed cells are cached.")
@@ -506,7 +586,11 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _cell_of(learner: str, size: str, condition: str, suffix: str = "") -> str:
-    """Each diffusion filter has its own cell; everything else is in group A."""
+    """Each diffusion filter has its own cell, the AdamW arms share one, and
+    everything else is in group A -- including the canonical `centralized_sgd`,
+    whose copy in the AdamW cell is the merge gate's, not a result."""
+    if learner in ADAMW:
+        return cell_name(size, condition, ADAMW_GROUP, suffix)
     for group, name in SOLO.items():
         if learner == name:
             return cell_name(size, condition, group, suffix)
@@ -536,11 +620,37 @@ def _table(title: str, lines: list[str], rows: list[tuple[str, object]],
             print(f"    {label:<{width}}{stat_columns(result, adjusted[label])}")
 
 
+def reproduction(suffix: str = "") -> list[tuple[str, str, int, float | None]]:
+    """The merge gate, per (size, condition): seeds compared and the largest gap.
+
+    `REPRODUCTION_ARM`'s settled error in the AdamW cell against group A's, seed by
+    seed. None when either cell is missing, so an unrun cell is never a pass.
+    """
+    rows = []
+    for size, _n, _p in SIZES:
+        for condition in CONDITIONS:
+            recorded = per_seed(cell_name(size, condition, "a", suffix), REPRODUCTION_ARM)
+            rerun = per_seed(cell_name(size, condition, ADAMW_GROUP, suffix), REPRODUCTION_ARM)
+            shared = sorted(set(recorded) & set(rerun))
+            worst = max((abs(recorded[s] - rerun[s]) for s in shared), default=None)
+            rows.append((size, condition, len(shared), worst))
+    return rows
+
+
+def adamw_poolable(suffix: str = "") -> bool:
+    """True when every AdamW cell exists and reproduces its SGD arm."""
+    return all(worst is not None and worst <= REPRODUCTION_TOLERANCE
+               for _s, _c, _k, worst in reproduction(suffix))
+
+
 def report(suffix: str = "") -> None:
     """Settled error by N, then the four contrasts the sweep exists for.
 
-    Plus two follow-ups added after the main pass (D117): the gradient family's own
+    Plus two follow-ups added after the main pass (D117): the SGD family's own
     decentralisation gap, and one-hop's lead over local adapt as a change in N.
+    And the AdamW pass (D119): its merge gate, then its own gap, its own
+    cooperation, and one-hop against it -- the last only once the gate holds,
+    because it pairs rows from different cells.
     """
     seeds_of = lambda learner, size, condition: per_seed(  # noqa: E731
         _cell_of(learner, size, condition, suffix), learner)
@@ -548,7 +658,7 @@ def report(suffix: str = "") -> None:
     sizes = [size for size, _n, _p in SIZES]
     central = "centralized_ekf_gamma"
     variants = [*GROUP_A, *FULL_SHARING.values()]
-    every = [central, *variants, *tuned_baselines()]
+    every = [central, *variants, *tuned_baselines(), *ADAMW]
     if suffix:
         print("  SMOKE: 20 rounds at one seed. These numbers mean nothing; the point")
         print("  is that every code path below ran.\n")
@@ -557,6 +667,23 @@ def report(suffix: str = "") -> None:
         print("  realised mixing gap per seed (target "
               f"{TARGET_MIXING_GAP}): "
               + "; ".join(f"{s} {sum(g) / len(g):.3f}" for s, g in graphs.items() if g))
+
+    gate = reproduction(suffix)
+    ran = [row for row in gate if row[3] is not None]
+    poolable = adamw_poolable(suffix)
+    print(f"\n  AdamW merge gate: {REPRODUCTION_ARM} re-run in each AdamW cell against "
+          f"group A, per seed (tolerance {REPRODUCTION_TOLERANCE:g})")
+    if not ran:
+        print("    no AdamW cell has run yet: the AdamW rows below print as missing")
+    for size, condition, k, worst in gate:
+        verdict = ("not run" if worst is None else
+                   "reproduces" if worst <= REPRODUCTION_TOLERANCE else "DOES NOT REPRODUCE")
+        shown = f"{worst:.1e}" if worst is not None else "-"
+        print(f"    {size}/{condition:<11} {k} seed(s)  max |diff| {shown:>8}   {verdict}")
+    if ran and not poolable:
+        print("    ⚠ Something is learner-dependent, so the AdamW cells cannot be paired with")
+        print("    the others. Within-cell AdamW rows stand; one-hop against ATC AdamW is")
+        print("    withheld (schedule.md, 'Gate the merge').")
 
     for condition in CONDITIONS:
         print(f"\n  ===== {condition} =====\n")
@@ -595,15 +722,24 @@ def report(suffix: str = "") -> None:
                change_rows(central, variants), change_header)
         # The same question for the gradient family, against its own centralised
         # learner: whether a growing gap is the filter's or diffusion's (D117).
-        _table("does decentralisation cost more as N grows? -- gradient family",
+        _table("does decentralisation cost more as N grows? -- SGD family",
                ["gap = diffusion SGD minus centralised SGD, per seed; positive = diffusion worse."],
                change_rows("centralized_sgd", ["diffusion_sgd_atc", PLAIN["name"]]),
                change_header)
+        # D119, confirmatory: named before the AdamW cells ran. Within one cell.
+        _table("does decentralisation cost more as N grows? -- AdamW family (D119)",
+               ["gap = ATC AdamW minus centralised AdamW, per seed; positive = diffusion worse."],
+               change_rows("centralized_adamw", ["diffusion_atc_adamw"]), change_header)
         _table("does cooperation pay more with more agents?",
                ["local_only minus each learner, per seed; positive = cooperating helps.",
                 "Tested: the change from N=10 to N=30."],
                change_rows("local_only", [*variants, "diffusion_sgd_atc", PLAIN["name"]],
                            reference_first=True),
+               change_header)
+        # AdamW's own floor, not SGD's local_only: the same optimizer on both sides.
+        _table("does cooperation pay more with more agents? -- AdamW family",
+               ["local_adamw minus ATC AdamW, per seed; positive = cooperating helps."],
+               change_rows("local_adamw", ["diffusion_atc_adamw"], reference_first=True),
                change_header)
         _table("one-hop minus local adapt, per N (does one-hop's value scale with N?)",
                ["negative = one-hop better."],
@@ -619,6 +755,17 @@ def report(suffix: str = "") -> None:
                [(s, compare(seeds_of("diffusion_ekf_onehop_mean_receiver", s, condition),
                             seeds_of(PLAIN["name"], s, condition)))
                 for s in sizes])
+        # D119, confirmatory: the filter against the strongest gradient baseline on
+        # Mackey--Glass, at every N, Holm across the three. Cross-cell, so gated.
+        if poolable:
+            _table("one-hop minus ATC AdamW, per N (D119; 3 696 vs 8 724 scalars per link)",
+                   ["negative = the filter wins, at under half ATC AdamW's payload."],
+                   [(s, compare(seeds_of("diffusion_ekf_onehop_mean_receiver", s, condition),
+                                seeds_of("diffusion_atc_adamw", s, condition)))
+                    for s in sizes])
+        else:
+            print("\n  one-hop minus ATC AdamW: withheld until every AdamW cell passes the "
+                  "merge gate")
         pairs = (("diffusion_ekf_full", "diffusion_ekf"),
                  ("diffusion_ekf_onehop_receiver", "diffusion_ekf_onehop_mean_receiver"))
         rows = [(f"{s} {full.replace('diffusion_ekf_', '')}",
