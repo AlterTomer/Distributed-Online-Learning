@@ -38,7 +38,7 @@ $N\in\{20,30\}$ below.
 | X28 | Does full sharing still buy nothing once one-hop linearises at the **receiver** point? Two cells at the ends of the skew axis, paired against X27's mean-only cells | 2 h | ✅ done — it does not, at either end ([[D100]]) |
 | X25+ | X25's still skew cells, full-sharing cells at $\beta=1$, and `atc_plain`, topped up to 5 seeds. The equal-bandwidth loss at $\beta_{\mathrm{dir}}=0.1$ is $t=1.66$ on 3 | 3.9 h | ✅ done — the loss firms to $t=2.43$ on five seeds, and `atc_plain` under skew is no longer unmeasured ([[D101]]) |
 | P5.3 | Topology and spectral gap (X3 analogue): path, ring, the existing ER 0.3 and complete, baselines re-tuned per topology. (A sparser ER was the original plan; at $N=10$ it sits below the $\ln(n)/n=0.230$ connectivity threshold, so `path` supplies the sparse end instead.) One-hop's value should scale with degree | ~14 h | ✅ done — and **both hypotheses are refuted**: the covariance-sharing gap does *not* widen as connectivity falls (flat across the axis, nominally largest on the complete graph), and one-hop's value is non-monotone in degree, peaking at intermediate connectivity. D100's null holds at every topology ([[D103]]) |
-| N>10 | $N\in\{10,20,30\}$ at a common $T=500$, $n=4$, ER $p$ matched to the $N=10$ mixing gap and each seed's draw conditioned into $0.119\pm0.02$ (≤3 draws); stationary and abrupt; every diffusion filter in its own process. Full sharing at $N=10$ by default, at $N=20,30$ only with `--full-sharing` ([[D114]]). `scripts/run_network_size.py` | ~16 h (est.) | memory smoke passed 2026-09-26, every default cell fits; `--lr` next |
+| N>10 | $N\in\{10,20,30\}$ at a common $T=500$, $n=4$, ER $p$ matched to the $N=10$ mixing gap and each seed's draw conditioned into $0.119\pm0.02$ (≤3 draws); stationary and abrupt; every diffusion filter in its own process. Full sharing at $N=10$ by default, at $N=20,30$ only with `--full-sharing` ([[D114]]). `scripts/run_network_size.py` | ~16 h (est.); 7.2 h actual | ✅ done 2026-09-26 — local-adapt diffusion falls behind its centralised learner as $N$ grows, filter and SGD alike ($+0.007$ to $+0.013$, $N=10\to30$); **one-hop does not** (growth $<0.005$ rejected at $p\le0.024$), so its lead over local adapt widens. Not the mixing-gap drift. No AdamW arm — joins the AdamW pass; full sharing at $N=20,30$ awaits memory ([[D117]]) |
 | P5.7 | Heterogeneous drift (X8 analogue) — one of the two rows where per-agent beliefs could **beat** the centralised filter | ~8 h | ✅ done — **refuted**: diffusion does not close its gap (all four changes null). Heterogeneity costs every shared model ~0.009, entirely as misfit, and the ordering is unchanged; diffusion agents never leave consensus, so they cannot personalise ([[D115]]) |
 | P5.11, P5.14 | Calibration, and whether `lem:conservative` is conservative in practice: new evaluation metrics, then a re-run of X20's ER cells | 1–2 days code, ~6 h | open |
 | P5.12 | $E_{\text{agree}}$, $E_{\text{cent}}$ over time — already recorded, analysis only | — | open |
@@ -70,8 +70,9 @@ Three constraints, in the order they bite:
 3. **Do it horizontally, one experiment at a time**, merging each run's `json` and
    `parquet` into the existing outputs so the figures redraw over the union. Adding
    AdamW to one experiment first would leave the baseline set differing *between*
-   experiments — a new asymmetry in place of the one the pass removes. P5.7 ships
-   without AdamW for exactly this reason and joins the pass with the others.
+   experiments — a new asymmetry in place of the one the pass removes. P5.7 and
+   N>10 ship without AdamW for exactly this reason and join the pass with the others.
+   N>10 needs its AdamW grid swept per $(N,\text{condition})$, as its SGD baselines were.
 
 ⚠ **Gate the merge.** A rerun must differ from the recorded cells in the learner
 list and nothing else. Include one *existing* SGD arm in each AdamW run as a
@@ -197,7 +198,7 @@ the report checks that path is identical per seed rather than assuming it.
 
 | item | cells | GPU | status |
 |---|---|---|---|
-| M12b | 3 pairs × {correlated, anti}, abrupt, 5 seeds | ~9 h (6/9 of M12's 13.75 h) | runner written 2026-09-26 (`scripts/run_m12b_abrupt_coupling.py`, mg branch); after N>10 |
+| M12b | 3 pairs × {correlated, anti}, abrupt, 5 seeds | ~9 h (6/9 of M12's 13.75 h) | runner written 2026-09-26 (`scripts/run_m12b_abrupt_coupling.py`, mg branch); **next** — N>10 is done |
 
 ⚠ Abrupt has returned nulls five times at five seeds. These contrasts avoid the reason
 (each seed's twin wandering on its own excursion), so they should resolve better — a

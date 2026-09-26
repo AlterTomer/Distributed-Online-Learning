@@ -4106,6 +4106,107 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D117. N>10: local-adapt diffusion falls behind the centralised learner as $N$ grows; one-hop does not
+
+`scripts/run_network_size.py` ([[D114]]'s design), $N\in\{10,20,30\}$ × {stationary,
+abrupt} × five seeds, 22 cells (group A, the two mean-only filters in their own
+processes, and the two full-sharing filters at $N=10$ only), 429 min GPU (≈7 h 10 min),
+completed 2026-09-26, every cell `ok`. $T=500$, $n=4$, `eval_every` 10. Baselines
+re-tuned per $(N,\text{condition})$ by `--lr` first; `atc_plain`'s extended grid put
+its $N=30$ rate at 0.2, interior (0.5 → 0.183, 1.0 → 0.467).
+
+**Settled error** (MNIST test error, mean over five seeds):
+
+| learner | stat. $N=10$ | 20 | 30 | abrupt $N=10$ | 20 | 30 |
+|---|---|---|---|---|---|---|
+| centralised EKF | 0.0704 | 0.0606 | 0.0583 | 0.0941 | 0.0804 | 0.0757 |
+| diff-EKF, one-hop (receiver, mean-only) | 0.0811 | 0.0708 | 0.0666 | 0.1055 | 0.0911 | 0.0859 |
+| diff-EKF, local adapt | 0.0946 | 0.0904 | 0.0894 | 0.1194 | 0.1166 | 0.1144 |
+| centralised SGD | 0.1000 | 0.0928 | 0.0793 | 0.1350 | 0.1253 | 0.1121 |
+| diffusion SGD, ATC | 0.1021 | 0.0942 | 0.0902 | 0.1372 | 0.1277 | 0.1258 |
+| `atc_plain` | 0.1150 | 0.1117 | 0.1054 | 0.1508 | 0.1453 | 0.1389 |
+| local only | 0.1776 | 0.1783 | 0.1797 | 0.2278 | 0.2262 | 0.2297 |
+
+**The controls behave.** `local_only` sees the same $n$ at every $N$ and is flat
+($N{=}30$ minus $N{=}10$: $+0.0021$, $p=0.21$; abrupt $+0.0018$, $p=0.24$). The
+centralised learners see $Nn$ samples a step and improve: EKF $-0.0121$ ($p=0.002$),
+SGD $-0.0207$ ($p=0.001$); abrupt $-0.0184$ and $-0.0229$.
+
+**Local-adapt diffusion falls behind, in both families.** The change in each gap to
+its own centralised learner, $N=10\to30$, paired per seed ([[D54]]), Holm within each
+table ([[D113]]):
+
+| gap | stationary | $p_\text{holm}$ | abrupt | $p_\text{holm}$ |
+|---|---|---|---|---|
+| diff-EKF local adapt − centralised EKF | $+0.0242\to+0.0311$, **$+0.0069$** | 0.023 | $+0.0253\to+0.0387$, **$+0.0134$** | 0.015 |
+| diff-EKF one-hop − centralised EKF | $+0.0107\to+0.0083$, $-0.0024$ | 0.414 | $+0.0114\to+0.0102$, $-0.0012$ | 0.284 |
+| ATC − centralised SGD | $+0.0020\to+0.0108$, **$+0.0088$** | 0.007 | $+0.0022\to+0.0137$, **$+0.0114$** | 0.002 |
+| `atc_plain` − centralised SGD | $+0.0149\to+0.0261$, **$+0.0111$** | 0.030 | $+0.0157\to+0.0268$, $+0.0111$ | 0.084 |
+
+So the growing gap is **diffusion's, not the filter's**: every learner that adapts on
+its own batch and then combines lets the centralised learner pull away as $N$ adds data
+it cannot reach, the filter and SGD alike. A combine step mixes *estimates* at a fixed
+rate — the mixing gap is held constant across $N$ — so the extra agents' data reaches
+each agent only through the same bottleneck. One-hop adapts on its neighbours' raw
+batches before combining, and its gap does not grow.
+
+**One-hop's non-growth is bounded, not merely null.** Against the 0.005 margin D113
+uses as its gate, a one-sided test that the gap grows by less than 0.005 rejects
+growth: $p=0.024$ (stationary; 90% CI $[-0.0079,+0.0032]$) and $p=0.002$ (abrupt;
+$[-0.0033,+0.0009]$). Two-sided equivalence (TOST at ±0.005) holds only under abrupt
+($p=0.010$ against 0.186): the stationary interval reaches $-0.008$, so there the gap
+may *shrink* — it is not pinned. The level does not reach zero: one-hop still trails
+the centralised filter by 0.008–0.010 at $N=30$.
+
+**Consequently one-hop's lead over local adapt widens:** $-0.0135\to-0.0196\to-0.0228$
+(stationary; change $-0.0093$, $p=0.011$) and $-0.0139\to-0.0255\to-0.0285$ (abrupt;
+$-0.0146$, $p=0.005$), every per-$N$ contrast at $p_\text{holm}\le0.001$. Against
+`atc_plain` at near-matched bandwidth (3 696 against 2 908 scalars) the filter wins by
+0.034–0.041 (stationary) and 0.045–0.054 (abrupt) at every $N$, all $p_\text{holm}<0.001$
+— a steady margin, not a growing one. Cooperation pays more at larger $N$ for every
+learner under stationary; under abrupt, local-adapt diff-EKF and ATC miss Holm (both
+0.066), and one-hop's is the largest and firmest ($+0.0215$, $p_\text{holm}=0.001$).
+
+**Full sharing at $N=10$ buys nothing detectable**, as [[D100]] and [[D103]] found: full
+− mean-only is $-0.0007$ ($p_\text{holm}=0.080$) for local adapt and $-0.0003$ (0.139)
+for one-hop; abrupt 0.314 and 0.635. That is the grounds for leaving it off at $N=20,30$.
+
+**⚠ The realised mixing gaps drifted, and it does not explain the result.** Per seed,
+with `!` marking a seed whose three draws all missed $0.119\pm0.02$:
+
+| $N$ | seed 0 | 1 | 2 | 3 | 4 | mean |
+|---|---|---|---|---|---|---|
+| 10 | 0.246! | 0.105 | 0.130 | 0.114 | 0.110 | 0.141 |
+| 20 | 0.169! | 0.102 | 0.107 | 0.114 | 0.139 | 0.126 |
+| 30 | 0.105 | 0.093! | 0.138 | 0.102 | 0.106 | 0.109 |
+
+The means fall with $N$, which is the direction that would inflate a growing
+diffusion gap. Checked by regressing each seed's gap on $N$ and its realised mixing
+gap, with seed fixed effects (15 points, 8 dof): the mixing-gap coefficient is nil —
+$+0.0000$ per 0.01 of gap ($p=0.89$) stationary, $+0.0003$ ($p=0.45$) abrupt, so the
+$-0.032$ drift in the mean accounts for at most 0.001 of either change — and the $N$
+coefficient stands: local adapt $+0.0035$ per ten agents ($p=0.006$), abrupt $+0.0073$
+($p=0.001$); one-hop $-0.0014$ ($p=0.33$) and $-0.0004$ ($p=0.66$). Seed 0's 0.246
+gives the regression its leverage. Keeping only seeds in band at both $N=10$ and 30
+leaves seeds 2–4: the direction holds (local adapt $+0.0057$ and $+0.0130$), with
+three seeds too few to test.
+
+**⚠ Degree grows with $N$, and it is not the whole story.** Holding the mixing gap
+fixed forces the degree up: realised mean degree 2.92, 4.34 and 4.59. One-hop's
+receiver adapts on (degree + 1)·$n$ samples a step — 15.7, 21.4, 22.4 — against the
+centralised filter's 40, 80, 120, so its share of the centralised data halves
+(0.39 → 0.19) while its gap stays flat. From $N=20$ to 30 its degree barely moves
+(+0.25) and it still improves by 0.0042 (stationary) and 0.0052 (abrupt).
+
+**What this run does not have.** No AdamW arm — MNIST has none anywhere, and N>10
+joins the horizontal AdamW pass with the other experiments (schedule, Track A). No
+full sharing at $N=20,30$, by design ([[D114]]; `--full-sharing` exists for when
+memory allows). $N$ stops at 30, bounded by the 60 000-image budget at $T=500$, $n=4$.
+
+The two follow-up tables — the gradient family's gap, and one-hop's lead as a change
+in $N$ — were added to the runner's report after the run; the regression, the
+one-sided test and the degrees are one-off analyses recorded here.
+
 ### ✅ D116. $e^\star$ has an error bar: the online filters match the offline reference, they do not beat it
 
 `scripts/run_m2_references.py --levels 0.22 --seeds 0 1 2 3 4` (mg branch), 4.4 min CPU,

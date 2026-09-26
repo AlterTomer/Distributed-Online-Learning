@@ -537,7 +537,11 @@ def _table(title: str, lines: list[str], rows: list[tuple[str, object]],
 
 
 def report(suffix: str = "") -> None:
-    """Settled error by N, then the four contrasts the sweep exists for."""
+    """Settled error by N, then the four contrasts the sweep exists for.
+
+    Plus two follow-ups added after the main pass (D117): the gradient family's own
+    decentralisation gap, and one-hop's lead over local adapt as a change in N.
+    """
     seeds_of = lambda learner, size, condition: per_seed(  # noqa: E731
         _cell_of(learner, size, condition, suffix), learner)
     mean = lambda d: sum(d.values()) / len(d) if d else float("nan")  # noqa: E731
@@ -589,6 +593,12 @@ def report(suffix: str = "") -> None:
                 "Tested: the change in the gap from N=10 to N=30, per seed (D54) -- the",
                 "stat columns are that change, not any one gap."],
                change_rows(central, variants), change_header)
+        # The same question for the gradient family, against its own centralised
+        # learner: whether a growing gap is the filter's or diffusion's (D117).
+        _table("does decentralisation cost more as N grows? -- gradient family",
+               ["gap = diffusion SGD minus centralised SGD, per seed; positive = diffusion worse."],
+               change_rows("centralized_sgd", ["diffusion_sgd_atc", PLAIN["name"]]),
+               change_header)
         _table("does cooperation pay more with more agents?",
                ["local_only minus each learner, per seed; positive = cooperating helps.",
                 "Tested: the change from N=10 to N=30."],
@@ -600,6 +610,10 @@ def report(suffix: str = "") -> None:
                [(s, compare(seeds_of("diffusion_ekf_onehop_mean_receiver", s, condition),
                             seeds_of("diffusion_ekf", s, condition)))
                 for s in sizes])
+        _table("one-hop minus local adapt: the change from N=10 to N=30",
+               ["negative = one-hop's lead widens with N."],
+               change_rows("diffusion_ekf", ["diffusion_ekf_onehop_mean_receiver"]),
+               change_header)
         _table("one-hop minus atc_plain, per N (near-matched bandwidth, 3 696 vs 2 908 scalars)",
                ["negative = the filter wins."],
                [(s, compare(seeds_of("diffusion_ekf_onehop_mean_receiver", s, condition),
