@@ -309,6 +309,86 @@ any `scripts/make_*.py` or `scripts/plot_*.py` to the public repo.
 
 ---
 
+## The reproduction package
+
+Added 2026-09-26. **The goal: a reviewer or an external user recreates the paper's
+work from a fresh clone, end to end** — checks the environment, runs the tests,
+calibrates (every reference, every `--lr` pass, every selection a main pass reads),
+runs every experiment, and regenerates every reported number and every paper figure.
+
+**What it is.** One entry document, `REPRODUCE.md` at the repository root, and one
+driver, `scripts/reproduce.py`, that walks a dependency graph of stages. Each stage
+states its command, what it reads, what it writes, its GPU-hours as measured on the
+RTX 4070 laptop, and the numbers it must reproduce.
+
+1. **Environment** — `check_environment.py`, the pinned `requirements.txt`, and the
+   Python/torch/CUDA/driver versions recorded; `check_data.py` caches MNIST;
+   Mackey–Glass is generated from its seed.
+2. **Tests** — the full suite.
+3. **Smoke** — every runner's `--smoke` on CPU, minutes each: every code path proven
+   before any GPU time is spent.
+4. **Calibration** — the offline references (`train_reference.py`,
+   `run_m2_references.py`), then every `--lr` pass and every filter selection (the
+   X-series re-tunes, M3–M5) in dependency order. Main passes already refuse to run
+   without their calibration (D77); the driver follows the same order rather than
+   relying on the refusal.
+5. **Experiments** — every claim the paper makes, traced to its runner and cells,
+   and to its D118 tier.
+6. **Reports** — each runner's `--report-only`, compared with committed expected
+   values (`reproduce/expected/*.json`) within a stated tolerance.
+7. **Figures** — the paper's figures only.
+
+**Three tiers**, because nobody should have to spend the full budget to check one
+table: **smoke** (CPU, about an hour: stages 1–3); **one claim** (the driver resolves
+only that claim's dependencies — N>10, for instance, is its `--lr` pass plus
+~7 GPU-hours); and **full**, with its total GPU-hours stated up front, summed from the
+recorded runs.
+
+**Decisions it forces**, flagged now and settled when the package is built:
+
+1. **Public figure builders.** The paper's figures need builders a reviewer can run;
+   the user agreed on 2026-09-26 that plotting code may be pushed for this. Proposed:
+   a new public `scripts/figures/` holding only the paper's figures, rebuilt from the
+   private builders without OneDrive paths, `--publish` or slide code. The deck and
+   document builders (`make_*_presentation.py`, `make_*_docx.py`) stay private, and
+   the `/scripts/plot_*.py` and `/scripts/make_*.py` ignore rules stay as they are,
+   so nothing private leaks through them. The one-codebase merge check above must then
+   allow `scripts/figures/`.
+2. **What "exactly" means.** `set_determinism` enables deterministic algorithms and
+   fixes the cuBLAS workspace, and on the same hardware and software a re-run is
+   bitwise identical (X25+ reproduced X27 to 0.0e+00, D101). Across GPU models and
+   library versions it is not. The package therefore states a tolerance per reported
+   number, checks each claim through its statistics (sign, interval, $p_\text{holm}$)
+   rather than its last digits, and records hardware and versions in every
+   expected-values file.
+3. **One tree.** The package is built after the mg-task merge above; it cannot span
+   two branches.
+4. **Anonymity.** Review is double-blind, and the public GitHub URL and commit
+   history both carry the author. Reviewers get an anonymised snapshot without
+   history (an anonymous-repository service, or an archive in the supplementary); the
+   public repository is linked at camera-ready. History itself stays untouched.
+5. **Scope.** Only what the paper cites. Withdrawn results stay recorded in the
+   design notes, which remain the provenance record, but get no stage in the driver.
+
+**When.** Code attached to a submission *is* visible to reviewers — ICML takes
+supplementary material with the paper or shortly after it (check the 2027 call for
+the date) — so the package comes in two stages rather than after review:
+
+- **Stage 1, by the supplementary deadline:** the anonymised snapshot,
+  `REPRODUCE.md`, and the driver with the smoke and one-claim tiers, plus the command
+  for every stage. Stages 1–3 of the driver depend on no result and can be written
+  any time; the claim map needs the final claim list, so it is built alongside
+  writing once experiments freeze.
+- **Stage 2, before the rebuttal and camera-ready:** a fresh-clone, fresh-environment
+  dry run of every stage — smoke for all, a full re-run of at least one claim per
+  track — with the expected-values files checked and the public builders reproducing
+  every paper figure.
+
+Cost: stage 1 is about a week of work and little GPU; stage 2's cost is the
+verification re-runs.
+
+---
+
 ## Calendar
 
 | dates | work |
@@ -320,7 +400,9 @@ any `scripts/make_*.py` or `scripts/plot_*.py` to the public repo.
 | **Nov 8–Nov 28** | C |
 | **Nov 29–Dec 27** | buffer: seed top-ups, gaps the draft exposes, supervisor's requests, then deferred tier-3 items |
 | **Dec 27** | experiment freeze |
-| **Jan 22, 2027** | ICML deadline |
+| **Dec 28–Jan 22** | alongside writing: reproduction package stage 1 — claim map, driver tiers, anonymised snapshot |
+| **Jan 22, 2027** | ICML deadline; supplementary deadline per the call |
+| **after submission** | reproduction package stage 2: fresh-clone dry run, verification re-runs |
 
 **C goes last** — decided 2026-09-15, to push on the regression task first. The
 alternative considered was C's MNIST half right after A, which would have moved B
