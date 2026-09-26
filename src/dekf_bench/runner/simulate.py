@@ -192,8 +192,8 @@ def run(
                 rows.extend(scores.as_rows())
                 rows.extend(_disagreement_rows(learner, learners, nodes, step))
             if score_beliefs and belief.scoreable(learner):
-                rows.extend(belief.evaluate(evalsets, learner, config, step, nodes,
-                                            environment.seeds))
+                rows.extend(belief.evaluate(evalsets, learner, likelihood, config, step,
+                                            nodes, environment.seeds))
             if hasattr(learner, "release_pre_combine"):
                 learner.release_pre_combine()
 

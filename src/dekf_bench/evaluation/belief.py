@@ -6,7 +6,8 @@ learner that holds a covariance, once per belief it can report: after combine
 `metrics/belief.py`'s; this module only decides what they are computed on.
 
 **One fixed subset of the ``current`` set**, the first ``eval.belief_subset``
-images, so every agent, stage and step is scored on the same inputs and the
+images (or series blocks), so every agent, stage and step is scored on the same
+inputs and the
 comparisons between them are paired. The Jacobians are what cost: $n\times q\times p$
 per agent, which at $n=1000$, $q=10$, $p=2908$ is 29 M entries, formed in chunks.
 
@@ -22,7 +23,7 @@ from typing import Any
 import torch
 
 from dekf_bench.evaluation.evalsets import EvalSetBuilder
-from dekf_bench.metrics.belief import classification_scores
+from dekf_bench.metrics.belief import classification_scores, gaussian_scores
 from dekf_bench.runner.seeding import derive_seed
 
 #: Jacobians are formed this many samples at a time: 250 x 10 x 2908 floats is
@@ -58,30 +59,45 @@ def predictive(model: Any, theta: torch.Tensor, covariance: torch.Tensor,
 def evaluate(
     builder: EvalSetBuilder,
     learner: Any,
+    likelihood: Any,
     config: Any,
     step: int,
     nodes: list[int],
     seeds: Any,
 ) -> list[dict[str, Any]]:
-    """Every belief this learner holds, scored on the fixed subset at ``step``."""
+    """Every belief this learner holds, scored on the fixed subset at ``step``.
+
+    Task-agnostic: images and labels under a categorical likelihood, series blocks
+    and targets under a Gaussian one, where the predictive is exact and R enters.
+    """
     evalset = builder.at("current", step)
     if evalset is None:  # pragma: no cover - `current` always exists
         return []
-    x = evalset.images[: config.eval.belief_subset]
-    y = evalset.labels[: config.eval.belief_subset]
+    inputs = getattr(evalset, "images", None)
+    outputs = getattr(evalset, "labels", None)
+    if inputs is None:  # the series task's held-out blocks
+        inputs, outputs = evalset.inputs, evalset.targets
+    x = inputs[: config.eval.belief_subset]
+    y = outputs[: config.eval.belief_subset]
+    regression = bool(getattr(likelihood, "is_regression", False))
     rows: list[dict[str, Any]] = []
     for stage in learner.belief_stages():
         prefix = "" if stage == "post" else f"{stage}_"
         for node in nodes:
             theta, covariance = learner.belief(node, stage)
             logits, logit_cov = predictive(learner.model, theta, covariance, x)
-            # Its own keyed seed per (step, node, stage), derived from the master
-            # seed by the same hash as every stream: reproducible, and drawing
-            # nothing from the data, graph or initialisation streams.
-            generator = torch.Generator(device=logits.device)
-            generator.manual_seed(derive_seed(seeds.master, "belief_mc", step, node, stage))
-            scores = classification_scores(logits, logit_cov, y,
-                                           config.eval.belief_mc_samples, generator)
+            if regression:
+                noise = likelihood.noise_covariance(logits).diagonal(dim1=-2, dim2=-1)
+                scores = gaussian_scores(logits, y, logit_cov.diagonal(dim1=-2, dim2=-1),
+                                         noise)
+            else:
+                # Its own keyed seed per (step, node, stage), derived from the master
+                # seed by the same hash as every stream: reproducible, and drawing
+                # nothing from the data, graph or initialisation streams.
+                generator = torch.Generator(device=logits.device)
+                generator.manual_seed(derive_seed(seeds.master, "belief_mc", step, node, stage))
+                scores = classification_scores(logits, logit_cov, y,
+                                               config.eval.belief_mc_samples, generator)
             rows.extend(
                 {"node_id": node, "evalset": "current", "t": step,
                  "drift_state": evalset.rotation_degrees,

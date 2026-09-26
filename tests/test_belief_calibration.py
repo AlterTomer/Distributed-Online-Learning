@@ -24,6 +24,7 @@ from dekf_bench.metrics.belief import (
     KAPPA_GRID,
     classification_scores,
     gaussian_kappa_scan,
+    gaussian_scores,
     kappa_scan,
     temperature_star,
 )
@@ -58,6 +59,39 @@ def test_the_gaussian_scan_recovers_a_known_scale() -> None:
     assert scan.kappa_star == pytest.approx(3.0, rel=0.15)
     assert not scan.at_edge
     assert scan.nll_at_star <= scan.nll_at_one
+
+
+def test_gaussian_scores_agree_with_the_moment_estimate() -> None:
+    """Scan and variance matching are two routes to the same scale."""
+    generator = torch.Generator().manual_seed(7)
+    s = torch.rand(40_000, 31, generator=generator, dtype=torch.float64) + 0.5
+    noise = torch.full_like(s, 0.2)
+    targets = torch.randn(40_000, 31, generator=generator, dtype=torch.float64) \
+        * (2.0 * s + noise).sqrt()
+    scores = gaussian_scores(torch.zeros_like(targets), targets, s, noise)
+    assert scores["kappa_star"] == pytest.approx(2.0, rel=0.1)
+    assert scores["kappa_moment"] == pytest.approx(2.0, rel=0.05)
+    assert scores["belief_nll"] < scores["plugin_nll"]
+
+
+def test_an_overcovering_noise_floors_raw_kappa_but_not_the_tempered_one() -> None:
+    """R twice the true noise and a spread that tracks the residuals: kappa* sits at
+    0, the moment estimate goes negative, and once R is rescaled the spread counts.
+
+    Not at its true 1: rho* is fitted first on the plug-in predictive, so it takes up
+    the spread's *average* and leaves kappa only the per-input part (0.2 here) --
+    the reason the tempered reading is exploratory rather than the scale of P.
+    """
+    generator = torch.Generator().manual_seed(8)
+    s = torch.rand(40_000, 31, generator=generator, dtype=torch.float64) * 0.3
+    true_noise = torch.full_like(s, 0.2)
+    targets = torch.randn(40_000, 31, generator=generator, dtype=torch.float64) \
+        * (s + true_noise).sqrt()
+    scores = gaussian_scores(torch.zeros_like(targets), targets, s, 2.0 * true_noise)
+    assert scores["kappa_star"] == 0.0
+    assert scores["kappa_moment"] < 0.0
+    assert scores["noise_scale_star"] < 1.0
+    assert scores["tempered_kappa_star"] > 0.0
 
 
 def _synthetic(reported_fraction: float, n: int = 20_000):

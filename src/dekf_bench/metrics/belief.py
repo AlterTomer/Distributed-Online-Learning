@@ -179,6 +179,53 @@ def gaussian_nll(residuals: torch.Tensor, variance: torch.Tensor) -> float:
     return float(0.5 * (torch.log(2.0 * math.pi * variance) + residuals**2 / variance).mean())
 
 
+#: Scales on R for the Gaussian analogue of the tempered reading: 0.025-decade steps
+#: over [1/16, 16]. Holds 1 (R as tuned).
+NOISE_SCALE_GRID: tuple[float, ...] = tuple(10.0 ** (k / 40.0) for k in range(-48, 49))
+
+
+def gaussian_scores(
+    predictions: torch.Tensor,
+    targets: torch.Tensor,
+    model_variance: torch.Tensor,
+    noise_variance: torch.Tensor,
+) -> dict[str, float]:
+    r"""The Gaussian counterpart of :func:`classification_scores`, exact throughout.
+
+    The predictive is $\mathcal N(\hat y,\kappa s+R)$ with $s=\operatorname{diag}
+    \bm H\bm P\bm H^{\mathsf T}$, so $\kappa=0$ is the plug-in (R alone) and
+    $\kappa=1$ the belief. The same floor can occur here as under softmax: if R by
+    itself already over-covers the residuals, no positive $\kappa$ helps. The
+    tempered reading's analogue is therefore the scale $\rho^\star$ on R that best
+    calibrates the plug-in predictive, then the $\kappa$ scan at $\rho^\star R$.
+
+    ``kappa_moment`` is the variance-matching estimate
+    $\bigl(\overline{r^2}-\overline R\bigr)/\overline s$, which needs no scan and may
+    be negative -- a sign that R alone exceeds the squared error.
+    """
+    residuals = targets - predictions
+    scan = gaussian_kappa_scan(residuals, model_variance, noise_variance)
+    rho = min(NOISE_SCALE_GRID,
+              key=lambda scale: gaussian_nll(residuals, scale * noise_variance))
+    tempered = gaussian_kappa_scan(residuals, model_variance, rho * noise_variance)
+    at_one = model_variance + noise_variance
+    return {
+        "plugin_nll": scan.nll_at_zero,
+        "belief_nll": scan.nll_at_one,
+        "belief_variance_ratio": float((residuals**2 / at_one).mean()),
+        "kappa_star": scan.kappa_star,
+        "nll_at_kappa_star": scan.nll_at_star,
+        "kappa_star_at_edge": float(scan.at_edge),
+        "kappa_moment": float(((residuals**2).mean() - noise_variance.mean())
+                              / model_variance.mean().clamp_min(1e-300)),
+        "noise_scale_star": rho,
+        "tempered_kappa_star": tempered.kappa_star,
+        "tempered_kappa_star_at_edge": float(tempered.at_edge),
+        "nll_at_tempered_kappa_star": tempered.nll_at_star,
+        "logit_variance_mean": float(model_variance.mean()),
+    }
+
+
 def gaussian_kappa_scan(
     residuals: torch.Tensor, model_variance: torch.Tensor, noise_variance: torch.Tensor
 ) -> KappaScan:
