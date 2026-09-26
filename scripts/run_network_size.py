@@ -27,8 +27,15 @@ chosen per $N$ to hold the **mixing gap** at its $N=10$ value, 0.119 over 120 dr
 measured with this repository's own builder and Metropolis weights: $p=0.224$ at
 $N=20$ and $p=0.167$ at $N=30$ (mean degree 4.3 and 4.8). Both sit above the
 $\ln N/N$ connectivity threshold, 0.150 and 0.113, so no draw is conditioned on a
-rare event -- the failure that removed ER 0.15 from P5.3. The pre-flight prints the
-*realised* gap of each seed's graph, since the run uses five draws, not 120.
+rare event -- the failure that removed ER 0.15 from P5.3.
+
+Matching $p$ matches the gap only *on average*, and one draw varies a lot (s.d.
+0.04--0.05): the first probe's five seeds gave realised means 0.162, 0.140, 0.119 at
+$N=10, 20, 30$. So each seed's draw is also **conditioned into 0.119 +/- 0.02**, with
+at most three draws and the third kept regardless (decided with the user,
+2026-09-26). About 35% of ER draws land in the band at every $N$, so the cap rarely
+binds, and it guarantees the conditioning never searches for a rare graph. The
+pre-flight prints each seed's realised gap and whether it landed in the band.
 
 **One horizon for every $N$, because MNIST has 60 000 images.** Shards are disjoint
 and consumed exactly once, so $NnT\le60\,000$ (D5), and $N=10$ at $n=4$, $T=1500$
@@ -39,34 +46,37 @@ $n=4$, $T=500$ -- the most $N=30$ allows. $N=10$ is re-run at that horizon as th
 in-experiment reference, so only $N$ and $p$ differ along the axis. `EVAL_EVERY`
 drops to 10 so the settled window still holds ten evaluations.
 
+## One diffusion filter per process
+
+Group A holds the centralised filter and the four gradient baselines; **each
+diffusion filter has its own cell**, mean-only and full sharing alike. Every cell
+of a (size, condition) shares its seed, hence its data stream and graph, so
+splitting by learner keeps every comparison paired. The first probe forced it: with
+both mean-only filters in one process, $N=30$ reserved **8.64 GiB on an 8.00 GiB
+card**, two sets of thirty 64.5 MiB covariances plus the centralised filter's.
+
 ## Full sharing: on at $N=10$, opt-in above it
 
-All four variants stay in every comparison (decided 2026-09-15), and at $N=10$ that
-is affordable, so the two full-sharing variants run there by default. At $N=20, 30$
-they are behind `--full-sharing`, off by default: X24 measured one full-sharing
-variant at **3.43 GiB of 8 at $N=10$**, about five covariance-sized buffers per
-agent, and if that scales with $N$ one variant alone would need roughly 6--7 GiB at
-$N=20$ and 9--10 GiB at $N=30$. They are one learner per process when they do run.
+All four variants stay in every comparison (decided 2026-09-15), so full sharing
+runs at $N=10$ by default and at $N=20, 30$ behind `--full-sharing`. The first probe
+found it cheaper than X24's figure suggested: alone in a process it needed 3.3 and
+4.6 GiB at $N=20$, and 4.6 and 6.5 GiB at $N=30$ -- the last against a 6.55 GiB
+budget, too thin a margin to trust over a long run.
 
 ## The memory smoke
 
-That extrapolation is not a measurement, so `--probe-only` measures instead: each
-planned (size, group) cell runs a few steps at one seed, and the peak the CUDA
-allocator reserved is compared with the free device memory, after adding the
-evaluation-set cache the full horizon will grow that the probe did not. An
-out-of-memory error during the probe is the answer "does not fit", caught rather
-than fatal. A probe cell that *diverges* is inconclusive, never a pass: it may stop
-before the peak. The main pass re-probes unless `--skip-probe`, and refuses if any
-planned cell does not fit. Run it with the GPU otherwise idle -- the free memory it
-judges against includes whatever another process holds.
+`--probe-only` runs each planned (size, group) cell for a few steps at one seed and
+compares the peak the CUDA allocator reserved -- plus the evaluation-set cache the
+full horizon will grow that the probe did not (D112) -- with 95% of *free* device
+memory. A probe that diverges is inconclusive, never a pass: it may stop before the
+peak. The main pass re-probes unless `--skip-probe`, and refuses if any planned cell
+does not fit. Run it with the GPU otherwise idle.
 
-## A reproduction check that costs nothing
-
-The $N=10$ stationary cell differs from P5.3's `er030` cell only in horizon and
-evaluation cadence, and neither touches learning: same partition, graph, stream,
-filter settings. So the carried filters' prequential errors over the first 500 steps
-must match P5.3's to the digit. The report checks it; a mismatch would mean
-something horizon-dependent has leaked into the learning path.
+⚠ **An out-of-memory error is not a reliable signal on this machine.** The Windows
+driver can spill allocations past the card into shared system memory instead of
+raising -- which is how the first probe *reserved* 8.64 GiB on an 8 GiB card and
+completed. Slow, silent, and not a fit. The verdict therefore rests on the budget
+comparison; a caught error is only the extreme case of it.
 """
 
 from __future__ import annotations
@@ -109,6 +119,10 @@ SIZES: list[tuple[str, int, float]] = [
 ]
 #: The N=10 mixing gap the other sizes are matched to (120 draws, 2026-09-25).
 TARGET_MIXING_GAP = 0.119
+#: Each seed's draw is conditioned into this band: at most BAND_DRAWS draws, the
+#: last kept regardless (graph.build_graph; decided 2026-09-26).
+GAP_BAND = [TARGET_MIXING_GAP - 0.02, TARGET_MIXING_GAP + 0.02]
+BAND_DRAWS = 3
 
 #: Stationary, and X17's recurring abrupt schedule -- a 15-degree jump every 25
 #: steps -- which keeps its shape at any horizon and simply holds fewer jumps.
@@ -122,9 +136,12 @@ SAMPLES_PER_AGENT = 4
 MNIST_TRAIN = 60_000
 HORIZON, SEEDS, EVAL_EVERY = 500, [0, 1, 2, 3, 4], 10
 
-GROUP_A = ["diffusion_ekf", "diffusion_ekf_onehop_mean_receiver"]
-#: Group label -> the one full-sharing learner its cell carries.
+#: Group label -> the one diffusion filter its cell carries, each in its own
+#: process: two filters' covariance sets together do not fit at N=30.
+MEAN_ONLY = {"local": "diffusion_ekf", "onehop": "diffusion_ekf_onehop_mean_receiver"}
 FULL_SHARING = {"full": "diffusion_ekf_full", "onehopfull": "diffusion_ekf_onehop_receiver"}
+SOLO = {**MEAN_ONLY, **FULL_SHARING}
+GROUP_A = list(MEAN_ONLY.values())  # the mean-only filters, for the report's rows
 #: Where full sharing runs without --full-sharing: the size known to fit.
 FULL_SHARING_BY_DEFAULT = {"n10"}
 
@@ -148,7 +165,7 @@ def cell_name(size: str, condition: str, group: str, suffix: str = "") -> str:
 
 
 def groups_for(size: str, full_sharing: bool) -> list[str]:
-    groups = ["a"]
+    groups = ["a", *MEAN_ONLY]
     if full_sharing or size in FULL_SHARING_BY_DEFAULT:
         groups += list(FULL_SHARING)
     return groups
@@ -181,7 +198,9 @@ def config_for(args, name: str, n: int, p: float, condition: str, entries: list[
             "run": {"name": name, "horizon": horizon or args.horizon,
                     "eval_every": EVAL_EVERY, "seeds": seeds or args.seeds,
                     "device": args.device, "dtype": args.dtype},
-            "graph": {"topology": "erdos_renyi", "n_nodes": n, "params": {"p": p}},
+            "graph": {"topology": "erdos_renyi", "n_nodes": n,
+                      "params": {"p": p, "mixing_gap_band": list(GAP_BAND),
+                                 "band_draws": BAND_DRAWS}},
             "env": {"dataset": args.dataset,
                     "samples_per_node_per_step": SAMPLES_PER_AGENT,
                     "drift": dict(CONDITIONS[condition])},
@@ -194,8 +213,9 @@ def config_for(args, name: str, n: int, p: float, condition: str, entries: list[
 def entries_for(group: str, rates: dict[str, float]) -> list[dict]:
     if group in FULL_SHARING:
         return [{"name": FULL_SHARING[group], **FILTER, "combine_exponent": 1.0}]
+    if group in MEAN_ONLY:
+        return [{"name": MEAN_ONLY[group], **FILTER}]
     learners = [{"name": "centralized_ekf_gamma", **CENTRALIZED}]
-    learners += [{"name": n, **FILTER} for n in GROUP_A]
     learners += [{"name": n, "lr": rates[n], **o} for n, o in tuned_baselines().items()]
     return learners
 
@@ -227,10 +247,14 @@ def preflight(args, suffix: str = "") -> bool:
         graphs[size] = gaps
         within = used <= MNIST_TRAIN
         ok &= within
+        # `!` marks a seed whose three draws all missed the band: its third is used.
+        marked = " ".join(f"{g:.3f}" + (" " if GAP_BAND[0] <= g <= GAP_BAND[1] else "!")
+                          for g in gaps)
         print(f"    {size}: N={n:>2} p={p:<5}  data {used:>6}/{MNIST_TRAIN} "
-              f"{'ok' if within else 'OVER BUDGET'}   mixing gap "
-              + " ".join(f"{g:.3f}" for g in gaps)
-              + f"   mean {sum(gaps) / len(gaps):.3f}")
+              f"{'ok' if within else 'OVER BUDGET'}   mixing gap {marked}  "
+              f"mean {sum(gaps) / len(gaps):.3f}")
+    print(f"    band {GAP_BAND[0]:.3f}-{GAP_BAND[1]:.3f}, at most {BAND_DRAWS} draws; "
+          "! = outside it, the last draw kept by rule")
     if not suffix:
         status = load_status()
         status["graphs"] = graphs
@@ -446,8 +470,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _cell_of(learner: str, size: str, condition: str, suffix: str = "") -> str:
-    """Each full-sharing learner has its own cell; everything else is in group A."""
-    for group, name in FULL_SHARING.items():
+    """Each diffusion filter has its own cell; everything else is in group A."""
+    for group, name in SOLO.items():
         if learner == name:
             return cell_name(size, condition, group, suffix)
     return cell_name(size, condition, "a", suffix)
@@ -554,46 +578,7 @@ def report(suffix: str = "") -> None:
             _table("full minus mean-only sharing, per N (only where full sharing ran)",
                    ["negative = sharing the covariance helps."], rows)
 
-    reproduction_check(suffix)
     print(f"\n  * = p_holm < {ALPHA}, adjusted within each table (D113).")
-
-
-def reproduction_check(suffix: str = "") -> None:
-    """N=10 stationary here must reproduce P5.3's er030 over the first 500 steps."""
-    import pandas as pd
-
-    print("\n  reproduction: the carried filters at N=10 against P5.3's er030, t < "
-          f"{HORIZON}")
-    if suffix:
-        print("    skipped for a smoke")
-        return
-    ours = ROOT / "results" / cell_name("n10", "stationary", "a")
-    theirs = ROOT / "results" / "p53_er030_a"
-    if not ((ours / "_complete").exists() and (theirs / "_complete").exists()):
-        print("    not available: one of the two cells is incomplete")
-        return
-    carried = ["centralized_ekf_gamma", *GROUP_A]
-    keys = ["learner", "t", "node_id", "metric"]
-    worst, compared = 0.0, 0
-    for path in sorted(ours.glob("seed_*.parquet")):
-        other = theirs / path.name
-        if not other.exists():
-            continue
-        frames = []
-        for source in (path, other):
-            frame = pd.read_parquet(source, columns=[*keys, "evalset", "value"])
-            frame = frame[(frame.evalset == "prequential") & (frame.t < HORIZON)
-                          & frame.learner.isin(carried)].drop(columns="evalset")
-            frames.append(frame.fillna({"node_id": -1}))
-        merged = frames[0].merge(frames[1], on=keys, suffixes=("_ours", "_p53"))
-        if len(merged):
-            worst = max(worst, float((merged.value_ours - merged.value_p53).abs().max()))
-            compared += len(merged)
-    if not compared:
-        print("    no overlapping rows -- the two cells do not share a schema; nothing checked")
-    else:
-        verdict = "reproduced" if worst < 1e-9 else "DIFFERS -- something horizon-dependent leaks"
-        print(f"    {compared} prequential rows, largest difference {worst:.1e}   {verdict}")
 
 
 if __name__ == "__main__":

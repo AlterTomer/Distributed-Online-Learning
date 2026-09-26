@@ -4133,6 +4133,19 @@ on a rare event (the fault that removed ER 0.15 from P5.3). Rejected alternative
 fixed $p$ (the confound above), and the same margin above threshold,
 $p=1.303\ln N/N$, which lands at a gap of about 0.10.
 
+**Matched on average is not matched per seed** (added 2026-09-26). One ER draw's gap
+has a standard deviation of 0.04--0.05, and the five seeds actually drawn gave
+realised means of 0.162, 0.140 and 0.119 at $N=10, 20, 30$ -- the $N=10$ draws
+happened to mix fast, so the confound came back reversed. Each seed's draw is now
+**conditioned into $0.119\pm0.02$**: `build_graph` redraws until the gap lands in the
+band, trying **at most three draws and keeping the third regardless** (the user's
+rule). About 35% of ER draws land in the band at every $N$, so the cap binds for
+roughly $0.65^3\approx27\%$ of seeds; it guarantees the conditioning never searches
+for a rare graph. Realised: 12 of 15 seeds in the band, with in-band means of 0.115,
+0.116 and 0.113; the three misses (0.246 at $N=10$, 0.169 at $N=20$, 0.093 at $N=30$)
+pull the means to 0.141, 0.126 and 0.109. The report prints every seed's gap, so a
+miss stays visible rather than averaged away.
+
 **The data budget.** Shards are disjoint and consumed once, so $NnT\le60\,000$
 ([[D5]]), and $N=10$ at $n=4$, $T=1500$ already uses all 60 000 images. Three ways
 out, each confounding something:
@@ -4151,28 +4164,49 @@ information directions a step, so it can span $p=2908$ in about 73 steps and set
 by step 400 is plausible, but it is not yet shown; the abrupt condition holds 20
 jumps rather than 60.
 
-**Full sharing is on at $N=10$ and opt-in above it** (`--full-sharing`), one learner
-per process. The 2026-09-15 decision keeps all four variants in every comparison, and
-at $N=10$ they are known to fit. Above it they may not: X24 measured one full-sharing
-variant at 3.43 GiB of 8 at $N=10$, about five covariance-sized buffers per agent, and
-if that scales with $N$ one variant needs roughly 6--7 GiB at $N=20$ and 9--10 GiB at
-$N=30$. The schedule's earlier "two sets" estimate, which put $N=30$ within reach,
-undercounts what was measured.
-
-**A memory smoke, because that is an extrapolation.** `--probe-only` runs every
+**A memory smoke, measured rather than extrapolated.** `--probe-only` runs every
 planned (size, group) cell for 21 steps at one seed, reads the CUDA allocator's peak,
 adds the evaluation-set cache the full horizon will grow and the probe did not
-([[D112]]), and judges the total against 95% of *free* memory. An out-of-memory
-error in the probe is caught as the answer "does not fit"; a probe that diverges is
-**inconclusive**, never a pass, since it may stop before the peak. The main pass
+([[D112]]), and judges the total against 95% of *free* memory. A probe that diverges
+is **inconclusive**, never a pass, since it may stop before the peak. The main pass
 re-probes unless `--skip-probe` and refuses if any planned cell does not fit.
 
-**A reproduction check.** The $N=10$ stationary cell differs from P5.3's `er030` cell
-only in horizon and evaluation cadence, neither of which touches learning. The carried
-filters' prequential errors over the first 500 steps must therefore match P5.3's to
-the digit, and the report checks it.
+⚠ **An out-of-memory error is not a reliable signal on this machine.** The first
+probe (2026-09-25) *reserved* 8.64 GiB on an 8.00 GiB card and completed: the Windows
+driver spills allocations past the card into shared system memory instead of
+raising. That is slow, silent and not a fit, so the verdict rests on the budget
+comparison, and a caught error is only its extreme case.
 
-🔄 Open until the run: the memory smoke's verdicts at $N=20, 30$, and the results.
+**One diffusion filter per process.** That 8.64 GiB was $N=30$'s group A with both
+mean-only filters in it -- two sets of thirty 64.5 MiB covariances plus the
+centralised filter's. Group A now holds the centralised filter and the gradient
+baselines, and every diffusion filter has its own cell. The cells of a (size,
+condition) share a seed, hence a data stream and a graph, so the comparisons stay
+paired. Re-probed 2026-09-26, 6.89 GiB free, budget 6.55 GiB:
+
+| $N$ | group A | local | one-hop | full (opt-in above 10) | one-hop full (opt-in above 10) |
+|---|---|---|---|---|---|
+| 10 | 0.94 | 2.04 | 2.62 | 2.62 | 3.26 |
+| 20 | 0.95 | 3.33 | 4.42 | 3.33 | 4.55 |
+| 30 | 1.01 | 4.62 | **5.84** | 4.62 | **6.49** |
+
+GiB needed, cache included. Every default cell fits; the tightest is one-hop at
+$N=30$ with 0.7 GiB to spare.
+
+**Full sharing is on at $N=10$ and opt-in above it** (`--full-sharing`), by the
+user's decision, until hardware allows it. The measurement says it fits at $N=20$,
+and at $N=30$ for the local adapt, but one-hop full at $N=30$ leaves 0.06 GiB --
+too thin to trust over a long run. ⚠ *This corrects the estimate this note first
+carried*: extrapolating X24's 3.43 GiB at $N=10$ predicted 9--10 GiB for one variant
+at $N=30$, where 4.6 and 6.5 were measured. X24's figure evidently included costs
+that do not scale with $N$, and the earlier "two sets" estimate was the closer one.
+
+**No reproduction check against P5.3.** It was planned while the $N=10$ cell would
+have shared P5.3's graphs; with conditioned draws it cannot, and $N=10$'s own results
+exist at $T=1500$ already. $N=10$ is still re-run here, because a settled error read
+over steps 400--500 is not comparable with one read over 1200--1500.
+
+🔄 Open until the run: the results.
 
 ### ✅ D113. What a quoted $t$ tests, and three things the reports got wrong about it
 

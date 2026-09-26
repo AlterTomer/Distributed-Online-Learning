@@ -607,6 +607,68 @@ def test_deterministic_topologies_ignore_the_seed() -> None:
     assert torch.equal(a.adjacency, b.adjacency)
 
 
+# --------------------------------------------------------------------------- #
+# the mixing-gap band (D114)
+# --------------------------------------------------------------------------- #
+
+BAND_N, BAND_P = 20, 0.224
+
+
+def plain_draws(seed: int, count: int) -> list[Graph]:
+    """The sequence of unbanded draws one generator yields -- the band must pick from it."""
+    generator = torch.Generator().manual_seed(seed)
+    return [build_graph("erdos_renyi", BAND_N, "metropolis", {"p": BAND_P}, generator)
+            for _ in range(count)]
+
+
+def banded(seed: int, band: list[float], draws: int = 3) -> Graph:
+    params = {"p": BAND_P, "mixing_gap_band": band, "band_draws": draws}
+    return build_graph("erdos_renyi", BAND_N, "metropolis", params,
+                       torch.Generator().manual_seed(seed))
+
+
+def test_the_band_keeps_the_first_draw_that_lands_inside_it() -> None:
+    """A band around draw 2's gap that excludes draw 1's must return draw 2 exactly."""
+    for seed in range(50):
+        first, second = plain_draws(seed, 2)
+        if abs(first.mixing_gap - second.mixing_gap) > 0.02:
+            break
+    else:  # pragma: no cover - 50 seeds without a separated pair would be astonishing
+        pytest.fail("no seed gave two draws with separated mixing gaps")
+    band = [second.mixing_gap - 0.005, second.mixing_gap + 0.005]
+    assert torch.equal(banded(seed, band).adjacency, second.adjacency)
+
+
+def test_the_band_keeps_the_last_draw_when_none_lands_inside_it() -> None:
+    """The bounded rule: after `band_draws` misses the last draw is used regardless."""
+    third = plain_draws(3, 3)[-1]
+    result = banded(3, [0.999, 1.0], draws=3)  # unreachable for a sparse ER graph
+    assert torch.equal(result.adjacency, third.adjacency)
+    assert result.mixing_gap < 0.999
+
+
+def test_a_draw_inside_the_band_on_the_first_try_is_the_plain_draw() -> None:
+    first = plain_draws(5, 1)[0]
+    assert torch.equal(banded(5, [0.0, 1.0]).adjacency, first.adjacency)
+
+
+def test_the_band_does_not_modify_the_callers_params() -> None:
+    params = {"p": BAND_P, "mixing_gap_band": [0.0, 1.0], "band_draws": 3}
+    build_graph("erdos_renyi", BAND_N, "metropolis", params, torch.Generator().manual_seed(0))
+    assert params == {"p": BAND_P, "mixing_gap_band": [0.0, 1.0], "band_draws": 3}
+
+
+@pytest.mark.parametrize(
+    ("band", "draws"),
+    [([0.2, 0.1], 3), ([0.1], 3), ("wide", 3), ([-0.1, 0.2], 3), ([0.1, 1.5], 3),
+     ([0.1, 0.2], 0), ([0.1, 0.2], 2.5), ([0.1, 0.2], True)],
+)
+def test_a_malformed_band_is_rejected(band: object, draws: object) -> None:
+    params = {"p": BAND_P, "mixing_gap_band": band, "band_draws": draws}
+    with pytest.raises(GraphError):
+        build_graph("erdos_renyi", BAND_N, "metropolis", params, torch.Generator().manual_seed(0))
+
+
 def test_weights_are_float64_by_default() -> None:
     """The exactness check compares at 1e-12; float32 combination weights would
     spend a third of that budget before the gradients are even involved."""
