@@ -402,6 +402,19 @@ class CentralizedEKF:
 
     # -- what no SGD baseline can report ------------------------------------ #
 
+    def belief_stages(self) -> tuple[str, ...]:
+        """One belief and no combine, so there is no pre-combine stage to score."""
+        return ("post",)
+
+    def belief(self, node: int, stage: str = "post") -> tuple[torch.Tensor, torch.Tensor]:
+        r"""$(\bm m,\bm P)$ -- the same pooled belief for every agent."""
+        if stage != "post":
+            raise FilterError(f"{self._name} has no combine, so no {stage!r} belief")
+        self._check_initialised()
+        self._check_node(node)
+        assert self._mean is not None and self._covariance is not None
+        return self._mean, self._covariance
+
     def logit_covariance(self, node: int, x: torch.Tensor) -> torch.Tensor:
         r"""$\bm H\bm P\bm H^{\mathsf T}$ per sample, shape ``(n, q, q)``.
 

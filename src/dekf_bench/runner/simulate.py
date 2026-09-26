@@ -28,7 +28,7 @@ from typing import Any
 import torch
 
 from dekf_bench.env.environment import Environment, pool
-from dekf_bench.evaluation import protocol
+from dekf_bench.evaluation import belief, protocol
 from dekf_bench.evaluation.evalsets import EvalSetBuilder
 from dekf_bench.learners.registry import POOLING
 from dekf_bench.metrics import disagreement
@@ -163,6 +163,7 @@ def run(
         observations = environment.step(step)
         pooled_x, pooled_y = pool(observations)
         full_eval = protocol.should_evaluate(step, config.run.eval_every, environment.horizon)
+        score_beliefs = belief.due(config, step, environment.horizon, full_eval)
 
         for name, learner in learners.items():
             # Test-then-train: score first, on the batch about to be learned
@@ -170,6 +171,11 @@ def run(
             preq = protocol.prequential(observations, learner.predict, likelihood, step=step)
             rows = preq.as_rows()
 
+            # P5.14 scores the belief before combine as well as after, so the
+            # filter is asked to keep it -- on this step only, since under full
+            # sharing it holds N more p x p matrices.
+            if score_beliefs and hasattr(learner, "retain_pre_combine"):
+                learner.retain_pre_combine = True
             _advance(learner, name, observations, nodes, weights, pooled_x, pooled_y)
 
             if full_eval:
@@ -185,6 +191,11 @@ def run(
                 )
                 rows.extend(scores.as_rows())
                 rows.extend(_disagreement_rows(learner, learners, nodes, step))
+            if score_beliefs and belief.scoreable(learner):
+                rows.extend(belief.evaluate(evalsets, learner, config, step, nodes,
+                                            environment.seeds))
+            if hasattr(learner, "release_pre_combine"):
+                learner.release_pre_combine()
 
             # Cumulative communication, so F2 plots error against it directly
             # rather than joining against the ledger.

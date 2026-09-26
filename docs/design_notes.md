@@ -4106,6 +4106,81 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### 🔄 D120. P5.11 / P5.14: the belief is scored, and $\kappa^\star$ measures the covariance before and after combine
+
+Written 2026-09-26/27, before any cell ran; this note and the docstring of
+`scripts/run_belief_calibration.py` are the [[D118]] record.
+
+**What was missing.** Every calibration number since phase 1 is plug-in — softmax
+of the mean — which any point estimator has ([[D80]]). `logit_covariance` and the
+probit and Monte Carlo predictives existed and nothing called them, so the filter's
+claim to know what it does not know was unmeasured. And `lem:conservative` had only
+an indirect answer: D88's $\beta$ sweep, full sharing only, since $\beta$ is inert
+under mean-only sharing ([[D85]]).
+
+**One measurement for both questions: $\kappa^\star$.** The scale on the covariance
+that minimises held-out NLL of the belief's predictive,
+$\int\operatorname{softmax}(\bm h)\,\mathcal N(\bm h;\bm h(\bm m),\kappa\bm H\bm P\bm
+H^{\mathsf T})$ (`metrics/belief.py`). One means calibrated, below one conservative,
+above one over-confident. The scan runs through the probit approximation over
+$\kappa\in\{0\}\cup[10^{-4},10^4]$ at 0.05-decade steps; the Monte Carlo predictive
+over the full covariance is scored at $\kappa=1$ beside it (D63). For a Gaussian
+likelihood the scan runs on the exact $\kappa\bm H\bm P\bm H^{\mathsf T}+\bm R$.
+
+**P5.14 becomes before-and-after.** The diffusion filter can now keep its
+pre-combine belief $(\bm\psi_v,\bm P^{\psi}_v)$ for one step (`retain_pre_combine`,
+set by the runner only when it will score it; under full sharing it costs $Np^2$).
+If the agents' errors were independent, averaging would shrink the error by about
+$|\mathcal M_v|$ while the covariance stayed put, and $\kappa^\star$ would fall by that
+factor across the combine; if they coincide it does not move. This covers the
+mean-only variants, which the lemma's own combine does not.
+
+**Where it runs.** Every full evaluation over the settled window, every agent, both
+stages, on the first 1000 images of `current` (`eval.belief_calibration`, off by
+default, so no existing run changes). The Jacobians are the cost: about
+$1.7\times10^{11}$ flops per agent per stage, well under a minute of GPU per
+learner-seed over the window. Cells: IID, ER 0.3, $N=10$, $T=1500$, five seeds,
+stationary and abrupt, evaluations every 10 steps; the filters in cell a (with the
+SGD baselines) and b (full sharing), AdamW in its own cell behind [[D119]]'s gate.
+
+**Named before the run:**
+
+1. Does the belief beat the plug-in? `belief_nll − plugin_nll` per filter, Holm across
+   five. Predicted negative for the centralised filter; no direction for diffusion.
+2. Is the bound tight? $\log_{10}\kappa^\star_{\text{pre}}-\log_{10}\kappa^\star_{\text{post}}$
+   per diffusion filter, TOST at $\pm0.3$ decades — half the $\log_{10}|\mathcal M_v|
+   \approx0.6$ independence would give — Holm across four. Predicted tight (D88).
+3. Is the pre-combine belief consistent (the lemma's premise)? $\log_{10}\kappa^\star$
+   against 0, Holm across five. No prediction.
+
+**⚠ The raw $\kappa^\star$ may sit at 0 on MNIST, and a rule for that is fixed in
+advance.** A covariance can only soften a prediction, and every filter's plug-in mean
+is already under-confident at the tuned setting — over-confidence −0.029 to −0.036
+(centralised), −0.036 to −0.040 (local adapt), −0.016 to −0.020 (one-hop), against
+ATC's −0.003 to −0.014, read from the X20 and N>10 cells. Then no positive $\kappa$
+helps and $\kappa^\star=0$ whatever $\bm P$ is, and a pre-minus-post of $0-0$ would
+read as "tight". So: **if $\kappa^\star=0$ in more than half of a filter's scored
+evaluations in a stage a question reads, questions 2 and 3 are undecidable for that
+filter on MNIST**, its row says so and spends no alpha, and P5.14 rests on
+Mackey–Glass. The floor is not guaranteed — a synthetic belief with a soft mean but
+a strongly informative spread gave $\kappa^\star=0.35$
+(`tests/test_belief_calibration.py`) — so the rule is applied to what is measured.
+
+**The tempered reading, exploratory (decided with the user 2026-09-27).** First the
+temperature $\tau^\star$ that calibrates the plug-in mean, then the $\kappa$ scan on
+the tempered predictive $\bm h/\tau^\star$ with variance $\kappa\bm\sigma^2/\tau^{\star2}$.
+It asks whether the per-input spread of $\bm P$ is the right size once the mean's
+global miscalibration is removed — answerable where the raw reading floors, but not
+the pure scale of $\bm P$, since $\tau^\star$ absorbs part of the uncertainty. Hence
+exploratory. On a synthetic case built for it the raw $\kappa^\star$ floors and the
+tempered one finds 0.28.
+
+**Mackey–Glass** gets the same pre-combine hook and the Gaussian scan on mg-task,
+where the predictive is exact and question 2 has no floor.
+
+🔄 Open until the runs: `run_belief_calibration.py --lr`, then the main pass; the
+Mackey–Glass half next.
+
 ### 🔄 D119. The AdamW pass starts with N>10: own grid, own cell, a gate, two questions named in advance
 
 Decided 2026-09-26: every figure the paper carries must include the AdamW baselines,

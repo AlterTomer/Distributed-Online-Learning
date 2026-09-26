@@ -203,6 +203,12 @@ class DiffusionEKF:
         #: because $n$ is a property of the environment. The largest seen, which
         #: under the fixed $n$ of every benchmark here is every agent's.
         self._batch_scalars = 0
+        #: P5.14: when set, the next combine keeps each agent's pre-combine belief
+        #: $(\bm\psi_v,\bm P^{\psi}_v)$ so it can be scored beside the combined one.
+        #: Off by default and set per step by the runner, because under full
+        #: sharing holding the old covariances costs another $Np^2$ scalars.
+        self.retain_pre_combine = False
+        self._pre_combine: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
 
     # -- identity ----------------------------------------------------------- #
 
@@ -380,6 +386,10 @@ class DiffusionEKF:
         cov_psi = {node: self._states[node].extras["P"] for node in order}
         if self.adapt_scope == "one_hop":
             psi, cov_psi = self._one_hop_update(order, mixing)
+        # References, not copies: nothing below writes into these tensors, and the
+        # next step's predict replaces or offsets them only after they are scored.
+        self._pre_combine = ({node: (psi[node], cov_psi[node]) for node in order}
+                             if self.retain_pre_combine else {})
 
         # Every new value is read from the old messages before any is written
         # back: an agent combined earlier must not feed its updated belief to one
@@ -620,6 +630,37 @@ class DiffusionEKF:
         )
 
     # -- what no SGD baseline can report ------------------------------------ #
+
+    def belief_stages(self) -> tuple[str, ...]:
+        """The beliefs this learner can be scored at: after combine, and before it."""
+        return ("post", "pre")
+
+    def belief(self, node: int, stage: str = "post") -> tuple[torch.Tensor, torch.Tensor]:
+        r"""$(\bm m_v,\bm P_v)$ after combine, or $(\bm\psi_v,\bm P^{\psi}_v)$ before it.
+
+        ``pre`` exists only after a combine run with `retain_pre_combine` set.
+        Under mean-only sharing the two covariances are the same matrix and only
+        the mean differs, which is exactly what P5.14 exploits: if averaging the
+        means shrinks the error while $\bm P$ stays put, the combined belief turns
+        conservative, and by how much says how independent the agents' errors were.
+        """
+        self._check_initialised()
+        self._check_node(node)
+        if stage == "post":
+            return self._states[node].theta, self._states[node].extras["P"]
+        if stage == "pre":
+            if node not in self._pre_combine:
+                raise FilterError(
+                    "no pre-combine belief is held: set retain_pre_combine before the "
+                    "combine whose input should be scored"
+                )
+            return self._pre_combine[node]
+        raise FilterError(f"unknown belief stage {stage!r}; have 'post' and 'pre'")
+
+    def release_pre_combine(self) -> None:
+        """Drop the retained beliefs, and stop retaining them."""
+        self.retain_pre_combine = False
+        self._pre_combine = {}
 
     def logit_covariance(self, node: int, x: torch.Tensor) -> torch.Tensor:
         r"""$\bm H_v\bm P_v\bm H_v^{\mathsf T}$ per sample, at agent ``node``."""

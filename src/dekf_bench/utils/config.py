@@ -618,8 +618,31 @@ class EvalConfig:
     #: and deriving the step is the same move D3 makes for alpha.
     backward_separation_degrees: float = 15.0
     batch_size: int = 1000
+    #: P5.11 / P5.14: score the filters' *beliefs* -- the predictive through
+    #: H P H^T, not softmax of the mean -- and the covariance scale kappa* that
+    #: minimises its NLL, after combine and before it (metrics/belief.py). Off by
+    #: default: it needs every sample's Jacobian, which no other metric does.
+    belief_calibration: bool = False
+    #: The first this many images of the `current` set, the same ones every time.
+    belief_subset: int = 1000
+    #: Scored at full evaluations from this fraction of the horizon on -- the
+    #: settled window every other headline number is read over.
+    belief_from: float = 0.8
+    #: Draws for the Monte Carlo check on the probit approximation.
+    belief_mc_samples: int = 256
 
     def __post_init__(self) -> None:
+        if self.belief_subset < 1:
+            raise ConfigError(f"eval.belief_subset must be >= 1, got {self.belief_subset}")
+        if not 0.0 <= self.belief_from < 1.0:
+            raise ConfigError(f"eval.belief_from must lie in [0, 1), got {self.belief_from}")
+        if self.belief_mc_samples < 1:
+            raise ConfigError(
+                f"eval.belief_mc_samples must be >= 1, got {self.belief_mc_samples}")
+        if self.belief_calibration and "current" not in self.evalsets:
+            raise ConfigError(
+                "eval.belief_calibration scores the `current` set, so eval.evalsets must "
+                "include it")
         for name in self.evalsets:
             _one_of(name, EVALSETS, "eval.evalsets")
         if len(set(self.evalsets)) != len(self.evalsets):
