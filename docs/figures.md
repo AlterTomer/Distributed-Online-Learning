@@ -842,6 +842,9 @@ $N$ growing to the right: both shares fall, only local adapt's gap rises. That i
 the answer to "one-hop only scales because degree grows with $N$" — degree grows
 (2.92 / 4.34 / 4.59) and one-hop's share still halves.
 
+**Exploratory throughout** ([[D118]]), and titled so: every panel is a check chosen
+after the run, so none of it can be cited as confirmatory.
+
 ## 17. Still to come
 
 **F11** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is
