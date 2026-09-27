@@ -4251,6 +4251,13 @@ Exploratory: full sharing, the time course normalised by
 $\lVert\boldsymbol\theta^{\text{C}}\rVert^2$, and the SGD-referenced $E_{\text{cent}}$
 beside the new one.
 
+Smoked 2026-09-28 (3 min, CPU): all six cells run, and `e_cent_filter` and the offset are
+recorded and reported. The gate's premise was checked directly on the stationary cells:
+the smoke's evaluations at steps 0–15 equal P5.3's to 0.0e+00, for all three filters and for
+the centralised filter added to the b cell as its reference, checked against the a source.
+The report's SGD-referenced E_cent column now reads the *source* cells, which carried
+`centralized_sgd`; the rebuilt cells hold filters only, and it showed NaN.
+
 🔄 Open until the run: `python scripts/run_disagreement.py`.
 
 ### 🔄 D133. The float32 probe: the case for float64 was never measured, and part of it was never cited

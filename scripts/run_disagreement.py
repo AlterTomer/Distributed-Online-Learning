@@ -262,9 +262,13 @@ def report(suffix: str = "") -> None:
         for learner in [*MEAN_ONLY, *FULL_SHARING]:
             agree = mean(_metric(condition, learner, "e_agree", suffix))
             offset = mean(_offset(condition, learner, suffix))
-            vs_sgd = mean(_metric(condition, learner, "e_cent", suffix))
+            # Recorded in the *source* cell, which carried centralized_sgd; the rebuilt
+            # cells hold filters only. P5.3's and P5.7's b cells had no SGD reference.
+            vs_sgd = (mean(per_seed(SOURCES[condition]["a"], learner, "e_cent"))
+                      if learner in MEAN_ONLY else float("nan"))
+            shown = f"{vs_sgd / norm:>10.2e}" if vs_sgd == vs_sgd else f"{'-':>10}"
             print(f"    {condition:<11}{learner:<36}{agree / norm:>10.2e}{offset / norm:>10.2e}"
-                  f"{vs_sgd / norm:>10.2e}")
+                  f"{shown}")
     if suffix:
         return
 
