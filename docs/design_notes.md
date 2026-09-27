@@ -4326,6 +4326,13 @@ Mackey–Glass their data depend on the horizon (D129), so they become an end-to
 read as samples. The same smoke crashed on MNIST, whose image environment has no
 `.device`; fixed.
 
+Re-smoked 2026-09-28 (30 steps, CPU, one θ₀ for both precisions): the mean's drift is
+6e-6 to 3e-4 on Mackey–Glass and about 5e-7 on MNIST. λ_min/λ_max of agent 0's P is
+identical to three figures in float32 and float64 for every filter, and the settled error
+and `variance_ratio` agree to five and four decimals. Only the speed criterion fails,
+at 1.5–1.9× on CPU. The 2× bar is for the GPU, where FP64 runs at 1/64 of FP32. Promising;
+nothing is decided before the full run.
+
 🔄 Open until the run: after M12b, on each branch, `python scripts/run_float32_probe.py
 --device cuda --full-sharing` (lockstep, ~1–1.5 h), then `--cells --device cuda --full-sharing`.
 
