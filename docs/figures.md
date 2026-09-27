@@ -1030,6 +1030,26 @@ of the smallest, from the same two channels. The mechanism is partial
 unidentifiability: the learner sees one effective scale and cannot attribute it, so
 opposed scale drifts largely annihilate each other's evidence (D109).
 
+### MG18 — M12b at ten seeds: the ordering holds, and nothing is established
+
+D121's final look (`make_mg_drift_figures.py mg18`; tables beside it as
+`MG18_m12b_ten_seeds_tables.{md,csv}` in the Diff-EKF folder). The abrupt schedule,
+seeds 0–4 pooled with the pre-registered top-up 5–9, the `current` set.
+
+**Left, the confirmatory family:** β+gain, anti − correlated and independent −
+correlated, per learner, with 95% intervals, ten seed dots and $p_\text{holm}$ across six
+at the final $\alpha=0.025$. Every bar is negative. In every learner independent sits
+between anti and zero, the ordering predicted before the run. None clears the bar:
+local adapt's $p_\text{holm}=0.0251$ misses by $10^{-4}$. The figure prints the unrounded
+value, because the report's 0.025 reads as a pass.
+
+**Right, exploratory:** anti − correlated for all three pairs, Holm across 18 at 0.05;
+none survives. β+bias is negative for all six learners, as at five seeds; gain+bias is
+null.
+
+⚠ The title says "nothing is established", and the figure must not be captioned as a
+finding about coupling: that reading is *suggestive* in D118's tiers, not established.
+
 ## 16. Still to come
 
 **F11** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is

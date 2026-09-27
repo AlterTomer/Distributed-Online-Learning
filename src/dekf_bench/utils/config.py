@@ -854,6 +854,32 @@ class EvalConfig:
 
 
 @dataclass
+class CommConfig:
+    """What every diffusing learner's messages look like on arrival (Track C).
+
+    Applied identically to every diffusing learner in the run -- filter and gradient
+    baselines alike -- because a compressor given to one side only is not a
+    comparison (`docs/communication_plan.md` §5). ``none`` is exact, the arithmetic of
+    every run before the channel existed. Stochastic rounding draws from its own seed
+    stream per learner, so a compressed cell and its exact twin share every data draw.
+    """
+
+    compressor: str = "none"
+    #: Bits per value for ``stochastic``; ignored by the casts, which carry their own.
+    precision: int = 8
+
+    def __post_init__(self) -> None:
+        from dekf_bench.compression import COMPRESSORS, STOCHASTIC_BITS  # noqa: PLC0415
+
+        _one_of(self.compressor, COMPRESSORS, "comm.compressor")
+        low, high = STOCHASTIC_BITS
+        if self.compressor == "stochastic" and not low <= self.precision <= high:
+            raise ConfigError(
+                f"comm.precision must lie in [{low}, {high}] bits for stochastic rounding, "
+                f"got {self.precision}")
+
+
+@dataclass
 class Config:
     """A fully resolved configuration. Everything needed to reproduce one run."""
 
@@ -864,6 +890,7 @@ class Config:
     reference: ReferenceConfig = field(default_factory=ReferenceConfig)
     learners: list[LearnerConfig] = field(default_factory=lambda: [LearnerConfig()])
     eval: EvalConfig = field(default_factory=EvalConfig)
+    comm: CommConfig = field(default_factory=CommConfig)
 
     def __post_init__(self) -> None:
         if not self.learners:

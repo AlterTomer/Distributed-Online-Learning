@@ -29,12 +29,17 @@ import torch
 
 # `pool` is re-exported: the runner now asks the environment for its pooled batch,
 # but callers (and tests) import the image version from here.
+from dekf_bench.compression import Channel, data_bits, working_bits
 from dekf_bench.env.environment import Environment, pool  # noqa: F401
 from dekf_bench.evaluation import belief, protocol
 from dekf_bench.evaluation.evalsets import EvalSetBuilder
 from dekf_bench.learners.registry import POOLING
 from dekf_bench.metrics import disagreement
 
+#: The pooled filters, in the order one becomes the filters' own E_cent reference
+#: (P5.12, D134). The random walk first: where a run carries both, as M6 does, the
+#: gamma = 0.9995 twin is a reference line, not the tuned filter.
+FILTER_REFERENCES = ("centralized_ekf_walk", "centralized_ekf_gamma")
 #: The learner an experiment compares everything else against, when present.
 REFERENCE_LEARNER = "centralized_sgd"
 
@@ -140,13 +145,21 @@ def run(
 
     for learner in learners.values():
         learner.init(theta0)
+    _attach_channels(config, learners, environment.seeds)
 
     # Resume where a previous run stopped, if it did. Exact rather than
     # approximate: the loop consumes no randomness, so there is no RNG state to
-    # restore (design note D38).
+    # restore (design note D38). Stochastic rounding is the one exception, so a
+    # compressed run refuses to resume rather than redraw.
     start_step = recorder.resume(learners) if recorder is not None else 0
     if start_step:
+        if config.comm.compressor == "stochastic":
+            raise SimulationError(
+                "a run with stochastic rounding cannot resume: its channel draws from a "
+                "generator whose state the checkpoint does not hold. Re-run it from step 0.")
         print(f"  resuming from step {start_step}")
+    pricing = _bit_prices(config)
+    cum_bits = {name: 0 for name in learners}
 
     nodes = list(range(environment.n_nodes))
     n_edges = environment.graph.n_edges
@@ -180,7 +193,16 @@ def run(
             # sharing it holds N more p x p matrices.
             if score_beliefs and hasattr(learner, "retain_pre_combine"):
                 learner.retain_pre_combine = True
+            channel = getattr(learner, "channel", None)
+            sent_before = (channel.bits, channel.scalars) if channel is not None else (0, 0)
             _advance(learner, name, observations, nodes, weights, pooled_x, pooled_y)
+            bits_this_step = _step_bits(learner, name, channel, sent_before, n_edges, pricing)
+            if step == start_step and start_step:
+                # A resumed run starts its running sum where the scalar column would:
+                # exact whenever the per-step cost is constant, which it is for every
+                # compressor here (only a frozen learner changes it, and to zero).
+                cum_bits[name] = bits_this_step * start_step
+            cum_bits[name] += bits_this_step
 
             if full_eval:
                 scores = protocol.full_evaluate(
@@ -210,6 +232,7 @@ def run(
                     **row,
                     "learner": name,
                     "cum_scalars_tx": per_step * (step + 1),
+                    "cum_bits_tx": cum_bits[name],
                     "cum_rounds": (step + 1) if per_step else 0,
                 }
                 for row in rows
@@ -248,6 +271,51 @@ def _predictive_variance(learner: Any, likelihood: Any):
     return variance
 
 
+def _attach_channels(config: Any, learners: dict[str, Any], seeds: Any) -> None:
+    """Give every diffusing learner the run's compressor (compression.py, Track C).
+
+    One channel per learner, each with its own seed stream when it rounds
+    stochastically, so adding or removing a learner cannot change another's draws.
+    """
+    for name, learner in learners.items():
+        if not hasattr(learner, "channel"):
+            continue
+        stochastic = config.comm.compressor == "stochastic"
+        learner.channel = Channel(
+            compressor=config.comm.compressor,
+            precision=config.comm.precision,
+            generator=seeds.torch_generator("channel", name) if stochastic else None,
+        )
+
+
+def _bit_prices(config: Any) -> dict[str, int]:
+    """Bits per scalar for what does not go through the channel (C-1, C-8)."""
+    dtype = getattr(torch, config.run.dtype)
+    return {"covariance": working_bits(dtype), "prior": working_bits(dtype),
+            "data": data_bits(config.env.dataset, dtype)}
+
+
+def _step_bits(learner: Any, name: str, channel: Any, before: tuple[int, int],
+               n_edges: int, pricing: dict[str, int]) -> int:
+    """This step's bits: the channel's, plus the rest of the payload at its own price.
+
+    Checks the channel mixed exactly the vector scalars the learner's ledger declares,
+    which is what keeps the bits column and the scalar column describing one run.
+    """
+    if not hasattr(learner, "comm_payload"):
+        return 0
+    payload = learner.comm_payload(n_edges)
+    mixed_bits = channel.bits - before[0] if channel is not None else 0
+    mixed_scalars = channel.scalars - before[1] if channel is not None else 0
+    if mixed_scalars != payload.get("vectors", 0):
+        raise SimulationError(
+            f"{name}: the channel mixed {mixed_scalars} vector scalars this step but the "
+            f"ledger declares {payload.get('vectors', 0)}. A learner is mixing something "
+            "it does not pay for, or paying for something it does not mix.")
+    return mixed_bits + sum(count * pricing[kind] for kind, count in payload.items()
+                            if kind != "vectors")
+
+
 def _advance(
     learner: Any,
     name: str,
@@ -263,6 +331,11 @@ def _advance(
     agent's batch rather than adapting per agent. That is not a wart in the
     interface -- it is the definition of those methods, and `pool()` builds the
     union the X0 identity is stated over.
+
+    A learner that holds a covariance also gets ``e_cent_filter``, the same
+    distance to the pooled *filter* (P5.12): centralised SGD is the wrong
+    reference for asking whether a diffusion filter's agents approach the
+    centralised belief. Omitted by the same rule.
 
     Dispatched on membership in `POOLING` rather than on the reference learner's
     name, because the centralized EKF is pooled for exactly the same reason
@@ -290,7 +363,14 @@ def _disagreement_rows(
     centralized = (
         reference.flat_params(0) if reference is not None and learner is not reference else None
     )
-    measured = disagreement.measure(parameters, centralized)
+    pooled_filter = next((learners[n] for n in FILTER_REFERENCES if n in learners), None)
+    holds_covariance = "P" in learner.state(nodes[0]).extras
+    filter_centre = (
+        pooled_filter.flat_params(0)
+        if pooled_filter is not None and learner is not pooled_filter and holds_covariance
+        else None
+    )
+    measured = disagreement.measure(parameters, centralized, filter_centre)
     return [{**row, "t": step, "node_id": "mean"} for row in measured.as_rows()]
 
 

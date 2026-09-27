@@ -460,6 +460,30 @@ def test_the_centralized_reference_never_disagrees(data) -> None:
     assert rows and all(row["value"] == pytest.approx(0.0, abs=1e-30) for row in rows)
 
 
+def test_a_diffusion_filter_is_measured_against_the_pooled_filter(data) -> None:
+    """P5.12 (D134). `e_cent` measures everything against centralised SGD, the wrong
+    reference for a filter; `e_cent_filter` measures a covariance-holding learner
+    against the pooled filter instead. Present for the diffusion filter, absent for
+    the pooled filter itself and for SGD, and never below E_agree -- the exact split
+    E_cent = E_agree + |mean - reference|^2 makes that a check on the wiring."""
+    pieces = setup(data=data, learners=["centralized_ekf_gamma", "diffusion_ekf",
+                                        "centralized_sgd", "diffusion_sgd_atc"])
+    records = execute(*pieces, stop_after=STEPS - 1)
+
+    def by_step(name: str, metric: str) -> dict[int, float]:
+        return {record.step: row["value"] for record in records for row in record.rows
+                if record.learner == name and row["metric"] == metric}
+
+    against_filter = by_step("diffusion_ekf", "e_cent_filter")
+    agree = by_step("diffusion_ekf", "e_agree")
+    assert against_filter and set(against_filter) == set(agree)
+    assert all(against_filter[s] >= agree[s] - 1e-12 for s in against_filter)
+    for name in ("centralized_ekf_gamma", "centralized_sgd", "diffusion_sgd_atc"):
+        assert not by_step(name, "e_cent_filter"), name
+    # And the old metric is untouched: the filter is still measured against SGD too.
+    assert by_step("diffusion_ekf", "e_cent")
+
+
 def test_local_only_disagrees_and_diffusion_less_so(data) -> None:
     """The value of cooperation, in one assertion: with no communication the
     agents drift apart, and the combine step is what holds them together."""

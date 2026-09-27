@@ -18,6 +18,16 @@ coincide". Sharing $\\bm\\theta_0$ makes $E_{\\mathrm{cent}}(0) = 0$ exactly, so
 the metric measures algorithmic divergence and nothing else. It is also what
 WORKPLAN §4.5 mandates for every learner in a run.
 
+**Filters get a second reference, $E_{\\mathrm{cent}}^{\\mathrm{filter}}$** (P5.12, D134).
+$E_{\\mathrm{cent}}$ measures every learner against centralised SGD, which for a
+diffusion *filter* asks the wrong question: whether its agents approach the
+centralised *filter* is what P5.12 needs. The same formula with the pooled filter as
+$\\bm\\theta^{\\mathrm C}$, recorded as ``e_cent_filter`` beside the unchanged
+``e_cent``. It splits exactly,
+$E_{\\mathrm{cent}} = E_{\\mathrm{agree}} + \\lVert\\bar{\\bm\\theta}_t-\\bm\\theta^{\\mathrm C}_t\\rVert^2$,
+so its excess over $E_{\\mathrm{agree}}$ is how far the network's *consensus* sits
+from the centralised belief: agents that agree with each other but not with it.
+
 **Both are absolute, not normalised.** They are squared distances in parameter
 space and therefore scale with $p$ and with the weight magnitudes. The norm
 $\\lVert\\bar{\\bm\\theta}_t\\rVert^2$ is logged alongside so any normalisation --
@@ -96,6 +106,7 @@ class Disagreement:
     e_cent: float | None
     mean_norm_squared: float
     max_pairwise: float
+    e_cent_filter: float | None = None
 
     def as_rows(self) -> list[dict[str, float | str]]:
         rows: list[dict[str, float | str]] = [
@@ -105,11 +116,15 @@ class Disagreement:
         ]
         if self.e_cent is not None:
             rows.append({"metric": "e_cent", "value": self.e_cent})
+        if self.e_cent_filter is not None:
+            rows.append({"metric": "e_cent_filter", "value": self.e_cent_filter})
         return rows
 
 
 def measure(
-    parameters: dict[int, torch.Tensor], centralized: torch.Tensor | None = None
+    parameters: dict[int, torch.Tensor],
+    centralized: torch.Tensor | None = None,
+    filter_reference: torch.Tensor | None = None,
 ) -> Disagreement:
     """All the disagreement quantities for one step.
 
@@ -123,4 +138,6 @@ def measure(
         e_cent=None if centralized is None else e_cent(parameters, centralized),
         mean_norm_squared=float((mean**2).sum()),
         max_pairwise=max_pairwise_distance(parameters),
+        e_cent_filter=(None if filter_reference is None
+                       else e_cent(parameters, filter_reference)),
     )

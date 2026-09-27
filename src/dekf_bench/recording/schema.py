@@ -75,6 +75,9 @@ COLUMNS: dict[str, str] = {
     "n_samples": "int",
     # communication, cumulative to this step
     "cum_scalars_tx": "int",
+    #: Track C: bits, not scalars -- the channel's compressed vectors plus whatever
+    #: else the learner sends at its own precision (compression.py).
+    "cum_bits_tx": "int",
     "cum_rounds": "int",
     "wallclock_s": "float",
 }

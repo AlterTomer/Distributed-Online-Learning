@@ -33,6 +33,7 @@ from typing import Any
 
 import torch
 
+from dekf_bench.compression import Channel, exact_channel
 from dekf_bench.learners.base import Intermediate, LearnerError, LearnerState, loss_gradient
 from dekf_bench.learners.optim_state import Optimizer, mixed_entries
 from dekf_bench.models.base import Model
@@ -65,6 +66,9 @@ class _SGDBase:
         #: the comparison isolates *continued adaptation* from initial learning.
         self.freeze_after = freeze_after
         self._last_step = 0
+        #: What a mixed vector looks like on arrival (Track C). Exact until a run
+        #: attaches a compressor, and exact means the arithmetic of old: `mixing @ X`.
+        self.channel: Channel = exact_channel()
 
     @property
     def name(self) -> str:
@@ -111,6 +115,10 @@ class _SGDBase:
     def comm_scalars_per_step(self, n_edges: int) -> int:
         """Zero for the non-diffusing methods; overridden where it is not."""
         return 0
+
+    def comm_payload(self, n_edges: int) -> dict[str, int]:
+        """The ledger's scalars by kind, for the bits column. SGD sends vectors only."""
+        return {"vectors": self.comm_scalars_per_step(n_edges)}
 
     # -- shared internals --------------------------------------------------- #
 
@@ -229,7 +237,7 @@ class DiffusionSGDATC(_SGDBase):
         # bandwidth to change nothing would distort every plot against cost.
         if self.is_frozen():
             return
-        _combine_states(self._states, intermediates, weights, self.mixed)
+        _combine_states(self._states, intermediates, weights, self.mixed, self.channel)
 
     def comm_scalars_per_step(self, n_edges: int) -> int:
         # Asked once per step, so this reports the warmup cost honestly and
@@ -275,7 +283,7 @@ class DiffusionSGDCTA(_SGDBase):
         return Intermediate(node=node, psi=state.theta.clone(), extras=self._payload(node))
 
     def combine(self, intermediates: dict[int, Intermediate], weights: torch.Tensor) -> None:
-        _combine_states(self._states, intermediates, weights, self.mixed)
+        _combine_states(self._states, intermediates, weights, self.mixed, self.channel)
         for node, gradient in self._pending.items():
             state = self._states[node]
             state.theta = self.optimizer.step(state.theta, gradient, state.extras)
@@ -296,6 +304,7 @@ def _combine_states(
     intermediates: dict[int, Intermediate],
     weights: torch.Tensor,
     mixed: tuple[str, ...],
+    channel: Channel | None = None,
 ) -> None:
     r"""$\bm\theta_v \leftarrow \sum_u a_{vu}\bm\psi_u$, and the same for mixed state.
 
@@ -316,10 +325,11 @@ def _combine_states(
     # from the graph, which has no reason to know where the parameters live, and
     # at N x N the move costs nothing next to the p-vectors it multiplies.
     mixing = weights.to(device=psi.device, dtype=psi.dtype)
-    combined = mixing @ psi
+    channel = channel or exact_channel()
+    combined = channel.mix(mixing, psi)
 
     mixed_stacks = {
-        name: mixing @ torch.stack([intermediates[node].extras[name] for node in order])
+        name: channel.mix(mixing, torch.stack([intermediates[node].extras[name] for node in order]))
         for name in mixed
     }
 
