@@ -4131,8 +4131,9 @@ it).
    drift detector" is not filter-specific: ATC's gradients grow after a shift as well.
    What could be filter-specific is the quiet period. The filter's gain shrinks as
    $\boldsymbol P$ contracts, while ATC's constant step and AdamW's normalised one never
-   quiet. The filter also has a dead zone of its own, $\kappa\sqrt{P_{ii}}$, decided by the
-   sender and needing no $\boldsymbol P$ at the receiver.
+   quiet. The filter also has a dead zone of its own, decided by the sender and needing
+   no $\boldsymbol P$ at the receiver: the plain rule's average threshold $\Delta/2$,
+   redistributed by $\sqrt{P_{ii}}/\overline{\sqrt P}$ (revised below).
 2. **Codebooks are built off the scored runs**, on seeds ≥ 5 (C-10), with the entropy
    bound reported beside the coded length.
 
@@ -4154,6 +4155,18 @@ genuinely rises after a jump and decays (C-11).**
 exists only there. Ported with `sgd.py` and `diffusion_ekf.py` copied (identical to
 main's before C1), and the config, schema and simulator edits applied. mg's full suite:
 1520 passed.
+
+⚠ **Revised 2026-09-28, before any real run: the filter's dead zone as first written was
+no comparison.** Zeroing any change within $\kappa\sqrt{P_{ii}}$ at $\kappa=1$, with
+$\sqrt{P_{ii}}$ near $\sqrt{\sigma_0^2}=0.1$, far above any step's change, sent 99.9–100%
+zeros on both tasks. The copy lagged by 60–1300 steps of $\Delta$, against the plain rule's
+0.29, which is exactly the uniform quantiser's $1/\sqrt{12}$. A near-zero rate bought with
+that much distortion measures nothing. The rule now keeps the plain rule's average
+threshold $\Delta/2$ and redistributes it by $\sqrt{P_{ii}}/\overline{\sqrt P}$ per agent, and
+the report prints each rule's distortion, so matching is checked, not assumed. The
+first smoke's other readings stand: every path runs on both tasks, the moments are
+coded, and one-hop's raw data are reported beside the rate (788 scalars on MNIST, 32 on
+Mackey–Glass). The .tex is updated to match.
 
 🔄 Open until the run: after M12b, on each branch, `python scripts/run_delta_entropy_probe.py
 --device cuda`.

@@ -154,9 +154,13 @@ Two ways to make $\boldsymbol e_v$ cheap, both sender-side and both applied to e
   layer, are preferable to one global scale, because layers differ in range.
 
 **The filter has a scale SGD lacks:** its own uncertainty. It can rank coordinates by
-$\lvert e_i\rvert/\sqrt{P_{ii}}$ for top-$k$, or send as zero any change within
-$\kappa\sqrt{P_{ii}}$, i.e. not news, for the dead zone. Either way the decision is the
-sender's, and amplitudes still travel in absolute units, so a receiver never needs
+$\lvert e_i\rvert/\sqrt{P_{ii}}$ for top-$k$, or, for the dead zone, keep the plain rule's
+*average* threshold $\Delta/2$ and redistribute it by uncertainty:
+$\lvert e_i\rvert<\tfrac{\Delta}{2}\sqrt{P_{ii}}/\overline{\sqrt{P}}$, tighter where the filter
+is sure and looser where it is not. (A raw $\kappa\sqrt{P_{ii}}$ is no comparison: with
+$\sqrt{P_{ii}}\approx0.1$, far above a step's change, it sends almost nothing and lets the
+copy lag by hundreds of steps, a rate bought with distortion; D136.) Either way the
+decision is the sender's, and amplitudes still travel in absolute units, so a receiver never needs
 $\boldsymbol P$, which a mean-only filter does not send. ❓ **C-6:** what does ATC rank by?
 Plain magnitude for SGD, and $\lvert e_i\rvert/\sqrt{v_i}$ for ATC AdamW, its own
 second-moment scale. **Both rules for the filter**, so an uncertainty-scaled gain cannot

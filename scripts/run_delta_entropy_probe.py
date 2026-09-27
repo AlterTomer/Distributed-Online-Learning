@@ -30,11 +30,16 @@ into learning, is C4.
   same for every learner, so every learner faces the same worst-case distortion
   $\Delta/2$ and their rates compare **at matched distortion**. The moments use
   $\varepsilon$ times their own first message's rms. $\varepsilon\in\{10^{-2},10^{-3},10^{-4}\}$.
-* **filter** -- filters only: as plain, and a change within $\kappa\sqrt{P_{ii}}$ of the
-  public copy is sent as zero ($\kappa=1$: a change within one posterior standard
-  deviation is not news). The decision is the sender's, and amplitudes still use
-  $\Delta$, so a receiver never needs $\boldsymbol P$ -- which a mean-only filter does
-  not send.
+* **filter** -- filters only: the same average dead zone as plain, redistributed by the
+  filter's own uncertainty. Coordinate $i$ is sent as zero when
+  $|e_i| < \tfrac{\Delta}{2}\,\sqrt{P_{ii}}/\overline{\sqrt{P}}$, the mean taken over the
+  agent's coordinates: tighter where the filter is sure, looser where it is not, the
+  same on average. Amplitudes still use $\Delta$, and the decision is the sender's, so a
+  receiver never needs $\boldsymbol P$ -- which a mean-only filter does not send.
+  (The first version used a raw $\kappa\sqrt{P_{ii}}$ with $\kappa=1$. With $\sqrt{P_{ii}}$
+  near $\sqrt{\sigma_0^2}=0.1$, far above any one step's change, it sent 99.9% zeros and
+  let the copy lag by 60--1300 steps of $\Delta$: a rate bought with distortion, which
+  is no comparison at all. Replaced 2026-09-28, before any real run.)
 
 ## What it reports (exploratory, one seed)
 
@@ -84,7 +89,6 @@ SOURCES = {
 PROBED = ["diffusion_ekf", "diffusion_ekf_onehop_mean_receiver", "diffusion_ekf_onehop_mean",
           "diffusion_sgd_atc", "diffusion_sgd_atc_plain", "diffusion_atc_adamw"]
 EPSILONS = [1e-2, 1e-3, 1e-4]
-KAPPA = 1.0
 WINDOW = 5
 SMOKE_HORIZON = 30
 
@@ -146,8 +150,11 @@ class RecordingChannel(Channel):
                 change = x - copy
                 symbols = torch.round(change / delta)
                 if rule == "filter":
-                    symbols = torch.where(change.abs() < KAPPA * sqrt_p, torch.zeros_like(symbols),
-                                          symbols)
+                    # The plain rule's dead zone is delta/2 everywhere; this one keeps that
+                    # average and redistributes it by each agent's own posterior sd.
+                    weight = sqrt_p / sqrt_p.mean(dim=1, keepdim=True).clamp_min(1e-300)
+                    symbols = torch.where(change.abs() < 0.5 * delta * weight,
+                                          torch.zeros_like(symbols), symbols)
                 copy.add_(symbols * delta)
                 row = self.series[(k, rule, eps)]
                 row["H"].append(entropy_bits(symbols))
@@ -221,7 +228,7 @@ def report(task: str, suffix: str) -> None:
         print("  Every learner shares Delta = eps * rms(theta_0): matched worst-case distortion.\n")
         for eps in EPSILONS:
             print(f"    eps = {eps:g}")
-            print(f"    {'learner':<40}{'rule':<8}{'run':>7}{'settled':>9}{'zeros':>8}{'dist':>7}")
+            print(f"    {'learner':<40}{'rule':<8}{'run':>7}{'settled':>9}{'zeros':>8}{'dist':>9}")
             for name, series in result["series"].items():
                 for rule in ("plain", "filter"):
                     row = series.get(f"0|{rule}|{eps:g}")
@@ -230,7 +237,7 @@ def report(task: str, suffix: str) -> None:
                     settled = row["H"][settled_from - 1:]
                     print(f"    {name:<40}{rule:<8}{mean(row['H']):>7.2f}{mean(settled):>9.2f}"
                           f"{mean(row['zeros'][settled_from - 1:]):>8.3f}"
-                          f"{mean(row['distortion']):>7.2f}")
+                          f"{mean(row['distortion']):>9.2f}")
             print()
         print("  the moments (ATC's momentum; AdamW's m and v), plain rule, run mean bits/param")
         for name, series in result["series"].items():
@@ -276,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  REFUSED: the probe is built from {missing}, which is not finished.")
         return 1
     print(f"delta probe: {task}, device {args.device}\n", flush=True)
-    result = {"task": task, "seed": args.seed, "epsilons": EPSILONS, "kappa": KAPPA,
+    result = {"task": task, "seed": args.seed, "epsilons": EPSILONS,
               "conditions": {c: run_condition(task, c, args, bool(suffix)) for c in args.conditions}}
     out_file(task, suffix).write_text(json.dumps(result), encoding="utf-8")
     report(task, suffix)
