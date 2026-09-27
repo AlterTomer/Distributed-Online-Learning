@@ -4106,6 +4106,67 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### 🔄 D121. M12b at five seeds: M12's ordering holds on the abrupt schedule, nothing is established, and one pre-registered extension to ten
+
+`scripts/run_m12b_abrupt_coupling.py` (mg branch), six cells × five seeds on the
+recurring abrupt schedule, completed 2026-09-27; read with M12's three
+`independent` cells. **The gate passed:** for every pair the primary channel's path
+is identical per seed across all three couplings, so only the secondary differs
+and both contrasts are clean.
+
+**The confirmatory families** ([[D118]], fixed before the run): β+gain, each
+contrast, Holm across the six learners.
+
+| β+gain, abrupt | the six learners | smallest $p_\text{holm}$ | verdict |
+|---|---|---|---|
+| `anti − correlated` | **all six negative**, $-0.0029$ to $-0.0079$ | 0.123 (diff-EKF local: $t=-3.72$, raw $p=0.020$, 5/5 seeds) | not detected at five seeds |
+| `independent − correlated` | **all six negative**, $-0.0013$ to $-0.0031$ | 0.49 | not detected at five seeds |
+
+Per learner: anti − correlated $-0.0029$ (centralised EKF), $-0.0079$ (local
+adapt), $-0.0046$ (one-hop), $-0.0046$ (centralised AdamW), $-0.0053$ (ATC AdamW),
+$-0.0068$ (local only); independent − correlated $-0.0014$, $-0.0031$, $-0.0015$,
+$-0.0013$, $-0.0022$, $-0.0030$.
+
+**What it says.** M12's cancellation carries over to abrupt shifts *in
+direction* — opposing β and gain is cheaper than aligning them for every learner —
+but smaller and noisier than on the linear schedule, where the contrast ran
+$-0.0037$ to $-0.0146$ and was established for four of six ([[D109]]). This is the
+sixth abrupt cell to return a null at five seeds. And `independent` finally has a
+clean reading: it sits **between anti and zero for all six learners**, exactly as
+predicted — independent opposes the channels about half the time — at a size five
+seeds cannot resolve.
+
+**Exploratory, and against the prediction:** β+bias anti − correlated is also
+negative for all six learners ($-0.0011$ to $-0.0036$), all five seeds negative for
+five of them, raw $p<0.05$ for ATC AdamW ($t=-3.61$) and local only ($t=-3.18$);
+nothing survives Holm across 18. It was predicted null and was null on the linear
+schedule ($-0.0004$ to $+0.0007$). A hypothesis, unverified: standardisation uses
+β = 0.2's constants, so a β drift may also move the standardised *mean*, in which
+case β and bias partly contend for it. The check is the β channel's mean shift at
+full displacement, beside bias's +0.100. gain+bias is null on both contrasts, as
+predicted.
+
+**The extension, fixed now, before any new seed runs.** The anti − correlated
+contrast for local adapt ($-0.0079$, CI $\pm0.0059$) would likely clear at ten
+seeds. Adding seeds after a look is optional stopping, which inflates the
+false-positive rate if repeated, so the extension is confirmatory only under
+three rules set here:
+
+1. **One extension, to exactly ten seeds** (5–9), and none after it, whatever it
+   shows.
+2. **The same families**: β+gain, both contrasts, Holm across the six.
+3. **The second look pays for the first**: the final test is at $\alpha=0.025$,
+   Bonferroni over the two looks.
+
+The new seeds run in separately named `_s5to9` cells — a finished cell asked for
+more seeds returns its cached answer (D101) — for all nine cells the contrasts read,
+M12's three `independent` cells included, and the report pools them by seed (disjoint
+by construction, checked) and prints the confirmatory block at the final $\alpha$.
+Cost ≈ 13.75 h (M12's nine cells). Smoked 2026-09-27: the pooled gate and the
+confirmatory block read both halves.
+
+🔄 Open until the top-up: `run_m12b_abrupt_coupling.py --topup --device cuda`.
+
 ### 🔄 D120. P5.11 / P5.14: the belief is scored, and $\kappa^\star$ measures the covariance before and after combine
 
 Written 2026-09-26/27, before any cell ran; this note and the docstring of

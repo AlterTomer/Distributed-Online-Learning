@@ -198,7 +198,8 @@ the report checks that path is identical per seed rather than assuming it.
 
 | item | cells | GPU | status |
 |---|---|---|---|
-| M12b | 3 pairs × {correlated, anti}, abrupt, 5 seeds | ~9 h (6/9 of M12's 13.75 h) | runner written 2026-09-26 (`scripts/run_m12b_abrupt_coupling.py`, mg branch); **running** since 2026-09-26; confirmatory families fixed in [[D118]] |
+| M12b | 3 pairs × {correlated, anti}, abrupt, 5 seeds | ~9 h (6/9 of M12's 13.75 h) | five seeds done 2026-09-27: gate passed; β+gain anti − correlated and independent − correlated negative for all six learners, as predicted, but **not detected at five seeds** (smallest $p_\text{holm}$ 0.123, 0.49); β+bias unexpectedly negative too, exploratory ([[D121]]) |
+| M12b top-up | seeds 5–9 for all nine cells the contrasts read, M12's independent cells included; the one extension, read at $\alpha=0.025$ ([[D121]]) | ~13.75 h | **next** — `--topup --device cuda` |
 
 ⚠ Abrupt has returned nulls five times at five seeds. These contrasts avoid the reason
 (each seed's twin wandering on its own excursion), so they should resolve better — a
