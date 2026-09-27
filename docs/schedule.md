@@ -91,7 +91,10 @@ only place the filter's advantage is a *rate*: the centralised filter survives t
 $n\in\{1,2,4\}\times\pi_{\text{lab}}\in\{0.25,0.5,1\}$ at $T=750$, AdamW included,
 three questions named in advance; ~12–14 GPU-h plus tuning — more than this tier's
 original estimate, because every diffusion variant and the AdamW cell now run in each
-of nine cells. P5.5 next to write.
+of nine cells. **P5.5 runner ready** too (`scripts/run_break_rate.py`, [[D123]]): the
+ramp and its stationary twin on ER 0.3, baselines tuned on the ramp, damage at 0.10
+°/step as the named reading; ~8–10 GPU-h. The filter's 0.0639 °/step target was
+reproduced from X16 before it was built on.
 
 **Tier 3 — decided 2026-09-15:**
 

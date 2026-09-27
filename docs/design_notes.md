@@ -4106,6 +4106,42 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### 🔄 D123. P5.5: the break rate on ER 0.3, damage at a matched rate as the named reading
+
+`scripts/run_break_rate.py`, written 2026-09-27; this note and its docstring are the
+[[D118]] record.
+
+**The target was reproduced before it was built on.** The phase-5 plan's
+"centralised filter survives to 0.064°/step" had no D-note or results section behind
+it, so it was recomputed from X16's runs (`x9_rate_ramp_ekf` / `x9_control_ekf`)
+paired with X9's, on one noise bar pooled across every adapting learner: the
+centralised filter breaks at **0.0639** °/step against 0.0381–0.0399 for the gradient
+methods, and at the matched rate of 0.10 °/step its damage is **0.021** against
+ATC's 0.036. (On this shared bar ATC breaks at 0.0381, not X9's 0.0436: pooling with
+the filter changes the bar, which is the reason the matched-rate damage is preferred.)
+
+**Two choices, decided with the user.** *ER 0.3, every arm fresh*: the graph the
+diffusion filter was tuned on and the standard since D52; X9's ring numbers stay as
+history. *Baselines tuned on the ramp itself*, by whole-run mean error — the settled
+window of a ramp is its fastest drift and would pick a rate suited to nothing slower
+— and the same rates carried into the stationary twin, since the subtraction is exact
+only when the two runs differ in the drift alone (`assert_paired_runs` is a gate in
+the report). X9's ramp and cadence are unchanged (45°, exponent 6, peak 0.18 °/step
+at $T=1500$, evaluations every 10). `frozen_atc` runs at ATC's tuned rate, frozen at
+300. Cells a / b / adamw, each as a ramp and a twin, with [[D119]]'s merge gate.
+
+**Named before the run:** damage at 0.10 °/step, paired per seed, Holm across five —
+one-hop − ATC (predicted negative), local adapt − ATC (no prediction), one-hop −
+centralised (predicted positive), local adapt − centralised (predicted positive), and
+one-hop − ATC AdamW (predicted negative; cross-cell, so only once the merge gate
+holds). The break rates themselves, on the pooled bar, and the comparative break are
+exploratory: a located rate has no per-seed value to test.
+
+Smoked 2026-09-27 on 40 steps with the freeze moved to mid-horizon (smoke only): both
+gates pass, the reproduction arm at 0.0e+00, every table prints.
+
+🔄 Open until the run: `--lr`, then the main pass (~8–10 GPU-h estimated).
+
 ### 🔄 D122. P5.4: sparse labels, $n\times\pi_{\text{lab}}$, three questions named before the run
 
 `scripts/run_label_sparsity.py`, written 2026-09-27; this note and its docstring are
