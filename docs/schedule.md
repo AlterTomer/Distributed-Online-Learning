@@ -100,7 +100,7 @@ reproduced from X16 before it was built on.
 
 | item | analogue of | what it asks | GPU | decision |
 |---|---|---|---|---|
-| P5.8 | X10 | Prior drift / label shift instead of covariate shift — the other row where per-agent beliefs could win | ~8 h | **kept** |
+| P5.8 | X10 | Prior drift / label shift instead of covariate shift — the other row where per-agent beliefs could win | ~8 h | **kept**; runner ready 2026-09-27 (`run_label_shift.py`, [[D124]]) |
 | P5.23 | — | One `piecewise` cell placing a shift mid-transient, as an adversarial probe | ~3 h | **kept** |
 | P5.6 | X11 | Repeated abrupt shifts on a $J\times t'$ grid. X11 found longer intervals leave *bigger* wounds (0.209 at $J=30$, $t'=200$) | ~3 days | deferred |
 | P5.9 | X14 | The generalisation grid: 21 conditions ($t'\in\{2,\dots,200\}\times J\in\{5,15,20,30\}$, three linear rates, a low-sample block). X14 found the centralised filter less damaged than ATC in 21 of 21 | ~4 days | deferred |

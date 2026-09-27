@@ -4106,6 +4106,35 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### 🔄 D124. P5.8: label shift, the second place per-agent beliefs could win — predicted not to
+
+`scripts/run_label_shift.py`, written 2026-09-27; this note and its docstring are the
+[[D118]] record. X10's configs: each agent's class prior travels from uniform to its
+own Dirichlet(0.5) draw, rotation at zero, composition-matched evaluation, against a
+twin at `total_shift` 0 (the same sampling mechanism, travelling nowhere). $T=750$ is
+forced by class-pool feasibility, as in X10. ER 0.3, $N=10$, five seeds, evaluations
+every 10, cells a / b / adamw with [[D119]]'s gate.
+
+**Tuned once, on the shifted condition, and carried into the twin.** The first smoke
+tuned per condition and the pairing gate refused it — `local_only` got 0.2 in one
+cell and 0.05 in the other, so the damage and question 2's cooperation contrast
+would have mixed label shift with a learning-rate change. Carrying the rates makes
+the cells differ in the prior drift alone (P5.5 does the same). **P5.7 was checked
+for the same fault and is unaffected:** its baselines selected identical rates in
+both scopes (centralised SGD and ATC 0.01, local-only and `atc_plain` 0.05), so
+[[D115]] stands.
+
+**Named before the run:** (1) does diffusion close its gap to the centralised filter
+under label shift — each variant's gap, shifted minus twin, Holm across four;
+**predicted not**, since P5.7 found diffusion agents never leave consensus
+([[D115]]); the plan's hope that per-agent beliefs win is the alternative this tests.
+(2) Does cooperation pay more for the filter — `local_only` minus each mean-only
+filter, shifted minus twin, Holm across two; **predicted positive**, as X10 found for
+ATC (+0.0445). Exploratory: the X10 contrast for the gradient methods, the centralised
+filter's damage against centralised SGD's, the AdamW family.
+
+🔄 Open until the run: `--lr`, then the main pass.
+
 ### 🔄 D123. P5.5: the break rate on ER 0.3, damage at a matched rate as the named reading
 
 `scripts/run_break_rate.py`, written 2026-09-27; this note and its docstring are the
