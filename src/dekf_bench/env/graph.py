@@ -517,6 +517,13 @@ WEIGHT_RULES = {
 # --------------------------------------------------------------------------- #
 
 
+#: ``graph.params`` keys that `build_graph` reads itself and never passes on.
+MIXING_GAP_BAND = "mixing_gap_band"
+BAND_DRAWS = "band_draws"
+#: At most this many draws are tried for a band; the last is kept regardless.
+DEFAULT_BAND_DRAWS = 3
+
+
 def build_graph(
     topology: str,
     n_nodes: int,
@@ -526,6 +533,15 @@ def build_graph(
     dtype: torch.dtype = torch.float64,
 ) -> Graph:
     """Build one graph and its combination weights.
+
+    **An optional mixing-gap band** (D114). ``params["mixing_gap_band"] = [lo, hi]``
+    redraws a random topology until its mixing gap lies in ``[lo, hi]``, trying at
+    most ``params["band_draws"]`` draws (default 3) and keeping the **last draw
+    regardless** if none lands inside -- a bounded conditioning, decided so a sweep
+    can hold connectivity per seed rather than only on average, without ever
+    searching for a rare draw. The two keys are removed before the topology builder
+    sees ``params``, and the caller's dict is not modified. On a deterministic
+    topology every draw is identical, so the band changes nothing there.
 
     Args:
         topology: one of :data:`TOPOLOGY_BUILDERS`.
@@ -546,13 +562,38 @@ def build_graph(
     if n_nodes < 1:
         raise GraphError(f"n_nodes must be >= 1, got {n_nodes}")
 
-    graph = TOPOLOGY_BUILDERS[topology](n_nodes, params or {}, generator)
-    adjacency = _adjacency_from(graph, n_nodes, dtype)
-    return Graph(
-        adjacency=adjacency,
-        weights=WEIGHT_RULES[weights](adjacency),
-        topology=topology,
-    )
+    params = dict(params or {})
+    band = params.pop(MIXING_GAP_BAND, None)
+    draws = params.pop(BAND_DRAWS, DEFAULT_BAND_DRAWS)
+
+    def draw() -> Graph:
+        adjacency = _adjacency_from(TOPOLOGY_BUILDERS[topology](n_nodes, params, generator),
+                                    n_nodes, dtype)
+        return Graph(adjacency=adjacency, weights=WEIGHT_RULES[weights](adjacency),
+                     topology=topology)
+
+    if band is None:
+        return draw()
+    low, high = _check_band(band, draws)
+    for _ in range(draws):
+        graph = draw()
+        if low <= graph.mixing_gap <= high:
+            return graph
+    return graph  # none landed in the band: the last draw, by rule
+
+
+def _check_band(band: Any, draws: Any) -> tuple[float, float]:
+    try:
+        low, high = (float(value) for value in band)
+    except (TypeError, ValueError):
+        raise GraphError(
+            f"{MIXING_GAP_BAND} must be a pair [low, high], got {band!r}"
+        ) from None
+    if not 0.0 <= low <= high <= 1.0:
+        raise GraphError(f"{MIXING_GAP_BAND} needs 0 <= low <= high <= 1, got {band!r}")
+    if isinstance(draws, bool) or not isinstance(draws, int) or draws < 1:
+        raise GraphError(f"{BAND_DRAWS} must be an integer >= 1, got {draws!r}")
+    return low, high
 
 
 def _adjacency_from(graph: nx.Graph, n_nodes: int, dtype: torch.dtype) -> torch.Tensor:
