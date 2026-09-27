@@ -55,9 +55,13 @@ def sinusoidal_positions(length: int, width: int, dtype: torch.dtype) -> torch.T
 
 class _CausalBlock(nn.Module):
     def __init__(self, context: int, d_model: int, n_heads: int, d_ff: int, dtype: torch.dtype,
-                 device: str | torch.device = "cpu"):
+                 device: str | torch.device = "cpu", readout_last: bool = False):
         super().__init__()
         self.d_model, self.n_heads = d_model, n_heads
+        #: Many-to-one (D126): return the last position alone. Selected inside the
+        #: module, not by slicing afterwards, so the per-sample Jacobian differentiates
+        #: one output -- one reverse sweep per window instead of `context`.
+        self.readout_last = readout_last
         self.embed = nn.Linear(1, d_model, dtype=dtype)
         self.norm1 = nn.LayerNorm(d_model, dtype=dtype)
         self.qkv = nn.Linear(d_model, 3 * d_model, dtype=dtype)
@@ -97,7 +101,8 @@ class _CausalBlock(nn.Module):
         h = h + self.proj(attended)
 
         h = h + self.ff2(nn.functional.gelu(self.ff1(self.norm2(h))))
-        return self.head(h).squeeze(-1)
+        out = self.head(h).squeeze(-1)
+        return out[..., -1:] if self.readout_last else out
 
 
 @dataclass(frozen=True)
@@ -120,6 +125,8 @@ class CausalTransformer:
     #: is built where the run will evaluate it. Defaults to CPU, so every existing
     #: caller and test is unchanged.
     device: str | torch.device = "cpu"
+    #: ``sequence`` (every position) or ``last`` (the last alone, D126).
+    readout: str = "sequence"
     _module: nn.Module = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -131,11 +138,14 @@ class CausalTransformer:
             raise ModelError(f"n_heads={self.n_heads} must divide d_model={self.d_model}")
         if self.d_ff < 1:
             raise ModelError(f"d_ff must be >= 1, got {self.d_ff}")
+        if self.readout not in ("sequence", "last"):
+            raise ModelError(f"readout must be 'sequence' or 'last', got {self.readout!r}")
         object.__setattr__(
             self,
             "_module",
             _CausalBlock(
-                self.context, self.d_model, self.n_heads, self.d_ff, self.dtype, self.device
+                self.context, self.d_model, self.n_heads, self.d_ff, self.dtype, self.device,
+                readout_last=self.readout == "last",
             ),
         )
 
@@ -147,8 +157,8 @@ class CausalTransformer:
 
     @property
     def output_dim(self) -> int:
-        """$q$: one prediction per position."""
-        return self.context
+        """$q$: one prediction per position, or one in all under readout ``last``."""
+        return 1 if self.readout == "last" else self.context
 
     @property
     def num_params(self) -> int:
@@ -232,6 +242,7 @@ class CausalTransformer:
             "d_model": self.d_model,
             "n_heads": self.n_heads,
             "d_ff": self.d_ff,
+            "readout": self.readout,
             "positions": "sinusoidal",
             "norm": "pre-layernorm",
             "activation": "gelu",

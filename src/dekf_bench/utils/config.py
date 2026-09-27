@@ -290,6 +290,8 @@ SERIES_CHANNELS = ("beta", "gain", "bias")
 SERIES_COUPLINGS = ("correlated", "anti", "independent")
 #: Models that map a block of L-1 inputs to L-1 one-step predictions.
 SEQUENCE_MODELS = ("causal_transformer", "linear_ar")
+#: How a sequence model is read out: every position, or the last alone (D126).
+READOUTS = ("sequence", "last")
 
 
 @dataclass
@@ -357,8 +359,25 @@ class SeriesConfig:
     #: The held-out sets: this many blocks, from this many fresh trajectories.
     eval_blocks: int = 32
     eval_trajectories: int = 8
+    #: Samples integrated and observed *before* the first round: context only, never
+    #: a target. The many-to-one readout (`model.readout: last`) needs L - 1 of them
+    #: so the first targets have a full window; a many-to-many cell given the same
+    #: prefix sees the identical series and ignores them, so the two readouts pair
+    #: sample for sample (M2O, D126). 0 keeps every earlier run byte-identical.
+    history_prefix: int = 0
+    #: Many-to-one only: which of a block's L - 1 targets get a window -- every
+    #: `window_stride`-th, counting back from the last, which is always kept. 1 is
+    #: M2O-b (all 31, supervision-matched); L - 1 is M2O-c (one per block).
+    window_stride: int = 1
 
     def __post_init__(self) -> None:
+        if self.history_prefix < 0:
+            raise ConfigError(
+                f"env.series.history_prefix must be >= 0, got {self.history_prefix}")
+        if not 1 <= self.window_stride <= self.length - 1:
+            raise ConfigError(
+                f"env.series.window_stride must lie in [1, length - 1 = {self.length - 1}], "
+                f"got {self.window_stride}")
         _one_of(self.channel, SERIES_CHANNELS, "env.series.channel")
         if self.secondary_channel:
             _one_of(self.secondary_channel, SERIES_CHANNELS, "env.series.secondary_channel")
@@ -469,6 +488,11 @@ class ModelConfig:
     #: A per-position diagonal of R, overriding ``observation_variance`` when
     #: non-empty (docs/mackey_glass_plan.md, decision 14). Empty means isotropic.
     observation_variances: list[float] = field(default_factory=list)
+    #: Sequence models only. ``sequence`` predicts every position (many-to-many,
+    #: output_dim = context); ``last`` scores the last position alone -- the
+    #: selection C = e_q^T of the Diff-EKF note -- so output_dim is 1 and R is one
+    #: variance (many-to-one, M2O, D126).
+    readout: str = "sequence"
 
     def __post_init__(self) -> None:
         # Imported here, not at module scope: config.py is imported by
@@ -486,10 +510,21 @@ class ModelConfig:
             raise ConfigError(f"model.input_size must be >= 1, got {self.input_size}")
         if any(h < 1 for h in self.hidden):
             raise ConfigError(f"model.hidden widths must be >= 1, got {self.hidden}")
-        if self.output_dim < 2:
+        _one_of(self.readout, READOUTS, "model.readout")
+        if self.readout == "last" and self.name not in SEQUENCE_MODELS:
+            raise ConfigError(
+                f"model.readout 'last' needs a sequence model {SEQUENCE_MODELS}, got "
+                f"{self.name!r}")
+        many_to_one = self.readout == "last"
+        if self.output_dim < (1 if many_to_one else 2):
             raise ConfigError(f"model.output_dim must be >= 2, got {self.output_dim}")
         if self.name in SEQUENCE_MODELS:
-            if self.output_dim != self.context:
+            if many_to_one and self.output_dim != 1:
+                raise ConfigError(
+                    f"model.output_dim ({self.output_dim}) must be 1 under readout 'last': "
+                    "one prediction, the last position's"
+                )
+            if not many_to_one and self.output_dim != self.context:
                 raise ConfigError(
                     f"model.output_dim ({self.output_dim}) must equal model.context "
                     f"({self.context}) for {self.name}: one prediction per position"
@@ -863,6 +898,11 @@ class Config:
         if "backward" in self.eval.evalsets:
             raise ConfigError(
                 "the series task has no backward set (docs/mackey_glass_plan.md, decision 16)"
+            )
+        if self.model.readout == "last" and self.env.series.history_prefix < expected:
+            raise ConfigError(
+                f"model.readout 'last' needs env.series.history_prefix >= L - 1 = {expected}, "
+                f"got {self.env.series.history_prefix}: the first targets need a full window"
             )
 
     def _check_shard_budget(self) -> None:

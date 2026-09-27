@@ -51,6 +51,7 @@ def _causal_transformer(config: Any, dtype: torch.dtype, device: str) -> CausalT
         d_ff=config.d_ff,
         dtype=dtype,
         device=device,
+        readout=getattr(config, "readout", "sequence"),
     )
 
 

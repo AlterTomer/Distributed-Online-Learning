@@ -45,7 +45,8 @@ def test_prequential_records_regression_rows(setting) -> None:
         environment.step(2), _predict(model, params), likelihood, step=2
     ).as_rows()
     metrics = {row["metric"] for row in rows}
-    assert metrics == {"mse", "rmse", "rmse_full_context", "nll"}
+    # rmse_last: the last position alone, the M2O-a reading (D126).
+    assert metrics == {"mse", "rmse", "rmse_full_context", "rmse_last", "nll"}
     assert "error_rate" not in metrics
     by_node = {(r["node_id"], r["metric"]): r["value"] for r in rows}
     assert by_node[(0, "rmse")] == pytest.approx(math.sqrt(by_node[(0, "mse")]))

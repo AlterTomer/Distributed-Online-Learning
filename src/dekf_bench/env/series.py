@@ -82,10 +82,12 @@ class SeriesObservation:
                 f"agent {self.node} at step {self.step}: {self.x.shape[0]} blocks but "
                 f"n_samples={self.n_samples}"
             )
-        if self.has_label and (self.y is None or self.y.shape != self.x.shape):
+        # One target row per input row: (n, L-1) many-to-many, (n, 1) many-to-one.
+        if self.has_label and (self.y is None or self.y.ndim != 2
+                               or self.y.shape[0] != self.x.shape[0]):
             raise SeriesError(
-                f"agent {self.node} at step {self.step}: targets must match the inputs' "
-                f"shape {tuple(self.x.shape)}"
+                f"agent {self.node} at step {self.step}: targets must have one row per "
+                f"input row, inputs {tuple(self.x.shape)}"
             )
         if not self.has_label and self.y is not None:
             raise SeriesError(f"agent {self.node} at step {self.step}: idle but y is not None")
@@ -209,6 +211,8 @@ def law_blocks(
     blocks_each: int,
     rng: np.random.Generator,
     second: float | None = None,
+    prefix: int = 0,
+    readout: str = "sequence",
 ) -> tuple[np.ndarray, np.ndarray]:
     """Blocks from fresh trajectories at one *fixed* channel value.
 
@@ -220,11 +224,16 @@ def law_blocks(
     ``second`` is the secondary channel's value under combined drift (M12), and is
     ``None`` for every single-channel run -- which is every run before M12, so the
     default keeps those byte-identical.
+
+    ``prefix`` samples of context lead each trajectory (D126); under ``readout``
+    ``last`` the blocks become many-to-one windows (`mg.to_windows`), with inputs
+    ``(n_trajectories, blocks_each * W, L - 1)`` and targets ``(..., 1)``. The
+    defaults keep every earlier caller byte-identical.
     """
     resolve = _channel_resolver(series, value, second)
     histories = mg.initial_histories(n_trajectories, rng)
     clean = mg.integrate(
-        blocks_each * series.length,
+        prefix + blocks_each * series.length,
         histories,
         beta=resolve("beta", series.beta),
         gamma=series.gamma,
@@ -241,7 +250,11 @@ def law_blocks(
         gain=resolve("gain", 1.0),
         bias=resolve("bias", 0.0),
     )
-    return mg.to_blocks(z, series.length)
+    if readout == "last":
+        inputs, targets = mg.to_windows(z, series.length, prefix, series.window_stride)
+        n = inputs.shape[0]
+        return inputs.reshape(n, -1, series.length - 1), targets.reshape(n, -1, 1)
+    return mg.to_blocks(z[:, prefix:], series.length)
 
 
 def _channel_resolver(series: Any, value, second):
@@ -269,8 +282,15 @@ def generate(
     histories: np.ndarray,
     noise: np.random.Generator,
     second_values: np.ndarray | None = None,
+    readout: str = "sequence",
 ) -> tuple[np.ndarray, np.ndarray]:
     """Integrate, standardise and observe; return blocks ``(N, T, n_blocks, L - 1)``.
+
+    ``series.history_prefix`` samples are integrated and observed first, at the
+    first round's channel value, as context only (D126). Under ``readout`` ``last``
+    each round's targets become many-to-one windows: inputs
+    ``(N, T, n_blocks * W, L - 1)`` and targets ``(N, T, n_blocks * W, 1)``. A zero
+    prefix and ``sequence`` reproduce every earlier run byte for byte.
 
     ``values`` is the channel per agent per round, ``(N, T)``. ``second_values`` is
     the same for the secondary channel under combined drift (M12), already resolved
@@ -278,13 +298,19 @@ def generate(
     """
     n_nodes, n_rounds = values.shape
     per_round = series.n_blocks * series.length
-    per_sample = np.repeat(values, per_round, axis=1)
-    second_per_sample = (
-        None if second_values is None else np.repeat(second_values, per_round, axis=1)
-    )
+    prefix = series.history_prefix
+
+    def per_sample_of(table: np.ndarray) -> np.ndarray:
+        body = np.repeat(table, per_round, axis=1)
+        if not prefix:
+            return body
+        return np.concatenate([np.repeat(table[:, :1], prefix, axis=1), body], axis=1)
+
+    per_sample = per_sample_of(values)
+    second_per_sample = None if second_values is None else per_sample_of(second_values)
     resolve = _channel_resolver(series, per_sample, second_per_sample)
     clean = mg.integrate(
-        n_rounds * per_round,
+        prefix + n_rounds * per_round,
         histories,
         beta=resolve("beta", laws.beta),
         gamma=series.gamma,
@@ -296,7 +322,12 @@ def generate(
     )
     z = mg.observe(mg.standardise(clean), laws.sigma, noise,
                    gain=resolve("gain", 1.0), bias=resolve("bias", 0.0))
-    inputs, targets = mg.to_blocks(z, series.length)
+    if readout == "last":
+        inputs, targets = mg.to_windows(z, series.length, prefix, series.window_stride)
+        per_round_windows = series.n_blocks * inputs.shape[2]
+        return (inputs.reshape(n_nodes, n_rounds, per_round_windows, series.length - 1),
+                targets.reshape(n_nodes, n_rounds, per_round_windows, 1))
+    inputs, targets = mg.to_blocks(z[:, prefix:], series.length)
     shape = (n_nodes, n_rounds, series.n_blocks, series.length - 1)
     return inputs.reshape(shape), targets.reshape(shape)
 
@@ -475,7 +506,7 @@ def build_series_environment(config: Any, master_seed: int) -> SeriesEnvironment
     histories = mg.initial_histories(n_nodes, seeds.numpy_rng("stream", "histories"))
     inputs, targets = generate(
         series, laws, values, histories, seeds.numpy_rng("stream", "noise"),
-        second_values=second_values,
+        second_values=second_values, readout=config.model.readout,
     )
     available = _label_mask(
         n_nodes, horizon, config.env.label_availability, seeds.torch_generator("stream", "blocks")

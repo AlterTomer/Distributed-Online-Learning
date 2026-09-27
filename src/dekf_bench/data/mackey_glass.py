@@ -277,3 +277,40 @@ def to_blocks(series: np.ndarray, length: int = 32) -> tuple[np.ndarray, np.ndar
         raise MackeyGlassError(f"{samples} samples cannot fill one block of {length}")
     blocks = series[:, : n_blocks * length].reshape(n, n_blocks, length)
     return blocks[..., :-1].copy(), blocks[..., 1:].copy()
+
+
+def window_positions(length: int, stride: int) -> list[int]:
+    """The block positions whose sample is a many-to-one target: every ``stride``-th
+    of positions 1..L-1, counting back from L-1, which is always kept."""
+    return [j for j in range(1, length) if (length - 1 - j) % stride == 0]
+
+
+def to_windows(
+    series: np.ndarray, length: int, prefix: int, stride: int = 1
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""Many-to-one (M2O, D126): each target with the $L-1$ samples just before it.
+
+    The targets are the **same samples** a many-to-many block scores -- positions
+    1..L-1 of each block after the ``prefix`` -- thinned by ``stride``, so every
+    sample is a target at most once, as in :func:`to_blocks`. What changes is the
+    context: each target is predicted from a full window of $L-1$ samples, which may
+    reach back into the previous block or the prefix. The *inputs* overlap; the
+    targets never do, and the reachability guard is about targets.
+
+    Returns ``(n, n_blocks, W, L-1)`` inputs and ``(n, n_blocks, W, 1)`` targets,
+    ``W = len(window_positions(length, stride))``.
+    """
+    n, samples = series.shape
+    context = length - 1
+    n_blocks = (samples - prefix) // length
+    if n_blocks == 0:
+        raise MackeyGlassError(f"{samples - prefix} samples cannot fill one block of {length}")
+    positions = window_positions(length, stride)
+    ends = np.array([prefix + b * length + j for b in range(n_blocks) for j in positions])
+    if ends.min() < context:
+        raise MackeyGlassError(
+            f"the first target needs {context} samples of history; prefix {prefix} is short")
+    inputs = np.stack([series[:, end - context:end] for end in ends], axis=1)
+    targets = series[:, ends][..., None]
+    shape = (n, n_blocks, len(positions))
+    return inputs.reshape(*shape, context).copy(), targets.reshape(*shape, 1).copy()

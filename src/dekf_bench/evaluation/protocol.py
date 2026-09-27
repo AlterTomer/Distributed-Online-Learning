@@ -118,6 +118,10 @@ class RegressionScore:
     rmse_full_context: float | None
     nll: float
     predictive: dict[str, float] | None = None
+    #: RMSE at the last position alone -- a whole block of context. The M2O-a
+    #: reading: what a many-to-many run scores where a many-to-one run always does,
+    #: and equal to ``rmse`` for a many-to-one run (D126).
+    rmse_last: float | None = None
 
     def as_rows(self) -> list[dict[str, Any]]:
         base = {
@@ -129,6 +133,8 @@ class RegressionScore:
         values = {"mse": self.mse, "rmse": self.rmse, "nll": self.nll}
         if self.rmse_full_context is not None:
             values["rmse_full_context"] = self.rmse_full_context
+        if self.rmse_last is not None:
+            values["rmse_last"] = self.rmse_last
         if self.predictive is not None:
             values.update(self.predictive)
         return [{**base, "metric": name, "value": value} for name, value in values.items()]
@@ -364,6 +370,7 @@ def _score_regression(
         predictive=(
             None if variance is None else regression.predictive_scores(residuals, variance + noise)
         ),
+        rmse_last=regression.rmse(predictions[..., -1:], targets[..., -1:]),
     )
 
 

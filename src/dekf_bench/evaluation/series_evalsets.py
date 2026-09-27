@@ -31,6 +31,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from dekf_bench.data.mackey_glass import window_positions
 from dekf_bench.env.series import SeriesError, channel_value, law_blocks, secondary_value
 
 
@@ -121,13 +122,19 @@ class SeriesEvalSets:
         per_trajectory = math.ceil(series.eval_blocks / series.eval_trajectories)
         stamp = f"{key[0]:.12f}" if second is None else f"{key[0]:.12f}|{key[1]:.12f}"
         rng = seeds.numpy_rng("stream", "eval", stamp)
+        readout = self._config.model.readout
         inputs, targets = law_blocks(series, value, series.eval_trajectories, per_trajectory,
-                                     rng, second=second)
-        width = series.length - 1
+                                     rng, second=second, prefix=series.history_prefix,
+                                     readout=readout)
+        # The same eval_blocks blocks either way; many-to-one scores each block's
+        # kept targets as separate windows, so it holds W times as many rows (D126).
+        rows = series.eval_blocks * (
+            len(window_positions(series.length, series.window_stride))
+            if readout == "last" else 1)
         env_inputs = self._environment.inputs
         built = tuple(
             torch.tensor(
-                array.reshape(-1, width)[: series.eval_blocks],
+                array.reshape(-1, array.shape[-1])[:rows],
                 dtype=env_inputs.dtype,
                 device=env_inputs.device,
             )
