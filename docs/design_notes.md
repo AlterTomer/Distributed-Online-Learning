@@ -4175,11 +4175,34 @@ the pure scale of $\bm P$, since $\tau^\star$ absorbs part of the uncertainty. H
 exploratory. On a synthetic case built for it the raw $\kappa^\star$ floors and the
 tempered one finds 0.28.
 
-**Mackey–Glass** gets the same pre-combine hook and the Gaussian scan on mg-task,
-where the predictive is exact and question 2 has no floor.
+**Mackey–Glass** (mg-task `5bf73a4`, `run_mg_belief_calibration.py`). The hook,
+`metrics/belief.py` and `evaluation/belief.py` are the same files on both branches;
+the Gaussian scores are exact, with the R-scaled reading ($\rho^\star$ on R first,
+then $\kappa$) standing to R as the temperature stands to the softmax mean. **The
+floor was expected there too, and measured before deciding:** on M6's `current` set
+the belief's NLL is *worse* than the plug-in's (R alone) by 0.004–0.009 for every
+filter in every condition, with variance ratio at $\kappa=1$ of 0.81–0.90 and 90%
+coverage 0.92–0.93 — R already over-covers, so a $\kappa$-based tightness test
+could be undecidable on both tasks. So the MG half's confirmatory tightness test
+is **covariance-free** (decided with the user 2026-09-27). The generator's noise is
+known, $\sigma=0.1$, so the model's own error is $\text{MSE}-\sigma^2$, and
 
-🔄 Open until the runs: `run_belief_calibration.py --lr`, then the main pass; the
-Mackey–Glass half next.
+$$\log_{10}\frac{\text{MSE}_{\text{post}}-\sigma^2}{\text{MSE}_{\text{pre}}-\sigma^2}$$
+
+is 0 when averaging moved nothing (the errors coincide, the bound is tight) and about
+$-0.6$ when the errors were independent — TOST at the same $\pm0.3$ decades, Holm
+across the four variants, MSEs averaged per seed before the ratio. The raw-$\kappa^\star$
+questions stay confirmatory under the same degeneracy rule; belief against plug-in
+NLL is exploratory on MG, since M6 already shows it.
+
+**⚠ A testing caveat found on the way.** A bare `pytest` in the mg worktree imports
+**main's** `dekf_bench`: the editable install points at the main checkout. mg's
+scripts insert their own `src`, so its runs were always right, but an mg test run
+without `PYTHONPATH=src` tests main's code. The mg suite was re-run properly for
+this port: 1473 passed.
+
+🔄 Open until the runs: on main `run_belief_calibration.py --lr`, then the main pass;
+on mg-task `run_mg_belief_calibration.py`.
 
 ### 🔄 D119. The AdamW pass starts with N>10: own grid, own cell, a gate, two questions named in advance
 
