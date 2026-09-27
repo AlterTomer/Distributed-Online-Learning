@@ -87,6 +87,12 @@ still combines, untested for a filter); P5.5 break rate (X9/X16 analogue — the
 only place the filter's advantage is a *rate*: the centralised filter survives to
 0.064°/step against 0.038–0.044 for gradient methods).
 
+**P5.4 runner ready** 2026-09-27 (`scripts/run_label_sparsity.py`, [[D122]]):
+$n\in\{1,2,4\}\times\pi_{\text{lab}}\in\{0.25,0.5,1\}$ at $T=750$, AdamW included,
+three questions named in advance; ~12–14 GPU-h plus tuning — more than this tier's
+original estimate, because every diffusion variant and the AdamW cell now run in each
+of nine cells. P5.5 next to write.
+
 **Tier 3 — decided 2026-09-15:**
 
 | item | analogue of | what it asks | GPU | decision |

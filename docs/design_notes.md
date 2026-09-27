@@ -4106,6 +4106,49 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### 🔄 D122. P5.4: sparse labels, $n\times\pi_{\text{lab}}$, three questions named before the run
+
+`scripts/run_label_sparsity.py`, written 2026-09-27; this note and its docstring are
+the [[D118]] record. The X4 analogue: at $\pi_{\text{lab}}<1$ an agent has labels on
+only a fraction of steps, passes its prediction through and still combines — and a
+*belief* between labels keeps losing confidence, where a parameter simply stops.
+
+**Grid, decided with the user:** $n\in\{1,2,4\}\times\pi_{\text{lab}}\in\{0.25,0.5,1\}$,
+nine cells; IID, ER 0.3, $N=10$, stationary, $T=750$ (X4's horizon; at most 30 000 of
+the 60 000 images), five seeds, evaluations every 10 steps, cells a / b / adamw as
+[[D120]]'s runner, the AdamW merge gate of [[D119]]. Filters carry X20's selection —
+tuned at $n=4$, $\pi_{\text{lab}}=1$ — which is a caveat for the sparse corner, not an
+oversight: re-tuning a filter per cell is beyond the budget. The gradient baselines are
+re-tuned per cell, **with every SGD learner swept to 1.0**, as X4's grid was: an idle
+agent contributes its unchanged $\bm\theta$ to the combine, so ATC's effective step
+shrinks by $\pi_{\text{lab}}$ and its optimum rises about 4× at 0.25 (results.md
+§9.1). A first smoke on N>10's grid put ATC on the 0.2 edge in the sparse cells,
+which is that mechanism showing.
+
+**A prediction corrected before anything ran.** The first sketch said one-hop's lead
+over local adapt should *shrink* as labels thin. The arithmetic says otherwise: one-hop
+assimilates about $|\mathcal M_v|\approx3.9$ times local adapt's labelled data at *any*
+$\pi_{\text{lab}}$, both scaling by it, so the information ratio does not move; what
+moves is coverage — at 0.25 a local-adapt agent updates on 25% of steps, a one-hop
+agent on $1-0.75^{3.9}\approx67\%$. So the registered prediction is that the lead holds
+or widens.
+
+**Named before the run:**
+
+1. One-hop − local adapt, the change from $\pi_{\text{lab}}=1$ to 0.25, at each $n$;
+   Holm across three. Predicted negative or null.
+2. Each mean-only filter's gap to the centralised filter, the same change, at each $n$;
+   Holm across six. No direction: X4 found ATC's pooled gap *falling* in the sparse
+   corner, for reasons (effective step, implicit averaging) that need not carry over.
+3. Diff-EKF local adapt − ATC, the same change, at each $n$; Holm across three. No
+   direction: the growing covariance may make each labelled step count for more, or
+   make an agent chase noise.
+
+Exploratory: full sharing, the AdamW family, $\pi_{\text{lab}}=0.5$, one-hop against ATC
+AdamW, and the belief's $\kappa^\star$ before and after combine (D120's scoring is on).
+
+🔄 Open until the run: `--lr`, then the main pass (~12–14 GPU-h plus tuning).
+
 ### 🔄 D121. M12b at five seeds: M12's ordering holds on the abrupt schedule, nothing is established, and one pre-registered extension to ten
 
 `scripts/run_m12b_abrupt_coupling.py` (mg branch), six cells × five seeds on the
