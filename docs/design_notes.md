@@ -4293,8 +4293,21 @@ M9, M10, M13, M14 and the AdamW backfill are built on recorded float64 cells, so
 float64 unless their reference cells are re-run. The exactness gates stay float64
 regardless.
 
+⚠ **Revised 2026-09-28, before any real run: the first version compared two
+initialisations, not two precisions.** Its smoke reported a mean drift of 1.2 for every
+filter after 30 steps. A float32 build draws its own θ₀ in float32, which consumes the
+seed's stream differently, so the two filters started from unrelated points. The
+health columns were unaffected: P stayed positive definite, with the float32 ratio
+λ_min/λ_max matching float64's (for example 6.7e-5 against 6.1e-5). The lockstep now
+draws θ₀ once in float64 and casts it, scores both precisions on the same held-out set
+at every checkpoint, and runs seeds 0–1. **Fidelity and calibration are judged there**,
+on identical start and data, per seed. The cell twins draw their own θ₀, and on
+Mackey–Glass their data depend on the horizon (D129), so they become an end-to-end check
+read as samples. The same smoke crashed on MNIST, whose image environment has no
+`.device`; fixed.
+
 🔄 Open until the run: after M12b, on each branch, `python scripts/run_float32_probe.py
---device cuda --full-sharing`, then `--cells --device cuda --full-sharing`.
+--device cuda --full-sharing` (lockstep, ~1–1.5 h), then `--cells --device cuda --full-sharing`.
 
 ### 🔄 D132. M7: β_c = 2 on Mackey–Glass, as the test of D89's structural claim
 
@@ -4322,6 +4335,12 @@ variants in each condition: six rows, Holm across six, **predicted positive in e
 row**, and larger for local adapt than for one-hop (D89's ordering: one-hop already
 gathers what the covariance would carry). Exploratory: `variance_ratio` and
 `coverage_90` of the shrunken belief, predicted over-confident; divergences per seed.
+
+Smoked 2026-09-28 (2 min, CPU): all three cells run and none diverges at β_c = 2. The gate
+flagged exactly what the smoke changes and allowed `combine_exponent`, as designed. It
+also exposed a trap, fixed before any run: M6 recorded `device: cuda`, so a launch under
+`auto` on the same GPU would have failed the gate over a label and withheld the table.
+`run.device` is now exempt here and in M13's gate, whose n_b = 1 partner is also M6's cell.
 
 🔄 Open until the run (mg worktree): `python scripts/run_m7_combine_exponent.py --device cuda`.
 
@@ -4359,6 +4378,10 @@ Tested on two M6 cells, it reports only their drift and name.
 direction; (3) local-adapt diff-EKF − ATC, Holm across three, no direction.
 Exploratory: full sharing, AdamW, one-hop against ATC AdamW, and `variance_ratio` by
 cell.
+
+Smoked 2026-09-28 (8 min, CPU, all six cells fresh at the smoke's horizon): the pairing
+gate holds for all six pairs, every data rate runs (n_b = 4 included, the per-position
+R tiled across blocks), and no selected rate sits on the extended grids' edges.
 
 🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass.
 
