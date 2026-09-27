@@ -170,9 +170,13 @@ three orders of magnitude cheaper.
 The recursion loses positive definiteness easily, and three defences are used
 together:
 
-* **float64.** In single precision the paper reports PD lost within a few
-  hundred steps; the benchmark's runs are 1500. At $p=2908$ a covariance is
-  68 MB in float64, which is affordable for one belief.
+* **float64.** At $p=2908$ a covariance is 68 MB in float64, which is affordable
+  for one belief. ⚠ *Corrected 2026-09-27:* this used to say "in single precision
+  the paper reports PD lost within a few hundred steps". The note states that
+  **without citing a source**, and what it states is narrower: the *unsymmetrised*
+  recursion loses definiteness in single precision. The benchmark symmetrises every
+  step (next bullet), so whether float64 is needed on top of that is untested.
+  `run_float32_probe.py` tests it (D133).
 * **Symmetrise every step**: $\boldsymbol P\leftarrow\tfrac12(\boldsymbol P+\boldsymbol P^{\top})$.
   Without it the recursion drifts out of symmetry within a few hundred steps.
 * **A per-step $O(p)$ guard** on the mean staying finite and the variances

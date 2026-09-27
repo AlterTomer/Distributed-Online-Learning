@@ -4106,6 +4106,559 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### 🔄 D136. Differential coding: the public copy is the error memory, and a probe gates the codec
+
+The user's proposal, `Diff_EKF_Huffman_Communication_Summary.tex` (OneDrive, Diff-EKF),
+reviewed 2026-09-27: send $\boldsymbol\psi$ as a quantised difference against a reference
+that sender and receivers share, with a dead zone, run-length coding and canonical
+Huffman tables. The hypothesis is that successive posterior means are so correlated
+that $H(Q(\Delta\boldsymbol\psi))\ll64$. It is C0's §4.2 and §4.3 made into one working
+codec, plus a lossless entropy-coding stage C0 lacked.
+
+**One correction, found in the note and in C0 alike.** Both added an error-feedback
+residual on top of the shared reference:
+$e_t=\psi_t-\tilde\psi_{t-1}+r_{t-1}$. The reference advances only by what was sent, so
+$\psi-\tilde\psi$ already holds every untransmitted change, and the residual counts it
+twice. With $\psi$ held at $c$ and a quantiser that drops everything, the residual runs
+$c, 2c, 3c,\dots$ until it clears the dead zone, and the reference then overshoots
+$c$. The rule is $e_t=\psi_t-\tilde\psi_{t-1}$. A residual belongs to schemes without a
+shared reference (Stich et al. 2018; Karimireddy et al. 2019); CHOCO uses the copy
+alone. Corrected in `communication_plan.md` §4.3, and in the .tex (the PDF rebuilt beside
+it).
+
+**Two additions to the proposal.**
+1. **Baselines get the codec too.** The note's rate that "rises after drift without a
+   drift detector" is not filter-specific: ATC's gradients grow after a shift as well.
+   What could be filter-specific is the quiet period. The filter's gain shrinks as
+   $\boldsymbol P$ contracts, while ATC's constant step and AdamW's normalised one never
+   quiet. The filter also has a dead zone of its own, $\kappa\sqrt{P_{ii}}$, decided by the
+   sender and needing no $\boldsymbol P$ at the receiver.
+2. **Codebooks are built off the scored runs**, on seeds ≥ 5 (C-10), with the entropy
+   bound reported beside the coded length.
+
+**The probe, before any codec is built** (`scripts/run_delta_entropy_probe.py`,
+identical on both branches). It is open-loop: every learner mixes exactly as always, and
+a recording channel runs the corrected codec on each vector at the moment it is mixed.
+It reports the empirical symbol entropy, the zero fraction and the tracking distortion,
+per step. Every learner's ψ is quantised with the same step
+$\Delta=\varepsilon\cdot\mathrm{rms}(\boldsymbol\theta_0)$, $\varepsilon\in\{10^{-2},10^{-3},10^{-4}\}$, so
+the rates compare at matched worst-case distortion; the filters are also measured under
+the $\sqrt{P_{ii}}$ rule. Stationary and abrupt, one seed, rebuilt from recorded cells
+(MNIST: P5.3's ER 0.3 and X20's abrupt; Mackey–Glass: M6's pair, which alone carries ATC
+AdamW, since MNIST has no tuned AdamW rate yet). Under abrupt drift it compares the rate
+in the five steps after each jump with the five before. **C2's codec is built only if the
+filter's differences are materially more compressible than the baselines', or the rate
+genuinely rises after a jump and decays (C-11).**
+
+**C1 is on mg too**, now. The probe needed the channel on the series task, and ATC AdamW
+exists only there. Ported with `sgd.py` and `diffusion_ekf.py` copied (identical to
+main's before C1), and the config, schema and simulator edits applied. mg's full suite:
+1520 passed.
+
+🔄 Open until the run: after M12b, on each branch, `python scripts/run_delta_entropy_probe.py
+--device cuda`.
+
+### 🔄 D135. C1 built: a channel inside the mix, bits by kind, and the default is the old arithmetic
+
+Track C's first build step (`communication_plan.md` §3–4.1), main only for now, written
+2026-09-27 ahead of Track C's calendar slot so the build is not a bottleneck. New:
+`src/dekf_bench/compression.py`, the `comm` config section, and the row column
+`cum_bits_tx`. Changed: `learners/sgd.py`, `learners/diffusion_ekf.py`,
+`runner/simulate.py` and `metrics/breaks.py`.
+
+**Where the channel sits, and why there.** Inside the mixing, not between `adapt` and
+`combine`. The one-hop filter recomputes every agent's post-adapt ψ *inside* its
+combine, and those are what cross the second link (D92). A channel wrapped around
+`Intermediate` would have compressed the prior mean, which one-hop never mixes, and
+reported a compression that did not happen. Every learner's `mixing @ X` is now
+`channel.mix(mixing, X)`: ψ for every diffusing learner, plus the mixed optimiser
+moments. The sender's own term stays exact, $\boldsymbol A\tilde{\boldsymbol X}+\operatorname{diag}(\boldsymbol A)(\boldsymbol X-\tilde{\boldsymbol X})$:
+an agent does not quantise what it never sends, and doing so would make sub-step updates
+vanish below 16 bits. Full sharing's covariance combine is not compressed (C-8); its mean
+is.
+
+**The default reproduces every run.** `none` returns `mixing @ X` itself, not an
+algebraically equal expression. The full suite passes (1411, including the X0
+exactness gates), and a test asserts `torch.equal` against the old operation.
+
+**Compressors:** `float32`, `float16`, `bfloat16` (round-to-nearest casts), and
+`stochastic`: $b$-bit scaled uniform quantisation with stochastic rounding, unbiased,
+error within one step, the scale shipped as 32 bits of side information. It draws from
+its own seed stream per learner, on the CPU, so draws depend on neither the device nor
+the other learners. It is the one thing in the loop that consumes randomness, so a
+stochastic run **refuses to resume** rather than silently redraw (D38).
+
+**Bits by kind.** Each diffusing learner declares its payload (`comm_payload`) in the
+scalar ledger's units, split by what it is. Vectors are priced by the channel. Full
+sharing's covariance and the sender point's prior are priced at working precision. One-hop's
+raw batch is priced at the data's own precision: a byte per pixel and label on MNIST, the
+convention behind the ledger's "788 bytes", and working precision for a series (C-1: data
+is not compressed). Every step the simulator checks that the channel mixed exactly the
+vector scalars the ledger declares, so the bits column and the scalar column cannot drift
+apart.
+
+**The pairing gate learns about the channel.** `assert_paired_runs` now refuses a
+drifting run and a control that differ in `comm`, reading a missing section as exact, so
+every config written before today still pairs. The change is identical on mg.
+
+**Not yet:** C-3 (the float32 reference) is a reporting choice, C-4's compensated arm is a
+filter setting to add, and C2's public copies will live in `Channel`, which is stateless
+today. The mg port waits for the C4 runner, since only C4 needs the channel on the
+series task.
+
+### 🔄 D134. P5.12 was not "analysis only": E_cent measured the filters against SGD
+
+`scripts/run_disagreement.py` and a change to `simulate.py` and
+`metrics/disagreement.py` on both branches, written 2026-09-27. This note and the
+runner's docstring are the [[D118]] record.
+
+**The defect.** The schedule listed P5.12 as "already recorded, analysis only". It asks
+whether the diffusion filters' agents converge "to the centralised one or merely to
+each other". But $E_{\text{cent}}$'s reference is hard-coded to `centralized_sgd`
+(`REFERENCE_LEARNER`), so every recorded $E_{\text{cent}}$, the filters' included, is
+a distance to *SGD's* trajectory. X20's cells, which carry no `centralized_sgd`,
+recorded none at all. Parameters are not saved per step, so the right distance cannot
+be recovered from disk.
+
+**The fix is additive.** A learner that holds a covariance now also records
+`e_cent_filter`: the same formula, with the pooled filter as the reference
+(`centralized_ekf_walk` where a run has it, else `centralized_ekf_gamma`, so M6's
+γ-arm is never the reference). `e_cent` is unchanged, so no recorded number changes
+meaning. A new test checks the metric is present for a diffusion filter, absent for
+the pooled filter and for SGD, and never below $E_{\text{agree}}$. That last check
+follows from the exact split
+$E_{\text{cent}}^{\text{filter}} = E_{\text{agree}} + \lVert\bar{\boldsymbol\theta}-\boldsymbol\theta^{\text{C}}\rVert^2$,
+whose second term, the **consensus offset**, is what P5.12 asks about. Tests: 88 pass
+on main, 119 on mg. Every cell that has not yet run, M9, M10, M13 and M14 included,
+records it from now on.
+
+**Cells.** Stationary (P5.3's ER 0.3), and global against per-node drift (P5.7's twin
+pair), each rebuilt from recorded configs with only learners and name changed.
+Group a: the centralised filter and both mean-only filters. Group b: both full-sharing
+filters plus the centralised filter as their reference; each a/b source pair was
+checked to differ in learners and name alone. **Gate:** every learner's settled error
+reproduces its source cell per seed within $10^{-9}$. ~8 GPU-h.
+
+**Named before the run** (mean-only filters, settled, per seed, Holm within each):
+1. offset − $E_{\text{agree}}$ in each condition (six rows), **predicted positive**: the
+   agents agree with one another more than their consensus agrees with the centralised
+   filter;
+2. one-hop's offset − local adapt's (three rows), **predicted negative**;
+3. $E_{\text{agree}}$ per-node − global drift (two rows), **predicted positive, and
+   small**, given [[D115]].
+
+Exploratory: full sharing, the time course normalised by
+$\lVert\boldsymbol\theta^{\text{C}}\rVert^2$, and the SGD-referenced $E_{\text{cent}}$
+beside the new one.
+
+🔄 Open until the run: `python scripts/run_disagreement.py`.
+
+### 🔄 D133. The float32 probe: the case for float64 was never measured, and part of it was never cited
+
+`scripts/run_float32_probe.py`, identical on main (MNIST, from P5.3's ER 0.3 cells) and
+mg (Mackey–Glass, from M6's stationary cells), written 2026-09-27. This note and the
+script's docstring are the [[D118]] record.
+
+**What the float64 decision rested on** ([[D58]], `filter.md` §5): positive definiteness
+of $\boldsymbol P-\boldsymbol A\boldsymbol S^{-1}\boldsymbol A^{\mathsf T}$ without the Joseph form ([[D62]]), and "the
+paper reports PD lost within a few hundred single-precision steps". Traced on
+2026-09-27, the source is the Diff-EKF note itself (lines 2218 and 2811 of the .tex). The
+note states it **without a citation**, and what it states is narrower: the recursion
+*without symmetrisation* loses definiteness in single precision. The benchmark
+symmetrises every step, so the claim does not show that float64 is needed on top of
+symmetrisation, and nothing here has ever tested it. `filter.md` is corrected. The .tex
+sentence needs either a citation (Bierman 1977 is the standard place for covariance-form
+instability) or rewording, which is the user's call.
+
+**Why it matters now.** Consumer Ada GPUs run FP64 at 1/64 of their FP32 rate, the filter's
+cost is dense $p\times p$ algebra, and the queue holds well over 100 GPU-h of filter cells.
+
+**The probe.** (1) *Lockstep*: one seed of the source cell's filters, built in float64 and
+float32 and advanced side by side on identical observations (the float64 environment's,
+cast), each learner timed per step with CUDA synchronised. At checkpoints it records the
+mean's relative drift, P's smallest diagonal, agent 0's smallest and largest eigenvalue in
+both precisions, P's asymmetry, and a **dtype-leak check**: torch silently promotes
+float32 × float64, and the graph's weights stay float64 whatever `run.dtype` says, so a
+"float32" filter could quietly be a float64 one. (2) *Cells*: float32 twins of the source
+cells at seeds 0–1 through the ordinary runner, compared per seed.
+
+**Adoptable only if, for every filter:** no guard trips and
+$\lambda_{\min}/\lambda_{\max}\ge-10^{-5}$ at every checkpoint; settled error within 0.0005
+of float64 on the seed mean and 0.001 on every seed; `variance_ratio` within 0.01
+(Mackey–Glass); and the filters at least 2× faster per step. The mean's drift has no
+criterion: an online trajectory amplifies rounding as it amplifies any perturbation.
+
+**What adopting it would cost:** bitwise pairing with every float64 cell on disk. M7,
+M9, M10, M13, M14 and the AdamW backfill are built on recorded float64 cells, so they stay
+float64 unless their reference cells are re-run. The exactness gates stay float64
+regardless.
+
+🔄 Open until the run: after M12b, on each branch, `python scripts/run_float32_probe.py
+--device cuda --full-sharing`, then `--cells --device cuda --full-sharing`.
+
+### 🔄 D132. M7: β_c = 2 on Mackey–Glass, as the test of D89's structural claim
+
+mg branch: `scripts/run_m7_combine_exponent.py`, written 2026-09-27; this note and the
+runner's docstring are the [[D118]] record. The X24 analogue (`schedule.md` B7).
+
+**Why it is worth running.** On MNIST $\beta_c=2$ lost heavily (+0.134 for full sharing,
++0.040 for one-hop full), and by the same amount on IID and severely skewed shards.
+[[D89]] drew a structural conclusion from that: the agents' errors coincide because they
+mix at every step, not because their data are alike, so $\beta_c=1$ is right for any
+diffusion algorithm. That is a claim about diffusion, not about images. M7 is its test
+on a second task. If $\beta_c=2$ won here, the MNIST result would be a property of the
+task.
+
+**Design.** $\beta_c=1$ is M6's group-B cells, already run. M7 adds their $\beta_c=2$
+twins in all three conditions: M6's recorded config with `combine_exponent` 2 on both
+full-sharing learners and the name replaced. There is no tuning (the filters carry M5's
+selection, as the $\beta_c=1$ cells did) and no α sweep (X22 rejected α monotonically on
+both adapt scopes, and the rejection is carried over). The pairing gate compares resolved
+configs; checked before any run, each twin differs in the learners and the name alone.
+~3.5 GPU-h (M6's group B took 69 min a condition).
+
+**Named before the run:** $\beta_c=2$ − $\beta_c=1$, per seed, for both full-sharing
+variants in each condition: six rows, Holm across six, **predicted positive in every
+row**, and larger for local adapt than for one-hop (D89's ordering: one-hop already
+gathers what the covariance would carry). Exploratory: `variance_ratio` and
+`coverage_90` of the shrunken belief, predicted over-confident; divergences per seed.
+
+🔄 Open until the run (mg worktree): `python scripts/run_m7_combine_exponent.py --device cuda`.
+
+### 🔄 D131. M13: data rate on Mackey–Glass, P5.4's three questions at both ends of π
+
+mg branch: `scripts/run_m13_data_rate.py`, written 2026-09-27; this note and the runner's
+docstring are the [[D118]] record. The P5.4 analogue ([[D122]]): below
+$\pi_{\text{lab}}=1$ an agent's sensor drops a round's block, and the agent predicts and
+combines while its belief widens.
+
+**Grid, decided with the user:** $n_b\in\{1,2,4\}\times\pi_{\text{lab}}\in\{1,0.25\}$, about
+25 GPU-h. P5.4's named questions all read the change from $\pi=1$ to 0.25 at each $n$, so
+they carry over whole; only the exploratory $\pi=0.5$ column is dropped. The full 3×3
+would have cost about 40 GPU-h.
+
+**$n_b=1$, $\pi=1$ is M6's `m6_stationary_a/b`.** The other five cells are M6's recorded
+config with the data rate, learners and name replaced, at $T=1500$ (M10's argument: no
+data budget, and a short horizon reads a transient). The dropout mask has its own seed
+stream, so at a given π the same rounds drop at every $n_b$.
+
+**Tuned:** the seven baselines per cell, at M3's seeds. M3's grids are extended one step
+down (SGD 1e-6, AdamW 3e-4), because the score sums over every observed block and the
+SGD optimum should fall about fourfold at $n_b=4$, which would put ATC near the old
+floor; edges are flagged. The reused cell carries M3's own picks. Filters carry M6's
+entries, tuned at the dense corner, a caveat for the sparse one, as P5.4's was.
+
+**Pairing gate:** each sparse cell may differ from its dense partner in
+`label_availability`, learners and name alone. The comparison uses *resolved* configs:
+M6's file predates fields added since, and a raw comparison would flag their defaults.
+Tested on two M6 cells, it reports only their drift and name.
+
+**Named before the run**, P5.4's verbatim, each a change from π=1 to 0.25 per seed:
+(1) one-hop − local adapt at each $n_b$, Holm across three, predicted negative or null;
+(2) each mean-only filter's gap to the centralised filter, Holm across six, no
+direction; (3) local-adapt diff-EKF − ATC, Holm across three, no direction.
+Exploratory: full sharing, AdamW, one-hop against ATC AdamW, and `variance_ratio` by
+cell.
+
+🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass.
+
+### 🔄 D130. M14: the break rate on a β ramp, with the law's own difficulty taken out
+
+mg branch: `scripts/run_m14_break_rate.py`, written 2026-09-27; this note and the
+runner's docstring are the [[D118]] record. The P5.5 analogue ([[D123]]).
+
+**The ramp, transposed.** X9's schedule unchanged in its own units (45 "degrees",
+exponent 6, peak 0.18 deg/step at $T=1500$, evaluations every 10), on the β channel,
+where 45 degrees is the full span: β climbs 0.22 → 0.24, as in M6's linear condition. The
+twin is M6's stationary law. Both are built from M6's recorded config with only the
+drift, cadence, learners and name replaced; the pairing gate checks it.
+
+**The pilot that shaped it** (M6's linear cell against its twin, measured before writing):
+at a constant 0.03 deg/step the filters' damage *is* the law getting harder. The
+centralised filter pays $+0.0050$ and one-hop $+0.0056$ by the end, against $+0.0054$
+from M2's $e^\star(\beta)$ fit (slope 0.274). The SGD family lags about $+0.005$ beyond
+it, AdamW about $+0.0015$. Two consequences:
+
+1. **Learner contrasts are clean.** At one step every learner sits at the same β, so the
+   difficulty shift cancels. The named reading needs no correction.
+2. **Absolute break rates are not.** On a ramp, damage grows with displacement even for a
+   perfect tracker, and a pooled bar would fire on difficulty alone. The break-rate table
+   subtracts $e^\star(\beta_t)-e^\star(0.22)$ from M2's linear fit before locating anything
+   (D97: gaps are read against the fit). Refit at report time, it gives 0.0816 + 0.274β.
+
+**`metrics/breaks.py` gains a `metric` argument** (`error_by_step`, `paired_excess`), the
+default unchanged. For RMSE the per-step value is the mean over agents, which is how
+every M-series report reads it; each agent's held-out set is the same size, so there are
+no counts to pool. Three tests; the change is identical on main and mg, 32 tests
+passing on both.
+
+**Tuned:** the seven baselines on the ramp by whole-run RMSE, on M3's grids, with the
+same rates carried into the twin (P5.5's rule). Filters carry M6's entries. `frozen_atc`
+runs at ATC's rate, frozen at 300.
+
+**Named before the run:** damage at 0.10 deg/step (step 1340, β 0.2302), paired per seed,
+Holm across five — P5.5's family verbatim, so the two tasks answer one question:
+one-hop − ATC (predicted negative); local adapt − ATC (no prediction); one-hop −
+centralised (predicted positive; the pilot measured $+0.0006$ at 0.03); local adapt −
+centralised (predicted positive; the pilot measured $+0.0024$); one-hop − ATC AdamW
+(predicted negative; the pilot measured $-0.0013$). All in one cell here, so there is no
+merge gate. Exploratory: the corrected break rates, the comparative break, full sharing.
+
+**Cost: ~8 GPU-h**, against the plan's ~3. Four cells (ramp and twin, each in groups a
+and b) at a 10-step cadence, plus ~1 h of tuning. The plan's figure predates the rule
+that every diffusion variant runs in every comparison.
+
+Smoked 2026-09-28 (18 min, CPU): the pairing gate holds in both groups, the damage
+table, the difficulty correction, the break rates and the comparative break all run.
+
+⚠ **The twin is a different realisation, not only a different law.** The DDE is
+chaotic, so even the smoke's ~0.0002 move in β sends the drifting run's series away from
+its twin's, although they share every initial history and noise draw. Per-learner damage
+therefore carries realisation noise (±0.02 at one seed in the smoke). The named contrasts
+compare two learners on the *same* two series, so it cancels there. It does not cancel
+in the absolute break rates, which are exploratory already. Whether averaging the reading
+over a window would help was measured on M6's linear cell against its twin, before
+deciding: the seed s.d. of the contrasts at one step (t=1350) against the mean over eight
+evaluations (1250–1425) is 0.0026 vs 0.0033 (one-hop − ATC), 0.0015 vs 0.0014 (local −
+centralised) and 0.0026 vs 0.0019 (one-hop − ATC AdamW). The variance is between seeds, not
+within a step, so **the single-step reading stands as registered**. It also gives a first
+read on power: one-hop − ATC is −0.0046 there with s.d. 0.0026, t ≈ −4 at five seeds, at a
+third of M14's matched rate.
+
+🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass.
+
+### 🔄 D129. M10: network size on Mackey–Glass, on N>10's own graphs, at the full horizon
+
+mg branch: `scripts/run_m10_network_size.py`, written 2026-09-27; this note and the
+runner's docstring are the [[D118]] record. The N>10 analogue ([[D114]], [[D117]]): on
+MNIST it was **established** that local-adapt diff-EKF falls behind the centralised
+filter as $N$ grows, and one-hop's growth was not detected.
+
+**The same graphs.** `graph.py`'s mixing-gap band is ported from main unchanged (the
+file is now identical on both branches; 364 graph tests pass on mg), and graphs derive
+from the seed alone. So M10 draws N>10's networks exactly: all fifteen realised gaps
+match `nsz_status.json` to the digit, seed 0's misses at $N=10$ and 20 (0.246, 0.169)
+included.
+
+**Not the same horizon.** N>10's $T=500$ was forced by MNIST's 60 000 images (D5);
+Mackey–Glass has no budget. Measured on M6, $T=500$ would read a transient: the
+centralised filter falls from 0.1432 (steps 400–500) to 0.1391 (1200–1500), and local
+minus centralised from $+0.0080$ to $+0.0052$. A larger network settles sooner, so a
+short horizon confounds $N$ with time-to-settle. $T=1500$.
+
+**Scope, decided with the user 2026-09-27.** Stationary; full sharing at $N=10$, and
+above it only behind `--full-sharing`; ~17 GPU-h with tuning, against the plan's ~12.
+The abrupt condition is written in, behind `--abrupt` (off by default), and scheduled
+at the end of the experiments if time allows. Estimates are M6's cell times scaled by
+$N$ and by one-hop's degree (2.9 → 4.3 → 4.8).
+
+**Built from M6's recorded cells**, with the graph, the learners and the name replaced.
+Filters carry M6's entries (M4, M5), selected at $N=10$, as N>10 carried X20's. All seven
+baselines are re-tuned per $(N,\text{condition})$ on M3's grids: at $N=20,30$ even the
+pooled learners see a different batch. Each diffusion filter has its own process, as
+in N>10.
+
+**Gate.** At $N=10$ the five graph-blind learners see exactly M6's data whatever graph
+was drawn, so they must match `m6_<condition>_a` per seed within $10^{-9}$; the
+confirmatory tables are withheld otherwise.
+
+**Named before the run**, stationary only (abrupt rows are exploratory):
+
+1. **Q1, Holm across two.** (a) The change in local adapt minus centralised from $N=10$
+   to 30, per seed: **predicted positive**, as on MNIST. (b) That change minus
+   one-hop's: **predicted positive** — one-hop brings neighbours' fresh evidence into
+   the adapt step, which is what a larger network dilutes for local adapt.
+2. **Q2, Holm across three.** One-hop minus ATC AdamW at each $N$: **predicted
+   negative** at every size.
+
+Exploratory: the $N=20$ midpoints, ATC and ATC AdamW against their centralised forms
+by $N$, cooperation by $N$, full sharing, realised gaps, wall-clock.
+
+Smoked 2026-09-28 (6 min, CPU): all eleven cells, each filter in its own process; the
+band misses at seed 0 flagged as on MNIST. The gate fails in the smoke, and the reason
+was traced rather than assumed. With M10's banded graph **at M6's horizon** the
+N=10 centralised filter gives 0.527142 after one step, identical to M6's recorded value
+(CPU against the GPU original). M6's own config at the smoke's T=20 gives the smoke's
+0.511123. So the gate is expected to hold on the real run.
+
+⚠ **On the series task the data depend on the horizon.** At seed 0 the step-0 block is
+identical across T=20 and T=1500 for agent 0 and differs for agents 1–9: the agents'
+streams are drawn from one generator in blocks sized by T. Every M-series cell runs at
+T=1500, so no reported comparison is affected. But two series runs at different
+horizons are **not paired**, even at one seed, and a smoke can never pass a gate against
+a full-length cell. MNIST does not share this: the AdamW backfill's smoke reproduced its
+sources exactly.
+
+🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass.
+
+### 🔄 D128. M9: topology on Mackey–Glass, built from M6's recorded cells, three questions named
+
+mg branch: `scripts/run_m9_topology.py`, written 2026-09-27; this note and the runner's
+docstring are the [[D118]] record. The P5.3 analogue ([[D103]]), where MNIST refuted both
+hypotheses: the sharing gap stayed flat as connectivity fell, and one-hop's value over
+local adapt was non-monotone — nominally positive on the complete graph.
+
+**The axis.** Path, ring, ER 0.3, complete (mixing gaps 0.033, 0.127, per draw, 1.0).
+No sparse ER, for P5.3's reason: below $\ln N/N=0.230$ a connected draw is not a sample
+from its label's family. **ER 0.3 is M6's `m6_stationary_a/b`, not a re-run** — a fresh
+cell would duplicate it byte for byte (D101). The three new topologies are built from
+M6's recorded configs with the graph replaced, so law, sensor, R scale, horizon, cadence,
+dtype and seeds match by construction. ⚠ The override deep-merges and kept ER's
+`p: 0.3` under `path`; a guard caught it before any run, and `params` is now cleared on
+the resolved config.
+
+**Carried and re-tuned.** Filters carry M6's entries (M4, M5), the X14 discipline. Only
+the three baselines that read the graph — ATC, `atc_plain`, ATC AdamW — are re-tuned per
+topology, on M3's grids and seeds; the other four's M3 curves already are their curves
+at every topology. The γ reference arms stay out, as in M8.
+
+**Gate.** The five graph-blind learners must match per seed across the new cells and
+`m6_stationary_a`, within $10^{-9}$. It checks that the graph stays out of the data path
+and licenses M6's cell as the ER column; the confirmatory tables are withheld if it fails.
+
+**Named before the run**, each family over the three new topologies (ER was read in
+[[D106]] and joins no family), Holm within each:
+
+1. **Q1.** One-hop minus local adapt, **predicted negative** at all three. M6 measured
+   $-0.0035$ at ER 0.3. The complete graph is where the prediction is at risk: MNIST went
+   $+0.0031$ (ns) there.
+2. **Q2.** Full minus mean-only, both adapt scopes: **TOST at ±0.001**, predicted
+   equivalent. The margin is a quarter of the one-hop effect M6 resolved and 2.5× the
+   largest such pair M6 measured (0.0004). On the complete graph the one-hop pair
+   coincides by construction.
+3. **Q3.** One-hop minus ATC AdamW, **predicted negative** at all three.
+
+Exploratory: each diffusion learner's distance to its centralised counterpart against the
+mixing gap, one-hop against `atc_plain`, calibration by topology, wall-clock per cell.
+
+Smoked 2026-09-28 (60 rounds, CPU, 12 min): the graph-blind gate holds to 0.0e+00 across
+path, ring and complete, and on the complete graph ATC equals centralised SGD at their
+shared rate (0.2190 both), the M1 identity through the new runner. No rate on a grid
+edge.
+
+🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass. ~10 GPU-h
+plus ~1 h of tuning, from M6's per-condition cost.
+
+### 🔄 D127. The AdamW backfill: X20, X25, P5.3, P5.7, from their own recorded configs
+
+`scripts/run_adamw_pass.py`, written 2026-09-27; this note and the runner's docstring
+are the [[D118]] record. Every figure the paper carries must include AdamW. The runs
+since N>10 carry it from the start ([[D119]]–[[D126]]); the four finished MNIST
+experiments the figures draw on do not. This backfills them, horizontally, one
+experiment per call.
+
+**Built from the recorded config, not restated.** Each AdamW cell loads its source
+cell's `results/<cell>/config.yaml` — fully resolved — and replaces the learner list
+and the run name, nothing else. Graph, partition, drift, horizon, cadence, dtype and
+seeds therefore match by construction; a backfill that restates them in code is how
+one quietly stops matching what it extends. Checked for all twelve conditions: $T=1500$,
+float64, seeds 0–4, the recorded cadence (5, or 25 for P5.7).
+
+**Registry.** X20 (still, linear, abrupt; ER), X25 (β = 0.1, 1, 100), P5.3 (complete,
+ER 0.3, path, ring), P5.7 (per-node, global): twelve conditions. X25's seeds live in two
+runs (0–2, 3–4; D101); the AdamW cell runs all five from the first run's config, and the
+two differ only in the later-recorded default `linearization_point: sender`. X27 is left
+out — its cells hold filters only, and the skew baselines its figures use are X25's.
+P5.3's incomplete `er015` cell is left out. Adding an experiment is one registry line.
+
+**Tuning.** AdamW's own grid (D119), per condition, seeds 0–1, on the recorded config.
+The grid edge is flagged at the end of `--lr`.
+
+**The merge gate.** Each AdamW cell re-runs the first SGD learner its source recorded —
+`centralized_sgd`, else ATC (X20 carries no `centralized_sgd`) — at the recorded entry,
+and it must match per seed within $10^{-9}$, against the pooled pair for X25. Nothing is
+merged into the finished runs' files: the cells stand beside them, and the builders
+read both.
+
+**Named before the run, per experiment:** one-hop (the variant that experiment's figures
+use — sender for X20 and X25, receiver for P5.3 and P5.7) minus ATC AdamW, per seed,
+**predicted negative**, Holm across that experiment's conditions, tested only where the
+gate holds. Four families, not one: each experiment's claim is its own figure's.
+Exploratory: the AdamW levels, centralised AdamW against the centralised filter, and
+`local_adamw` against `local_only`.
+
+Smoked 2026-09-28 on X20 and X25: every path runs, AdamW selects no grid edge, and the
+confirmatory table is withheld when the gate fails, as it must at 20 steps. The gate's
+premise was checked directly: on the stationary cells, where the horizon does not
+change the data, the smoke's evaluations at steps 0–15 equal the source cells' to
+0.0e+00, for ATC (X20) and `centralized_sgd` (X25), CPU against the GPU originals.
+
+🔄 Open until the run: `--lr`, then the main pass; `--experiment` takes a subset.
+
+### 🔄 D126. M2O: a many-to-one readout, paired sample for sample with many-to-many
+
+mg branch: `scripts/run_m2o_readout.py`, with source changes, written 2026-09-27;
+this note and the runner's docstring are the [[D118]] record. The reviewer question
+first raised in the 2026-09-23 review: *why is the series task read out
+many-to-many?*
+
+**What the code now does.** `model.readout: last` makes the Transformer score its last
+position alone — selected *inside* the module, so the per-sample Jacobian
+differentiates one output per window rather than slicing 31 (`models/transformer.py`;
+a test checks it equals the sequence model's last row). `env.series.window_stride`
+picks which of a block's targets get a window — 1 for all 31 (M2O-b), 31 for the last
+alone (M2O-c) — and `mg.to_windows` gives each kept target the $L-1$ samples before it.
+`env.series.history_prefix` integrates context samples before the first round, so the
+first targets have a full window. **The pairing is by construction:** a many-to-many
+cell given the same prefix sees the identical series, and the many-to-one targets
+*are* the many-to-many targets, sample for sample (`tests/test_many_to_one.py`, nine
+tests). Every default reproduces the earlier runs byte for byte. Many-to-many runs now
+also record `rmse_last`, the last position alone — M2O-a, with no arm of its own.
+The mg suite, run against mg's own source: 1481 passed plus the updated
+protocol test, whose exact-set assertion now expects `rmse_last`.
+
+**Cells.** Stationary, the main law, M6's filters and R scale, five seeds, $T=1500$:
+**m2m** (with the prefix), **M2O-b**, **M2O-c**, each as cells a and b. R is M4's
+scaled per-position profile for m2m and its last entry for M2O. The filters carry
+M4/M5's selections, tuned many-to-many — a caveat in m2m's favour, stated. The
+gradient baselines are re-tuned per M2O readout on M3's grids (D77); m2m reuses M3's.
+
+**Named before the run:** M2O-b's RMSE minus m2m's `rmse_last` — both at full context —
+for the centralised filter, local adapt, one-hop, centralised AdamW and ATC AdamW, Holm
+across five, **no direction predicted**. Exploratory: m2m's whole-block RMSE against
+M2O-b (different contexts, not like-for-like), M2O-a's three readings, M2O-c, full
+sharing, the SGD family, calibration by readout, and each cell's wall-clock — the cost
+side, where the resource note predicts about 2× the filter's $C_J$ and 31× the
+baselines' passes.
+
+🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass.
+
+### 🔄 D125. P5.23: a second shift placed mid-transient, as one adversarial comparison
+
+`scripts/run_midtransient_shift.py`, written 2026-09-27; this note and its docstring
+are the [[D118]] record. The plan's worry: X20's filter sits a decade below a
+divergence cliff, and `piecewise` — the only schedule with *specified* change points
+— can put a shift exactly where the filter is most exposed. "Worth one cell, not a
+grid."
+
+**The placement was read off data first.** In X20's recurring cell (15° every 25
+steps, evaluated every 5) the error jumps at the shift and is still falling 20 steps
+later — the centralised filter 0.110 → 0.087, one-hop 0.125 → 0.097 — so ten steps
+after a shift is mid-recovery.
+
+**One comparison.** Two identical 15° shifts; only the second one's step differs:
+**mid** at 750 and 760, **late** at 750 and 1000. Both settle for 750 steps and end
+at 30°. $T=1250$ (50 000 images), evaluations every 5, IID, ER 0.3, $N=10$, five seeds,
+cells a / b / adamw with [[D119]]'s gate. The baselines are tuned on **late** (whole-run
+error) and carried into **mid** — a learner tuned for normal operation meeting the
+adversarial placement, and the only way the two cells differ in the drift alone
+(gated with `assert_paired_runs`).
+
+**The wound** $W=\sum_{t\ge750}(e(t)-f(\theta_t))\,\Delta t$: error above the learner's
+own recovered floor at each rotation — $f(30°)$ the cell's own last 100 steps,
+$f(15°)$ the late cell's steps 950–995, used for both because mid spends ten steps
+there. Same shifts, same end state, so $W_{\text{mid}}-W_{\text{late}}$ isolates the
+placement.
+
+**Named before the run:** (1) $W_{\text{mid}}-W_{\text{late}}$ for the centralised
+filter, local adapt and one-hop, Holm across three, **no direction predicted** — the
+divergence worry says positive, a covariance still open from the first shift
+absorbing the second says negative; (2) divergence, counted per cell, not tested —
+any is the finding. Exploratory: full sharing, the gradient baselines, the
+filter-minus-ATC contrast, the floors.
+
+🔄 Open until the run: `--lr`, then the main pass.
+
 ### 🔄 D124. P5.8: label shift, the second place per-agent beliefs could win — predicted not to
 
 `scripts/run_label_shift.py`, written 2026-09-27; this note and its docstring are the
@@ -4214,7 +4767,7 @@ AdamW, and the belief's $\kappa^\star$ before and after combine (D120's scoring 
 
 🔄 Open until the run: `--lr`, then the main pass (~12–14 GPU-h plus tuning).
 
-### 🔄 D121. M12b at five seeds: M12's ordering holds on the abrupt schedule, nothing is established, and one pre-registered extension to ten
+### ✅ D121. M12b at five seeds, then ten: M12's ordering holds on the abrupt schedule, and nothing is established at the pre-registered level
 
 `scripts/run_m12b_abrupt_coupling.py` (mg branch), six cells × five seeds on the
 recurring abrupt schedule, completed 2026-09-27; read with M12's three
@@ -4273,7 +4826,35 @@ by construction, checked) and prints the confirmatory block at the final $\alpha
 Cost ≈ 13.75 h (M12's nine cells). Smoked 2026-09-27: the pooled gate and the
 confirmatory block read both halves.
 
-🔄 Open until the top-up: `run_m12b_abrupt_coupling.py --topup --device cuda`.
+**Ten seeds, 2026-09-28: the final look, and it does not clear.** The top-up ran all
+nine `_s5to9` cells to completion. The gate holds on all ten seeds: the primary path is
+identical under the three couplings for every pair. β+gain at the final
+$\alpha=0.025$, Holm across six, unrounded:
+
+| β+gain | anti − correlated | $p_\text{holm}$ | independent − correlated | $p_\text{holm}$ |
+|---|---|---|---|---|
+| centralised filter | $-0.0021$ $[-0.0047, +0.0004]$ | 0.372 | $-0.0004$ | 1.000 |
+| **local adapt** | $\mathbf{-0.0063}$ $[-0.0101, -0.0026]$ | **0.02510** | $-0.0020$ | 0.433 |
+| one-hop | $-0.0043$ $[-0.0073, -0.0012]$ | 0.056 | $-0.0010$ | 1.000 |
+| centralised AdamW | $-0.0026$ | 0.655 | $-0.0002$ | 1.000 |
+| ATC AdamW | $-0.0029$ | 0.655 | $-0.0006$ | 1.000 |
+| local only | $-0.0035$ | 0.655 | $-0.0004$ | 1.000 |
+
+**Nothing is established.** Local adapt misses the pre-registered bar by $10^{-4}$
+($p_\text{holm}=0.025095$ against 0.025). Under rule 1 above this was the one extension,
+so no further seeds are added, however close it came. That is the point of fixing the
+rule before the look.
+
+**What can be said, in D118's tiers.** *Suggestive*: every one of the twelve β+gain rows
+is negative, as predicted. In all six learners independent − correlated lies between
+anti − correlated and zero, the ordering predicted before the run. For both diffusion
+filters the anti − correlated interval excludes zero. *Found (exploratory)*: the coupling
+costs the diffusion filters most ($-0.0063$ and $-0.0043$) and the centralised filter
+least ($-0.0021$), so how two drifting channels are coupled matters more when the
+learner is decentralised. β+bias anti − correlated is again negative for all six
+learners (local adapt $-0.0032$, $t=-3.69$, $p_\text{holm}=0.084$ across 18), so the
+five-seed surprise persists, still exploratory and still unexplained beyond the
+standardisation hypothesis above. gain+bias is null on both contrasts, as predicted.
 
 ### 🔄 D120. P5.11 / P5.14: the belief is scored, and $\kappa^\star$ measures the covariance before and after combine
 

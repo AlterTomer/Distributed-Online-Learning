@@ -41,10 +41,10 @@ $N\in\{20,30\}$ below.
 | N>10 | $N\in\{10,20,30\}$ at a common $T=500$, $n=4$, ER $p$ matched to the $N=10$ mixing gap and each seed's draw conditioned into $0.119\pm0.02$ (≤3 draws); stationary and abrupt; every diffusion filter in its own process. Full sharing at $N=10$ by default, at $N=20,30$ only with `--full-sharing` ([[D114]]). `scripts/run_network_size.py` | ~16 h (est.); 7.2 h actual | ✅ done 2026-09-26 — **established**: local-adapt diff-EKF falls behind the centralised filter as $N$ grows ($+0.007$, $+0.013$, $N=10\to30$); one-hop's growth not detected. **Exploratory** ([[D118]]): the same holds for ATC against centralised SGD, one-hop's growth is bounded below 0.005 ($p\le0.024$), and its lead over local adapt widens. Not the mixing-gap drift. AdamW arms being added, the pass's first experiment ([[D119]]); full sharing at $N=20,30$ awaits memory ([[D117]]) |
 | P5.7 | Heterogeneous drift (X8 analogue) — one of the two rows where per-agent beliefs could **beat** the centralised filter | ~8 h | ✅ done — **refuted**: diffusion does not close its gap (all four changes null). Heterogeneity costs every shared model ~0.009, entirely as misfit, and the ordering is unchanged; diffusion agents never leave consensus, so they cannot personalise ([[D115]]) |
 | P5.11, P5.14 | Calibration, and whether `lem:conservative` is conservative in practice: new evaluation metrics, then a re-run of X20's ER cells | 1–2 days code, ~6 h | **MNIST half ready** 2026-09-27: the belief scored and $\kappa^\star$ before and after combine, three questions and a degeneracy rule named in advance, AdamW included ([[D120]]); `run_belief_calibration.py --lr`, then the main pass. **Mackey–Glass half ready** too (mg-task, `run_mg_belief_calibration.py`): the lemma tested covariance-free, by how much averaging shrinks $\text{MSE}-\sigma^2$ |
-| P5.12 | $E_{\text{agree}}$, $E_{\text{cent}}$ over time — already recorded, analysis only | — | open |
+| P5.12 | $E_{\text{agree}}$, $E_{\text{cent}}$ over time. **Not** analysis only: $E_{\text{cent}}$ was measured against centralised SGD for every learner, so `e_cent_filter` was added ([[D134]]) | ~8 h | **runner ready** 2026-09-27 (`run_disagreement.py`): six cells rebuilt from P5.3 and P5.7, three questions named in advance |
 | P5.24 | Mis-tuned arm: the number is in hand (+0.0161, $t=6.3$); carry it in the figures | — | open |
 | figures | Diff-EKF folder builder with a computed `SUMMARY.md` | — | open |
-| AdamW | Add AdamW arms to the main MNIST cells, **horizontally** — see below | ~20–30 h (est.) | **N>10 first**: runner ready and smoked 2026-09-26, two questions named in advance ([[D119]]); `run_network_size.py --lr`, then the main pass. Every later experiment the paper cites follows |
+| AdamW | Add AdamW arms to the main MNIST cells, **horizontally** — see below | ~20–30 h (est.) | **N>10 first**: runner ready and smoked 2026-09-26, two questions named in advance ([[D119]]); `run_network_size.py --lr`, then the main pass. **Backfill ready** 2026-09-27 for X20, X25, P5.3 and P5.7, each cell rebuilt from its source's recorded config (`run_adamw_pass.py`, [[D127]]); the later runs carry AdamW from the start |
 
 About 63 GPU-hours, plus the AdamW pass. At one sweep launched a day, with
 scripts, pre-flights and write-ups done while the previous sweep runs: **about ten
@@ -101,7 +101,7 @@ reproduced from X16 before it was built on.
 | item | analogue of | what it asks | GPU | decision |
 |---|---|---|---|---|
 | P5.8 | X10 | Prior drift / label shift instead of covariate shift — the other row where per-agent beliefs could win | ~8 h | **kept**; runner ready 2026-09-27 (`run_label_shift.py`, [[D124]]) |
-| P5.23 | — | One `piecewise` cell placing a shift mid-transient, as an adversarial probe | ~3 h | **kept** |
+| P5.23 | — | One `piecewise` cell placing a shift mid-transient, as an adversarial probe | ~3 h | **kept**; runner ready 2026-09-27 (`run_midtransient_shift.py`, [[D125]]) |
 | P5.6 | X11 | Repeated abrupt shifts on a $J\times t'$ grid. X11 found longer intervals leave *bigger* wounds (0.209 at $J=30$, $t'=200$) | ~3 days | deferred |
 | P5.9 | X14 | The generalisation grid: 21 conditions ($t'\in\{2,\dots,200\}\times J\in\{5,15,20,30\}$, three linear rates, a low-sample block). X14 found the centralised filter less damaged than ATC in 21 of 21 | ~4 days | deferred |
 | P5.10 | X7, X12, X18 | The remaining shapes: sinusoidal (the only schedule that revisits states, so the only one where forgetting is well-posed), linear at several rates, sawtooth | ~10 h | deferred |
@@ -153,7 +153,7 @@ they need different arms:
 | item | what | answers | cost | status |
 |---|---|---|---|---|
 | M2O-a | Score the **last position alone** ($\hat x_L$, full 31-sample context) of a many-to-many run | "is the headline inflated by the short-context positions?" | one metric (`rmse_last`) + a run that records it | open |
-| M2O-b | **Supervision-matched** many-to-one: windows strided by **1**, only the last position scored, so each step still consumes 31 fresh targets | "why not many-to-one?" — the honest version | build 1–2 days (est.); GPU sized at pre-flight | open |
+| M2O-b | **Supervision-matched** many-to-one: windows strided by **1**, only the last position scored, so each step still consumes 31 fresh targets | "why not many-to-one?" — the honest version | build 1–2 days (est.); GPU sized at pre-flight | **built** 2026-09-27 with M2O-a and M2O-c (mg, `run_m2o_readout.py`, [[D126]]) |
 | M2O-c | **Sample-matched** many-to-one: windows strided by $L$, one target per block | the rank-1 starvation that motivated the design | small, on M2O-b's plumbing | open |
 
 ⚠ **M2O-a is not free from existing results.** The series runs record `rmse` (every
@@ -208,7 +208,7 @@ the report checks that path is identical per seed rather than assuming it.
 | item | cells | GPU | status |
 |---|---|---|---|
 | M12b | 3 pairs × {correlated, anti}, abrupt, 5 seeds | ~9 h (6/9 of M12's 13.75 h) | five seeds done 2026-09-27: gate passed; β+gain anti − correlated and independent − correlated negative for all six learners, as predicted, but **not detected at five seeds** (smallest $p_\text{holm}$ 0.123, 0.49); β+bias unexpectedly negative too, exploratory ([[D121]]) |
-| M12b top-up | seeds 5–9 for all nine cells the contrasts read, M12's independent cells included; the one extension, read at $\alpha=0.025$ ([[D121]]) | ~13.75 h | **next** — `--topup --device cuda` |
+| M12b top-up | seeds 5–9 for all nine cells the contrasts read, M12's independent cells included; the one extension, read at $\alpha=0.025$ ([[D121]]) | ~13.75 h | ✅ done 2026-09-28: gate holds on ten seeds; **nothing established** at $\alpha=0.025$. Local adapt, anti − correlated, misses by $10^{-4}$ ($p_\text{holm}=0.02510$), and the rule allows no further seeds. Suggestive: all twelve β+gain rows negative, ordering as predicted ([[D121]]) |
 
 ⚠ Abrupt has returned nulls five times at five seeds. These contrasts avoid the reason
 (each seed's twin wandering on its own excursion), so they should resolve better — a
@@ -272,8 +272,8 @@ cumulative bits.
 
 | step | what | cost |
 |---|---|---|
-| C0 | Design note: CHOCO, ACTC; compressor interface; bits ledger; the full-sharing option | 2 days |
-| C1 | Bits ledger; $\boldsymbol\psi$ in float32/float16 | 1 day |
+| C0 | Design note: CHOCO, ACTC; compressor interface; bits ledger; the full-sharing option — **drafted 2026-09-27** (`communication_plan.md`), nine decisions open for the user | 2 days |
+| C1 | Bits ledger; $\boldsymbol\psi$ in float32/float16 — **built** 2026-09-27 on main ([[D135]]): the channel inside every learner's mix, four compressors, `cum_bits_tx` priced by kind | 1 day |
 | C2 | Public copies and difference transmission with a pluggable $Q$, error feedback; also for ATC | 4–5 days |
 | C3 | Event trigger and periodic-$K$ baseline | 2 days |
 | C4 | Error against bits on MNIST (IID and severe skew), then on Mackey–Glass | ~3 days GPU |
@@ -408,7 +408,7 @@ verification re-runs.
 | **Oct 4–Nov 7** | B: pilot, build, battery |
 | mid-Oct | **writing starts, from the theory** — experiments continue |
 | **Nov 8–Nov 28** | C |
-| **Nov 29–Dec 27** | buffer: seed top-ups, gaps the draft exposes, supervisor's requests, then deferred tier-3 items |
+| **Nov 29–Dec 27** | buffer: seed top-ups, gaps the draft exposes, supervisor's requests, then deferred tier-3 items, then M10's abrupt condition (`run_m10_network_size.py --abrupt`, ~17 GPU-h; [[D129]]) |
 | **Dec 27** | experiment freeze |
 | **Dec 28–Jan 22** | alongside writing: reproduction package stage 1 — claim map, driver tiers, anonymised snapshot |
 | **Jan 22, 2027** | ICML deadline; supplementary deadline per the call |
