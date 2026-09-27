@@ -121,7 +121,8 @@ class BreakPoint:
 
 
 def error_by_step(
-    frame: pd.DataFrame, evalset: str = "current", by_seed: bool = False
+    frame: pd.DataFrame, evalset: str = "current", by_seed: bool = False,
+    metric: str = "error_rate",
 ) -> pd.DataFrame:
     """Counts-then-divide error per learner and step, pooled over agents.
 
@@ -131,14 +132,21 @@ def error_by_step(
 
     With ``by_seed`` the seeds are kept apart, which is what the noise estimate
     and the paired control both need.
+
+    **Any other ``metric``** (``"rmse"`` on the series task) is the mean over agents
+    of that metric's recorded value -- how every M-series report reads it. There are
+    no counts to pool, and none are needed: every agent's held-out set holds the same
+    number of blocks, so no agent can be over- or under-weighted.
     """
-    rows = frame[(frame.evalset == evalset) & (frame.metric == "error_rate")]
+    rows = frame[(frame.evalset == evalset) & (frame.metric == metric)]
     if rows.empty:
         raise BreakError(
-            f"no {evalset!r} error_rate rows to locate a break in. The run must record "
+            f"no {evalset!r} {metric} rows to locate a break in. The run must record "
             f"{evalset!r}; check eval.evalsets."
         )
     keys = ["learner", "seed", "t"] if by_seed else ["learner", "t"]
+    if metric != "error_rate":
+        return rows.groupby(keys)["value"].mean().rename("error").reset_index()
     grouped = rows.groupby(keys)[["n_correct", "n_samples"]].sum()
     grouped["error"] = 1.0 - grouped.n_correct / grouped.n_samples
     return grouped.reset_index()
@@ -204,6 +212,12 @@ def assert_paired_runs(drifting_dir: Any, control_dir: Any) -> None:
     for key in PAIRING_KEYS:
         if left.get(key) != right.get(key):
             differences.append(key)
+    # The channel (Track C): a compressed run paired with an uncompressed twin would mix
+    # drift damage with compression damage. A config recorded before the section
+    # existed ran exact, so a missing section reads as the default.
+    exact = {"compressor": "none", "precision": 8}
+    if (left.get("comm") or exact) != (right.get("comm") or exact):
+        differences.append("comm")
     for key in set(left.get("env", {})) | set(right.get("env", {})):
         if key in ENV_KEYS_EXEMPT:
             continue
@@ -226,6 +240,7 @@ def paired_excess(
     drifting: pd.DataFrame,
     control: pd.DataFrame,
     evalset: str = "current",
+    metric: str = "error_rate",
 ) -> pd.DataFrame:
     r"""Drift damage: the drifting run's error minus its stationary twin's.
 
@@ -244,8 +259,8 @@ def paired_excess(
     Returns one row per (learner, seed, step) so the seed spread survives -- it
     is what the threshold is derived from.
     """
-    left = error_by_step(drifting, evalset, by_seed=True)
-    right = error_by_step(control, evalset, by_seed=True)
+    left = error_by_step(drifting, evalset, by_seed=True, metric=metric)
+    right = error_by_step(control, evalset, by_seed=True, metric=metric)
     merged = left.merge(right, on=["learner", "seed", "t"], suffixes=("", "_control"), how="inner")
     if merged.empty:
         raise BreakError(

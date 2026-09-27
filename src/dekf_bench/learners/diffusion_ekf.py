@@ -88,6 +88,7 @@ from typing import Any
 
 import torch
 
+from dekf_bench.compression import Channel, exact_channel
 from dekf_bench.learners.base import Intermediate, LearnerState
 from dekf_bench.learners.ekf import (
     TRUST_REGION_RATIO,
@@ -203,6 +204,9 @@ class DiffusionEKF:
         #: because $n$ is a property of the environment. The largest seen, which
         #: under the fixed $n$ of every benchmark here is every agent's.
         self._batch_scalars = 0
+        #: What a mixed mean looks like on arrival (Track C). Exact by default, and
+        #: exact is `mixing @ psi`, the arithmetic every recorded run used.
+        self.channel: Channel = exact_channel()
         #: P5.14: when set, the next combine keeps each agent's pre-combine belief
         #: $(\bm\psi_v,\bm P^{\psi}_v)$ so it can be scored beside the combined one.
         #: Off by default and set per step by the runner, because under full
@@ -255,6 +259,21 @@ class DiffusionEKF:
             first = self._batch_scalars + (p if self.linearization_point == "sender" else 0)
             per_direction += self.adapt_rounds * first
         return per_direction * 2 * n_edges
+
+    def comm_payload(self, n_edges: int) -> dict[str, int]:
+        """:meth:`comm_scalars_per_step` by kind, for the bits column: the mean goes
+        through the channel; the covariance, the raw batch and the sender's prior do
+        not, and are priced at their own precision."""
+        p, links = self.model.num_params, 2 * n_edges
+        payload = {"vectors": p * links}
+        if self.covariance_sharing == "full":
+            payload["covariance"] = p * (p + 1) // 2 * links
+        if self.adapt_scope == "one_hop":
+            payload["data"] = self.adapt_rounds * self._batch_scalars * links
+            if self.linearization_point == "sender":
+                payload["prior"] = self.adapt_rounds * p * links
+        assert sum(payload.values()) == self.comm_scalars_per_step(n_edges)
+        return payload
 
     # -- state -------------------------------------------------------------- #
 
@@ -396,7 +415,10 @@ class DiffusionEKF:
         # combined later, which would make the result depend on node ordering and
         # break the complete-graph identity.
         stacked_psi = torch.stack([psi[node] for node in order])
-        combined_mean = mixing @ stacked_psi
+        # Through the channel: under one-hop these are the post-adapt means computed
+        # just above, which is what crosses the second link (D92). The covariance
+        # combine below is not compressed (communication_plan.md, C-8).
+        combined_mean = self.channel.mix(mixing, stacked_psi)
 
         combined_cov: dict[int, torch.Tensor] = {}
         if self.covariance_sharing == "full":

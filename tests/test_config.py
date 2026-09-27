@@ -385,7 +385,8 @@ def test_dumped_config_names_every_field() -> None:
     """Nothing may rely on a default that is not written down."""
     config = load_config("x1_stationary")
     dumped = config.to_dict()
-    assert set(dumped) == {"run", "graph", "env", "model", "reference", "learners", "eval"}
+    assert set(dumped) == {"run", "graph", "env", "model", "reference", "learners", "eval",
+                           "comm"}
     assert "total_degrees" in dumped["env"]["drift"]
     assert all("adapt_scope" in learner for learner in dumped["learners"])
 

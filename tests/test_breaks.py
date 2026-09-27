@@ -104,6 +104,34 @@ def test_error_is_counts_then_divide() -> None:
     assert float(error_by_step(frame).error.iloc[0]) == pytest.approx(0.2)
 
 
+def rmse_frame(values_by_agent: dict[int, float], seed: int = 0, t: int = 0) -> pd.DataFrame:
+    return pd.DataFrame([{"learner": "a", "seed": seed, "t": t, "node": node,
+                          "evalset": "current", "metric": "rmse", "value": value}
+                         for node, value in values_by_agent.items()])
+
+
+def test_a_regression_metric_is_the_mean_over_agents() -> None:
+    """The series task records RMSE per agent, with no counts; every agent's held-out
+    set is the same size, so the plain mean is the right pooling -- and the one every
+    M-series report uses."""
+    frame = rmse_frame({0: 0.10, 1: 0.14, 2: 0.18})
+    assert float(error_by_step(frame, metric="rmse").error.iloc[0]) == pytest.approx(0.14)
+
+
+def test_a_regression_excess_is_drifting_minus_twin_per_seed_and_step() -> None:
+    drifting = pd.concat([rmse_frame({0: 0.15, 1: 0.17}, seed=s) for s in (0, 1)])
+    twin = pd.concat([rmse_frame({0: 0.14, 1: 0.14}, seed=s) for s in (0, 1)])
+    excess = paired_excess(drifting, twin, metric="rmse")
+    assert list(excess.excess) == pytest.approx([0.02, 0.02])
+
+
+def test_the_default_metric_still_refuses_a_regression_run() -> None:
+    """The metric is opt-in: an image-task caller reading a series run by mistake
+    gets told, rather than a silently empty answer."""
+    with pytest.raises(BreakError, match="no 'current' error_rate rows"):
+        error_by_step(rmse_frame({0: 0.1}))
+
+
 def test_a_missing_evalset_is_an_error_not_an_empty_answer() -> None:
     frame = frame_of({"a": ramp_curve(0.1, 0.2)})
     with pytest.raises(BreakError, match="no 'backward' error_rate rows"):
@@ -407,6 +435,22 @@ def test_a_control_with_a_different_seed_set_is_refused(tmp_path) -> None:
     )
     with pytest.raises(BreakError, match="run.seeds"):
         assert_paired_runs(drifting, control)
+
+
+def test_a_compressed_control_is_refused_and_a_missing_section_reads_as_exact(tmp_path) -> None:
+    """Track C: drift damage and compression damage must not be mixed, and a config
+    written before the channel existed ran exact."""
+    import yaml
+
+    base = {"graph": {"topology": "ring"}, "model": {}, "learners": [], "env": {},
+            "run": {"seeds": [0], "horizon": 10, "eval_every": 1}}
+    for name, extra in (("old", {}), ("exact", {"comm": {"compressor": "none", "precision": 8}}),
+                        ("half", {"comm": {"compressor": "float16", "precision": 8}})):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "config.yaml").write_text(yaml.safe_dump({**base, **extra}))
+    assert_paired_runs(tmp_path / "old", tmp_path / "exact")
+    with pytest.raises(BreakError, match="comm"):
+        assert_paired_runs(tmp_path / "half", tmp_path / "exact")
 
 
 def test_a_missing_config_is_refused_rather_than_assumed_fine(tmp_path) -> None:

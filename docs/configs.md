@@ -296,6 +296,24 @@ Config validation rejects a separation the schedule cannot reach, so asking for
 `backward` on a stationary run fails at load rather than silently producing
 nothing.
 
+### `comm`
+
+What every diffusing learner's messages look like on arrival (Track C,
+`docs/communication_plan.md`, D135). Applied to **every** diffusing learner in the
+run, filter and gradient baselines alike.
+
+| Field | Type | Default | Legal values | Notes |
+|---|---|---|---|---|
+| `compressor` | str | `none` | `none`, `float32`, `float16`, `bfloat16`, `stochastic` | `none` is exact: the arithmetic of every run before the channel existed |
+| `precision` | int | `8` | 2–16 | Bits per value, `stochastic` only; the casts carry their own |
+
+Compression acts inside each learner's mix: every **received** vector is decoded
+from its compressed form, while an agent's own term stays exact. Full sharing's
+covariance and one-hop's raw batch are not compressed. `cum_bits_tx` records the
+bits sent: vectors at the compressor's price, the rest at their own precision.
+`stochastic` draws from a per-learner seed stream, and a run using it refuses to
+resume.
+
 ## The reference classifier
 
 | Field | Type | Default | Legal values | Notes |
@@ -699,4 +717,5 @@ learner.linearization_point  sender | receiver (one_hop only)
 learner.combine_exponent  1.0 .. 2.0
 model.likelihood          categorical | gaussian
 eval.evalsets             prequential | current | backward | canonical
+comm.compressor           none | float32 | float16 | bfloat16 | stochastic
 ```
