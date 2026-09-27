@@ -210,6 +210,10 @@ def gaussian_scores(
     tempered = gaussian_kappa_scan(residuals, model_variance, rho * noise_variance)
     at_one = model_variance + noise_variance
     return {
+        # The mean squared residual, for P5.14's covariance-free test: where the
+        # observation noise is known, MSE - sigma^2 is the model's own error, and
+        # its ratio after to before combine says how much averaging shrank it.
+        "mse": float((residuals**2).mean()),
         "plugin_nll": scan.nll_at_zero,
         "belief_nll": scan.nll_at_one,
         "belief_variance_ratio": float((residuals**2 / at_one).mean()),
