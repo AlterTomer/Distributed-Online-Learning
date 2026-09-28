@@ -5004,7 +5004,7 @@ this port: 1473 passed.
 🔄 Open until the runs: on main `run_belief_calibration.py --lr`, then the main pass;
 on mg-task `run_mg_belief_calibration.py`.
 
-### 🔄 D119. The AdamW pass starts with N>10: own grid, own cell, a gate, two questions named in advance
+### ✅ D119. The AdamW pass starts with N>10: one-hop beats ATC AdamW at every N, and ATC AdamW's own scaling is not resolved
 
 Decided 2026-09-26: every figure the paper carries must include the AdamW baselines,
 so every runner behind one must carry them (schedule.md, "The AdamW pass"). N>10 is
@@ -5058,7 +5058,39 @@ and skips them where they do not: 40 adds centralised and ATC AdamW and prints
 family as a solid, confirmatory series; 40's footer carries question 2 once the gate
 holds.
 
-🔄 Open until the run: `--lr`, then the main pass.
+**The run, 2026-09-28** (51 min for the AdamW cells; the SGD and filter cells were
+cached). **The merge gate holds exactly:** `centralized_sgd` re-run inside every AdamW
+cell reproduces group A to 0.0e+00, at every N, in both conditions, on all five seeds.
+No AdamW rate sits on a grid edge: centralised 3e-3, ATC 3e-3 (1e-2 at N=10 and 30
+abrupt), local 1e-3.
+
+**Question 2 is established, in both conditions.** One-hop − ATC AdamW, Holm across the
+three sizes:
+
+| | N=10 | N=20 | N=30 |
+|---|---|---|---|
+| stationary | $-0.0301$ ($p_\text{holm}$ 0.022) | $-0.0292$ (0.022) | $-0.0324$ (0.004) |
+| abrupt | $-0.0561$ (0.010) | $-0.0512$ (0.010) | $-0.0443$ (0.014) |
+
+The receiver-point one-hop filter beats the strongest gradient baseline at every
+network size, at 3 696 scalars per link against ATC AdamW's 8 724. The margin is
+2–5 points of error, several times anything D117's scaling rows moved.
+
+**Question 1 is not detected, and at five seeds it is uninformative.** The change in ATC
+AdamW − centralised AdamW from N=10 to 30 is $+0.0046$ $[-0.0156, +0.0249]$ stationary
+and $-0.0019$ $[-0.0203, +0.0166]$ abrupt. The intervals are four times the SGD family's,
+and the reason is AdamW's own seed spread at $T=500$. At N=10 centralised AdamW ranges
+0.095–0.111 across seeds, and ATC AdamW's gap to it swings from $-0.008$ to $+0.043$. An
+interval of ±0.02 cannot rule out growth as large as ATC's own ($+0.0088$, established
+in D117's family), so the prediction is neither supported nor refuted. By N=30 the
+stationary gaps tighten ($+0.013$ to $+0.018$), so a longer horizon or more seeds would
+be the way to resolve it. Neither is named here: no extension was registered, and none
+is added after the look.
+
+**Exploratory.** Cooperation pays more with N in the AdamW family too: local AdamW −
+ATC AdamW widens by $+0.0184$ (stationary) and $+0.0364$ (abrupt) from N=10 to 30, the
+largest such change on the page. Local AdamW is the worst learner at every N, worse than
+`local_only`. Figures 40–42 draw the AdamW family from these cells.
 
 ### ✅ D118. Confirmatory and exploratory: which $p$ a claim may rest on
 

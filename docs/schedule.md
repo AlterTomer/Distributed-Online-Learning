@@ -44,7 +44,7 @@ $N\in\{20,30\}$ below.
 | P5.12 | $E_{\text{agree}}$, $E_{\text{cent}}$ over time. **Not** analysis only: $E_{\text{cent}}$ was measured against centralised SGD for every learner, so `e_cent_filter` was added ([[D134]]) | ~8 h | **runner ready** 2026-09-27 (`run_disagreement.py`): six cells rebuilt from P5.3 and P5.7, three questions named in advance |
 | P5.24 | Mis-tuned arm: the number is in hand (+0.0161, $t=6.3$); carry it in the figures | — | open |
 | figures | Diff-EKF folder builder with a computed `SUMMARY.md` | — | open |
-| AdamW | Add AdamW arms to the main MNIST cells, **horizontally** — see below | ~20–30 h (est.) | **N>10 first**: runner ready and smoked 2026-09-26, two questions named in advance ([[D119]]); `run_network_size.py --lr`, then the main pass. **Backfill ready** 2026-09-27 for X20, X25, P5.3 and P5.7, each cell rebuilt from its source's recorded config (`run_adamw_pass.py`, [[D127]]); the later runs carry AdamW from the start |
+| AdamW | Add AdamW arms to the main MNIST cells, **horizontally** — see below | ~20–30 h (est.) | **N>10 done** 2026-09-28: the merge gate reproduces to 0.0e+00; one-hop beats ATC AdamW at every N in both conditions (**established**, $p_\text{holm}\le0.022$); ATC AdamW's own scaling not resolved at five seeds ([[D119]]). **Backfill ready** 2026-09-27 for X20, X25, P5.3 and P5.7, each cell rebuilt from its source's recorded config (`run_adamw_pass.py`, [[D127]]); the later runs carry AdamW from the start |
 
 About 63 GPU-hours, plus the AdamW pass. At one sweep launched a day, with
 scripts, pre-flights and write-ups done while the previous sweep runs: **about ten
