@@ -4106,7 +4106,7 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
-### 🔄 D136. Differential coding: the public copy is the error memory, and a probe gates the codec
+### ✅ D136. Differential coding: the public copy is the error memory, and the probe finds no filter-specific gain
 
 The user's proposal, `Diff_EKF_Huffman_Communication_Summary.tex` (OneDrive, Diff-EKF),
 reviewed 2026-09-27: send $\boldsymbol\psi$ as a quantised difference against a reference
@@ -4192,8 +4192,28 @@ compared at matched distortion.
 Against C-11 (build C2's codec only if H1 or H2 holds): neither holds on MNIST. The
 decision waits for Mackey–Glass.
 
-🔄 Open until the run: after M12b, on each branch, `python scripts/run_delta_entropy_probe.py
---device cuda`.
+**Mackey–Glass, 2026-09-29 (25.7 min, one seed, M6's stationary and abrupt, five learners
+with ATC AdamW): the same verdict, more sharply.** Figure MG21. Settled bits per parameter
+for ψ, stationary, at ε = 10⁻²/10⁻³/10⁻⁴: both filters 1.08/3.77/7.06 (one-hop and local
+adapt equal to two decimals), ATC plain 0.36/1.76/4.59, ATC AdamW 0.47/2.21/5.37, momentum
+ATC 0.14/0.80/2.98; abrupt within ~0.1 bits. The filter quiets somewhat over the run here
+(4.3 → 3.8 bits at 10⁻³), unlike MNIST, but stays 2–5× the gradient methods' ψ. The filter's
+own dead zone saves at most 0.06 bits. Around 59 jumps the after/before ratio is 1.00–1.05.
+
+**Per whole message the ranking reverses for two of three baselines:** at 10⁻³, ATC plain
+1.8 bits per parameter, **the filter 3.8**, momentum ATC 6.2 (ψ 0.8 + momentum 5.4), ATC
+AdamW 9.1 (2.2 + m 5.6 + v 1.3). The filter sends one vector where they send two or three;
+one-hop's 32 raw samples are negligible here.
+
+**The verdict, both tasks.** H1 is refuted and H2 is not seen, on MNIST and Mackey–Glass
+alike. Under C-11 the differential Huffman codec is **not** built as a filter-specific
+contribution. What the probe found instead frames Track C: differential plus entropy
+coding compresses every learner to 2–11 bits per parameter against FP32's 32, at a
+distortion whose cost only C4's closed loop can price; and the filter's bit advantage is
+structural, one vector against two or three, which survives compression, with ATC plain
+the exception and so the hardest matched-bits baseline. **Open, 2026-09-30:** the user has
+a codec plan of their own, to be reviewed once the current analysis round is done.
+
 
 ### 🔄 D135. C1 built: a channel inside the mix, bits by kind, and the default is the old arithmetic
 

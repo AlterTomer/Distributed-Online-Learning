@@ -290,7 +290,7 @@ on this code (see the note to the user, 2026-09-27) and does not belong in Track
 | C-8 | Compress full sharing? | No: report it uncompressed, and say why |
 | C-9 | Re-tune baselines per compression level? | Yes, at every level of the headline grid |
 | C-10 | What the Huffman tables are built on | Seeds ≥ 5, in no reported cell; entropy bound reported beside the coded length |
-| C-11 | Build C2's codec at all? | Only if the delta probe (D136) shows the filter's differences materially more compressible than the baselines', or a rate that rises after drift and decays |
+| C-11 | Build C2's codec at all? | **Probed 2026-09-29 (D136): neither condition holds on either task**, so not as a filter-specific contribution; the filter's per-message advantage is structural (one vector against two or three). The user's own codec plan is to be reviewed next |
 
 **Before C1 starts:** read [3] and [4] and check whether ACTC's analysis covers a
 combine with a non-scalar (covariance) weight, which would bear on C-5; then [1], [2]
