@@ -4273,7 +4273,7 @@ The report's SGD-referenced E_cent column now reads the *source* cells, which ca
 
 🔄 Open until the run: `python scripts/run_disagreement.py`.
 
-### 🔄 D133. The float32 probe: the case for float64 was never measured, and part of it was never cited
+### ✅ D133. The float32 probe: single precision is numerically safe on both tasks, and the benchmark stays float64
 
 `scripts/run_float32_probe.py`, identical on main (MNIST, from P5.3's ER 0.3 cells) and
 mg (Mackey–Glass, from M6's stationary cells), written 2026-09-27. This note and the
@@ -4396,8 +4396,34 @@ a hundred times MNIST's, growing steadily; its P is far worse conditioned here
 (λ_min/λ_max 2.5×10⁻⁵ against ~9×10⁻³, a condition number near 4×10⁴), so rounding is
 amplified more. It still does not reach the outcomes, per 2–3.
 
-🔄 Open until the run: after M12b, on each branch, `python scripts/run_float32_probe.py
---device cuda --full-sharing` (lockstep, ~1–1.5 h), then `--cells --device cuda --full-sharing`.
+**Mackey–Glass float32 cells, 2026-09-29 (63.5 min, M6's stationary cells a and b,
+seeds 0–1):** figure MG20. The data are identical across precisions (≤1.2×10⁻⁷ at steps
+0, 500 and 1400: the series is integrated in float64 and cast), and θ₀ is again an
+unrelated draw, so the per-seed differences are the initialisation's. All three AdamW
+learners sit above float64's range on both seeds, which two samples of another
+initialisation cannot separate from chance. **One divergence, not float32's:** centralised
+SGD on seed 1 is NaN by step 500. On CPU, seed 1, centralised SGD alone, 600 steps: float64
+from float64's θ₀ is stable; **float64 from float32's θ₀ diverges at step 11**; float32
+from float64's θ₀ is stable; float32 from its own θ₀ diverges at step 11. The draw decides
+it, not the precision. It is a finding about the baseline: Mackey–Glass centralised SGD at
+its tuned 3e-5 (1e-4 diverged in M3) sits so near its stability edge that one θ₀ breaks
+it; the five real seeds happened to be stable. **End to end:** cell a 23.1 against 32.0
+min per seed, **1.3–1.4×**; cell b 7.5 against 13.5, **1.7–1.9×**, less than MNIST's, as step
+03's per-step numbers predict.
+
+**The verdict.** Numerically, single precision is safe on both tasks: at one θ₀ the
+outcomes agree to ≤3×10⁻⁵, positive definiteness is identical, and calibration differs by
+≤4×10⁻³. MNIST passes every criterion, 2.6–8.5× per filter step and about 2× end to end.
+Mackey–Glass fails the registered speed rule and gains 1.4–1.8× end to end.
+
+**Decided with the user, 2026-09-30: the benchmark stays float64.** Every experiment
+already run is float64, and mixing precisions across the paper's experiments would be an
+asymmetry to defend for a saving of about half the GPU time on three MNIST sweeps. The
+evidence collected here goes into the paper's appendix as the case that FP32 is
+numerically sufficient: figures 43, 44, MG19 and MG20; the lockstep's fidelity,
+definiteness and calibration numbers; the end-to-end speed-ups; and the finding that θ₀
+alone moves settled error by up to 0.01.
+
 
 ### 🔄 D132. M7: β_c = 2 on Mackey–Glass, as the test of D89's structural claim
 
