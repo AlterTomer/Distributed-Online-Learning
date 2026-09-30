@@ -5173,8 +5173,45 @@ scripts insert their own `src`, so its runs were always right, but an mg test ru
 without `PYTHONPATH=src` tests main's code. The mg suite was re-run properly for
 this port: 1473 passed.
 
-🔄 Open until the runs: on main `run_belief_calibration.py --lr`, then the main pass;
-on mg-task `run_mg_belief_calibration.py`.
+**The MNIST run, 2026-09-29/30** (tuning 148 min, cells 733 min, five seeds, stationary
+and abrupt). **The merge gate reproduces to 0.0e+00 in both conditions.** Rates: SGD
+0.01, local and plain 0.05, AdamW 3e-3 (centralised 1e-3 in abrupt), local AdamW 1e-3;
+none on a grid edge.
+
+**Q1 is refuted.** Scoring the belief is worse than the plug-in for every filter, the
+centralised one included, where it was predicted better; $p_\text{holm}<0.001$ throughout.
+
+| filter | stationary | abrupt |
+|---|---|---|
+| centralised EKF | +0.054 | +0.052 |
+| local adapt | +0.594 | +0.550 |
+| one-hop | +0.425 | +0.407 |
+| local adapt, full sharing | +0.614 | +0.574 |
+| one-hop, full sharing | +0.423 | +0.401 |
+
+**Q2 and Q3 are UNDECIDABLE on MNIST** by the rule fixed before the run: $\kappa^\star$
+sits at 0 in 70–100% of evaluations. The plug-in mean is already under-confident, so no
+positive spread helps; where $\kappa^\star$ is positive it is about 1e-4, so
+$HPH^\top$ is some $10^4$ times too wide as a predictive. The probit belief's ECE is
+0.10 (centralised) and 0.36–0.47 (diffusion), against the plug-in's 0.03–0.04.
+
+**Exploratory, the tempered reading.** $\tau^\star$ 0.78–0.89 sharpens the plug-in
+mean, and $\tilde\kappa^\star$ is then 0.005–0.07. Pre minus post in log10
+$\tilde\kappa^\star$ is +0.01 to +0.04 decades (t 0.5–7), against about +0.6 were the
+errors independent: the combine barely changes the belief's scale. This **suggests**
+`lem:conservative` is close to tight, consistent with [[D88]]; it does not decide Q2.
+
+**Exploratory, plug-in calibration.** Every filter's mean is under-confident (−0.013 to
+−0.037), SGD and ATC are near calibrated, AdamW is under-confident (local AdamW −0.048),
+and `local_only` alone is over-confident (+0.014 stationary, +0.026 abrupt). One-hop's
+plug-in ECE (0.015) is better than the centralised filter's (0.024).
+
+**For the paper.** On MNIST the covariance is not a usable predictive as it stands; the
+mean is what is scored. Whether the covariance is calibrated is a Mackey–Glass
+question, where the half below does not depend on $\kappa^\star$. Figure 47 (private
+`plot_belief_calibration.py`) reads every number through the runner's own readers.
+
+🔄 Open until the Mackey–Glass run: on mg-task `run_mg_belief_calibration.py`.
 
 ### ✅ D119. The AdamW pass starts with N>10: one-hop beats ATC AdamW at every N, and ATC AdamW's own scaling is not resolved
 
