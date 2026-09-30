@@ -4375,6 +4375,27 @@ variance is initialisation. That is the case for sharing one θ₀ across a cell
 learners (D30), and it means float32 and float64 cells can never be paired seed for
 seed. Adoption would halve GPU time only for experiments that run all their own cells.
 
+**Mackey–Glass lockstep, 2026-09-29 (65.9 min, seeds 0–1, five filters): numerically as
+safe as on MNIST, but it fails the speed criterion, so float32 is not adoptable on this
+task under the registered rule.** Figure MG19.
+
+1. *Health.* No guard trips, no dtype leak; λ_min/λ_max identical in the two precisions at
+   every checkpoint (2.54e-5 for the centralised filter).
+2. *Fidelity.* Settled RMSE within **3×10⁻⁵**. The largest gap anywhere, 6.3×10⁻⁴, is at
+   step 0, the first update from the prior, and falls to ~5×10⁻⁶ by the second quarter.
+3. *Calibration.* `variance_ratio` within 3.7×10⁻³ (bar 0.01).
+4. *Speed, seeds 0/1:* centralised 3.5/3.5×, local adapt **1.15/1.15×**, one-hop **1.91**/2.19×,
+   local full sharing **1.29/1.32×**, one-hop full sharing 1.97/2.20×.
+
+Two readings, both hypotheses consistent with the numbers and not profiled. *Speed:* a
+local-adapt agent here spends most of its step on the Transformer's per-sample Jacobian,
+attention through autograd in many small kernels, which launch overhead bounds and
+precision barely moves. The centralised filter's pooled update (310 observations a step)
+is large dense algebra, and gains 3.5×. *Drift:* the centralised filter drifts 3–5×10⁻³,
+a hundred times MNIST's, growing steadily; its P is far worse conditioned here
+(λ_min/λ_max 2.5×10⁻⁵ against ~9×10⁻³, a condition number near 4×10⁴), so rounding is
+amplified more. It still does not reach the outcomes, per 2–3.
+
 🔄 Open until the run: after M12b, on each branch, `python scripts/run_float32_probe.py
 --device cuda --full-sharing` (lockstep, ~1–1.5 h), then `--cells --device cuda --full-sharing`.
 
