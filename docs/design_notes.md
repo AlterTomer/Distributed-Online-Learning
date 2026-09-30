@@ -4354,6 +4354,27 @@ float64 time varies between seeds (0.27 vs 0.34 s/step), which fits the 7.4 of 8
 lockstep held with both precisions resident. The driver may have spilled, so float64 may
 be slightly penalised. Adoption waits for the Mackey–Glass lockstep and both cell runs.
 
+**MNIST float32 cells, 2026-09-29 (33.1 min, seeds 0–1, P5.3's ER 0.3 cells a and b):
+the whole run is about twice as fast.** Figure 44. Every learner completes and lands in
+its expected range. Against the float64 originals, seed for seed, the settled error
+differs by −0.004 to +0.010 with mixed signs; on seed 0 five learners of nine are better
+in float32. The cause was checked, not assumed. The data are identical to float32
+rounding (≤3×10⁻⁷), and θ₀ is an unrelated draw (max difference 0.95 against an rms of
+0.11), because a float32 run draws its initial weights in float32 and so consumes the
+seed's stream differently. The cells are samples from another initialisation, and the
+precision question is the lockstep's (2×10⁻⁵ at one θ₀). One-hop and local-only sit above
+float64's five-seed range on both seeds, which two initialisation samples cannot
+separate from chance. **End to end:** cell a (three filters, four baselines) takes 10.0
+against 18.6 min per seed, **1.9×**; cell b (full sharing) 6.3 against 15.3, **2.4×**. That
+is below the lockstep's 2.6–8.5× per filter step, because a whole run also pays for
+evaluation every 5 steps, the baselines and the data, which shrink less.
+
+**A finding of its own:** with data and graph fixed, θ₀ alone moves a learner's settled
+error by up to 0.01, as wide as the whole five-seed spread. Much of the seed-to-seed
+variance is initialisation. That is the case for sharing one θ₀ across a cell's
+learners (D30), and it means float32 and float64 cells can never be paired seed for
+seed. Adoption would halve GPU time only for experiments that run all their own cells.
+
 🔄 Open until the run: after M12b, on each branch, `python scripts/run_float32_probe.py
 --device cuda --full-sharing` (lockstep, ~1–1.5 h), then `--cells --device cuda --full-sharing`.
 
