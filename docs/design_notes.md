@@ -4333,6 +4333,27 @@ and `variance_ratio` agree to five and four decimals. Only the speed criterion f
 at 1.5–1.9× on CPU. The 2× bar is for the GPU, where FP64 runs at 1/64 of FP32. Promising;
 nothing is decided before the full run.
 
+**MNIST lockstep, 2026-09-29 (68.5 min, RTX 4070 laptop, seeds 0–1, T=1500, five filters):
+all four criteria hold on both seeds.** Figure 43.
+
+1. *Health.* No guard trips and no dtype leak. λ_min/λ_max of agent 0's P is identical in
+   the two precisions to three figures at every eigenvalue checkpoint, with the smallest
+   ratio about 4e-3 (for example 9.07e-3 for the centralised filter, 4.56e-3 for one-hop, at
+   step 1500, seed 0).
+2. *Fidelity.* Over 310 checkpoints the float32 and float64 error rates differ by at most
+   **2×10⁻⁵**, about two predictions in 100 000, against a bar of 5×10⁻⁴. The centralised
+   filter never differs, and on seed 1 no filter does.
+3. *Calibration* is the series task's criterion.
+4. *Speed.* Per-step speed-ups, seeds 0/1: centralised 8.2/8.5×, local adapt 3.1/3.2×,
+   one-hop 4.3/5.3×, local full sharing 2.6/2.6×, one-hop full sharing 3.6/4.1×. All clear 2×.
+
+The mean's drift grows smoothly with accumulated rounding and ends at 1–5×10⁻⁵ relative.
+Two caveats. The timings cover the filters' adapt/combine only, not evaluation or the
+baselines; the float32 cells (step 02) measure the end-to-end cost. And one-hop's
+float64 time varies between seeds (0.27 vs 0.34 s/step), which fits the 7.4 of 8 GB the
+lockstep held with both precisions resident. The driver may have spilled, so float64 may
+be slightly penalised. Adoption waits for the Mackey–Glass lockstep and both cell runs.
+
 🔄 Open until the run: after M12b, on each branch, `python scripts/run_float32_probe.py
 --device cuda --full-sharing` (lockstep, ~1–1.5 h), then `--cells --device cuda --full-sharing`.
 
