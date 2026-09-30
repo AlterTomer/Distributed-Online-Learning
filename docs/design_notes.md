@@ -4722,7 +4722,7 @@ edge.
 🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass. ~10 GPU-h
 plus ~1 h of tuning, from M6's per-condition cost.
 
-### 🔄 D127. The AdamW backfill: X20, X25, P5.3, P5.7, from their own recorded configs
+### ✅ D127. The AdamW backfill: one-hop beats ATC AdamW in nine of twelve conditions; under label skew only the receiver point does
 
 `scripts/run_adamw_pass.py`, written 2026-09-27; this note and the runner's docstring
 are the [[D118]] record. Every figure the paper carries must include AdamW. The runs
@@ -4766,7 +4766,46 @@ premise was checked directly: on the stationary cells, where the horizon does no
 change the data, the smoke's evaluations at steps 0–15 equal the source cells' to
 0.0e+00, for ATC (X20) and `centralized_sgd` (X25), CPU against the GPU originals.
 
-🔄 Open until the run: `--lr`, then the main pass; `--experiment` takes a subset.
+**The run, 2026-09-28/29** (tuning 6.6 h, the cells 237 min, five seeds, twelve
+conditions). **All twelve merge gates reproduce to 0.0e+00.** No AdamW rate sits on a grid
+edge: centralised 3e-3 (1e-3 at X20 abrupt and X25 β 100), ATC 3e-3, local 1e-3. An
+internal check comes free: centralised and local AdamW never read the graph, and they are
+identical across P5.3's four topologies and equal to X20's stationary ER cell, which uses
+the same data (0.0845, 0.1284).
+
+**The named question, one-hop − ATC AdamW, Holm within each experiment:**
+
+| experiment | conditions | diff | $p_\text{holm}$ |
+|---|---|---|---|
+| X20 (IID, sender one-hop) | stationary / linear / abrupt | −0.0139 / −0.0377 / −0.0444 | <0.001 each |
+| P5.3 (topology, receiver) | complete / ER 0.3 / path / ring | −0.0083 / −0.0146 / −0.0151 / −0.0198 | 0.015 / 0.002 / 0.015 / 0.015 |
+| P5.7 (heterogeneous drift, receiver) | per-node / global | −0.0339 / −0.0334 | <0.001 each |
+| X25 (label skew, sender) | β 0.1 / 1 / 100 | −0.0011 / −0.0096 / −0.0190 | 0.78 / 0.066 / 0.125 |
+
+**Established in nine of twelve conditions: X20, P5.3 and P5.7 in full. X25 is not
+established.** Under label skew ATC AdamW is competitive, and at severe skew it ties the
+sender-point one-hop.
+
+**Exploratory, like for like.** X25 ran one-hop at the sender point; the paper's variant
+is the receiver point. X27's cells share X25's config (only the seed lists differ, and
+the sender values reproduce X25's exactly) and carry the receiver point. Against ATC
+AdamW it wins at every skew: β 0.1 $-0.0072$ $[-0.0134, -0.0009]$, β 1 $-0.0101$, β 100
+$-0.0202$, Holm across the three 0.066/0.038/0.066. The severe-skew tie is the sender
+variant's.
+
+**Also exploratory.** One-hop's lead over ATC AdamW grows as connectivity falls
+(complete −0.008, ER and path −0.015, ring −0.020): ATC AdamW degrades on sparse graphs
+(0.0839 → 0.0888) and one-hop does not. Local AdamW is often worse than plain
+`local_only` (X20 linear 0.185 against 0.165; P5.7 0.165 against 0.154): AdamW does not
+help without cooperation. Centralised AdamW never approaches the centralised filter (0.0845
+against 0.0561, stationary ER).
+
+**Figures.** 37–39 now carry the AdamW family: grey triangles in 37(a) and 38(a) (filled
+ATC AdamW, hollow centralised; the five hues were spent), and ATC AdamW at its true payload
+of 3ψ in 39. New figure 46 plots the named contrast in all twelve conditions, with X25's
+receiver-point rows hollow, computed through the runner's own `per_seed`, `paired` and
+`holm` so it cannot disagree with the report.
+
 
 ### 🔄 D126. M2O: a many-to-one readout, paired sample for sample with many-to-many
 
