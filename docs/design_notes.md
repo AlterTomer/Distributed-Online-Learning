@@ -4168,6 +4168,30 @@ first smoke's other readings stand: every path runs on both tasks, the moments a
 coded, and one-hop's raw data are reported beside the rate (788 scalars on MNIST, 32 on
 Mackey–Glass). The .tex is updated to match.
 
+**MNIST, 2026-09-29 (21.8 min, one seed, stationary P5.3 ER 0.3 and abrupt X20):
+neither hypothesis holds.** Figure 45. Every rule tracks at 0.29 Δ, so the learners are
+compared at matched distortion.
+
+* **H1 refuted: the filter's differences are the more expensive.** Settled bits per
+  parameter for ψ, stationary, at ε = 10⁻²/10⁻³/10⁻⁴: local adapt 3.95/7.18/10.34, one-hop
+  4.43/7.68/10.80, ATC plain 3.13/6.27/9.32, momentum ATC 1.65/4.56/7.78; abrupt within ~0.3
+  bits. The filter's ψ moves more per step than a gradient method's (a Gauss–Newton step
+  scaled by P, not a small tuned rate), and its rate does not fall over the run: settled
+  is slightly above the run mean. The "gain shrinks, so the filter quiets" intuition does
+  not hold at T = 1500. The filter's own dead zone matches the plain rule within 0.03 bits.
+* **H2 not seen:** around all 59 jumps, the rate in the five steps after is 1.00–1.05× the
+  five before, for every learner and ε. The rate is set by the steady noise of online
+  learning, and drift does not move it.
+* **What the codec buys everyone:** 4–11 bits per parameter against FP32's 32, at the
+  chosen distortion; whether that distortion is harmless is C4's closed-loop question.
+* **Per message the ranking changes:** momentum ATC also ships its momentum (10.3 bits at
+  10⁻³), so its whole message is ~14.9 bits per parameter, twice the local filter's 7.2.
+  ATC plain (6.3) is the only gradient method cheaper than the filter per message.
+  One-hop adds its 788-byte raw batch.
+
+Against C-11 (build C2's codec only if H1 or H2 holds): neither holds on MNIST. The
+decision waits for Mackey–Glass.
+
 🔄 Open until the run: after M12b, on each branch, `python scripts/run_delta_entropy_probe.py
 --device cuda`.
 
