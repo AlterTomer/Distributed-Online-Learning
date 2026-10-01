@@ -4141,9 +4141,11 @@ Every message is a broadcast, one-hop's second hop included (one post-adapt ψ p
 batch is counted uncompressed. Entropy coding is lossless, so the tables never change
 accuracy: one closed-loop run at $c_j$ gives both the counts and the task effect.
 
-❓ **Open, before any C4 run:** a reconstructed AdamW $\tilde{\boldsymbol v}$ can dip below zero
-by up to $\Delta_\ell/2$ where $\boldsymbol v$ is tiny, and AdamW takes its square root. Clamp
-$\tilde{\boldsymbol v}\ge0$ at the receiver, or code $\log\boldsymbol v$.
+**AdamW's second moment, decided 2026-10-01: clamp.** A reconstructed $\tilde{\boldsymbol v}$ can
+dip below zero by up to $\Delta_\ell/2$ where $\boldsymbol v$ is tiny, and AdamW takes its square
+root. The receiver clamps $\tilde{\boldsymbol v}\ge0$ as the starting rule; it keeps the codec
+the same for every vector kind. Coding $\log\boldsymbol v$ is the fallback if the clamp is seen to
+bite (the clamped fraction is recorded).
 
 🔄 Open until built and run: it becomes C4b's dead-zone arm.
 
