@@ -4106,6 +4106,47 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### 🔄 D137. The offline codec protocol: trained on disjoint seeds, one global step multiplier, the frontier first
+The user's protocol, `Diff_EKF_Offline_Codec_Training_Protocol.tex` (OneDrive, Diff-EKF),
+reviewed 2026-09-30 and revised with the user's decisions on 2026-10-01 (revision note in
+its §16, the PDF rebuilt beside it). It makes C2's dead-zone codec (`communication_plan.md`
+§4.3) a trained component: per layer, a step $\Delta_\ell$ and canonical Huffman tables for
+the nonzero amplitudes and for the zero-run lengths, built offline, preloaded, never
+negotiated. The closed-loop difference against the shared reference, with no extra
+residual, is D136's corrected rule.
+
+**Decided with the user:**
+1. **Split by seed, not by image.** MNIST's cells consume the whole training set once
+   (1,500 steps × 10 agents × 4), so the proposed 48k/6k/6k image split would have left
+   150-step validation and report runs: still in the transient, and unpaired with every
+   existing cell. Calibrate on seeds 100–104, validate on 200–204, report on 0–4, all at
+   the full horizon; no cell has ever used a seed ≥ 10. This settles **C-10**.
+2. **One global multiplier:** $\Delta_\ell=c\,s_\ell$ with $s_\ell=\mathrm{rms}(\boldsymbol\theta_0^{(\ell)})$,
+   the per-layer form of D136's $\varepsilon\cdot\mathrm{rms}(\boldsymbol\theta_0)$, about five $c$
+   on a log grid including D136's three $\varepsilon$. Every learner in a cell starts from
+   the same $\boldsymbol\theta_0$, so this matches distortion across learners. **Ablations:** the
+   per-layer search around $c^\star$, and $s_\ell$ as the rms of the per-step difference.
+   The moments start at zero, so their $s_\ell$ is their own rms over the calibration runs.
+3. **The frontier is the result;** an operating point $\mathcal C^\star$ is the cheapest $c$
+   whose **paired** settled-error difference from the uncompressed twin, averaged over the
+   validation seeds, is within $\varepsilon=0.002$, a starting value fixed before the run.
+
+**Carried in from the review:** every diffusing learner and every vector kind gets its own
+tables by the same protocol (D136 found nothing filter-specific); the codec is trained on
+the stationary IID cell and carried unchanged to linear, abrupt and skew 0.1, with the
+cross-entropy gap and `ESC` frequency as transfer checks (D136's after/before ratio of
+1.00–1.05 supports transfer); and it sits in C1's channel, the sender's own term exact.
+Every message is a broadcast, one-hop's second hop included (one post-adapt ψ per agent,
+`diffusion_ekf.py`'s `channel.mix`), so one reference per sender suffices. One-hop's raw
+batch is counted uncompressed. Entropy coding is lossless, so the tables never change
+accuracy: one closed-loop run at $c_j$ gives both the counts and the task effect.
+
+❓ **Open, before any C4 run:** a reconstructed AdamW $\tilde{\boldsymbol v}$ can dip below zero
+by up to $\Delta_\ell/2$ where $\boldsymbol v$ is tiny, and AdamW takes its square root. Clamp
+$\tilde{\boldsymbol v}\ge0$ at the receiver, or code $\log\boldsymbol v$.
+
+🔄 Open until built and run: it becomes C4b's dead-zone arm.
+
 ### ✅ D136. Differential coding: the public copy is the error memory, and the probe finds no filter-specific gain
 
 The user's proposal, `Diff_EKF_Huffman_Communication_Summary.tex` (OneDrive, Diff-EKF),
@@ -4211,8 +4252,8 @@ contribution. What the probe found instead frames Track C: differential plus ent
 coding compresses every learner to 2–11 bits per parameter against FP32's 32, at a
 distortion whose cost only C4's closed loop can price; and the filter's bit advantage is
 structural, one vector against two or three, which survives compression, with ATC plain
-the exception and so the hardest matched-bits baseline. **Open, 2026-09-30:** the user has
-a codec plan of their own, to be reviewed once the current analysis round is done.
+the exception and so the hardest matched-bits baseline. The user's own codec plan,
+reviewed 2026-10-01, is D137.
 
 
 ### 🔄 D135. C1 built: a channel inside the mix, bits by kind, and the default is the old arithmetic

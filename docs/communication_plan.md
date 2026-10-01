@@ -178,9 +178,11 @@ built only if the probe shows the filter's differences are materially more compr
 than the baselines', or that the rate genuinely rises after a jump and then decays.**
 
 **Codebook discipline.** A fixed Huffman table built on the runs it is then scored on
-understates the rate. ❓ **C-10:** build tables on seeds ≥ 5, which appear in no reported
-cell (the tuning seeds 0–1 overlap the main seeds 0–4), and report the entropy bound
-beside the actual coded length.
+understates the rate. ✅ **C-10, decided 2026-10-01 (D137):** tables are built on seeds
+100–104 and the step chosen on 200–204, both at the full horizon; seeds 0–4 are the
+report, paired with the existing cells. Seeds 5–9 are not clean (top-ups used them). The
+entropy bound and the cross-entropy gap are reported beside the actual coded length. The
+whole training protocol, one global step multiplier and the frontier first, is D137.
 
 ### 4.4 Event-triggered communication (C3)
 
@@ -289,8 +291,8 @@ on this code (see the note to the user, 2026-09-27) and does not belong in Track
 | C-7 | The trigger's metric | Diagonal $\sum\delta_i^2/P_{ii}$ |
 | C-8 | Compress full sharing? | No: report it uncompressed, and say why |
 | C-9 | Re-tune baselines per compression level? | Yes, at every level of the headline grid |
-| C-10 | What the Huffman tables are built on | Seeds ≥ 5, in no reported cell; entropy bound reported beside the coded length |
-| C-11 | Build C2's codec at all? | **Probed 2026-09-29 (D136): neither condition holds on either task**, so not as a filter-specific contribution; the filter's per-message advantage is structural (one vector against two or three). The user's own codec plan is to be reviewed next |
+| C-10 | What the Huffman tables are built on | ✅ **Decided 2026-10-01 (D137):** calibrate on seeds 100–104, validate on 200–204, report on 0–4, all at the full horizon; entropy bound and cross-entropy gap beside the coded length |
+| C-11 | Build C2's codec at all? | **Probed 2026-09-29 (D136): neither condition holds on either task**, so not as a filter-specific contribution; the filter's per-message advantage is structural (one vector against two or three). The user's offline-trained codec, reviewed and revised 2026-10-01 (D137), is built instead as a codec for every learner: C4b's dead-zone arm |
 
 **Before C1 starts:** read [3] and [4] and check whether ACTC's analysis covers a
 combine with a non-scalar (covariance) weight, which would bear on C-5; then [1], [2]
