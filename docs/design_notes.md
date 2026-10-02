@@ -4985,7 +4985,7 @@ filter's damage against centralised SGD's, the AdamW family.
 
 🔄 Open until the run: `--lr`, then the main pass.
 
-### 🔄 D123. P5.5: the break rate on ER 0.3, damage at a matched rate as the named reading
+### 🔄 D123. P5.5: one-hop tolerates fast drift as well as the centralised filter; Adam pays a diffusion cost SGD does not
 
 `scripts/run_break_rate.py`, written 2026-09-27; this note and its docstring are the
 [[D118]] record.
@@ -5019,7 +5019,71 @@ exploratory: a located rate has no per-seed value to test.
 Smoked 2026-09-27 on 40 steps with the freeze moved to mid-horizon (smoke only): both
 gates pass, the reproduction arm at 0.0e+00, every table prints.
 
-🔄 Open until the run: `--lr`, then the main pass (~8–10 GPU-h estimated).
+**The run, 2026-09-30** (tuning 84 min, cells 402 min, five seeds). Rates tuned on the
+ramp: SGD and ATC 0.01, ATC plain 0.2, `local_only` 0.05, centralised and ATC AdamW 3e-3,
+local AdamW 1e-3; none on a grid edge. **Every ramp is paired with its twin, and the merge
+gate reproduces to 0.0e+00.** The matched rate is first reached at t = 1340. X16 is
+reproduced on the new graph: the centralised filter's damage 0.0213 (X16 0.021), ATC's
+0.0364 (0.036).
+
+**The confirmatory family**, Holm across five:
+
+| contrast | diff | $p_\text{holm}$ | predicted | verdict |
+|---|---|---|---|---|
+| one-hop − ATC | −0.0195 | 0.008 | − | established |
+| local adapt − ATC | −0.0065 | 0.111 | none | not detected |
+| one-hop − centralised EKF | −0.0044 | 0.285 | + | **not detected** |
+| local adapt − centralised EKF | +0.0087 | 0.047 | + | established |
+| one-hop − ATC AdamW | −0.0399 | 0.008 | − | established |
+
+Three of four predictions hold. The fourth is the finding: one-hop was predicted to take
+more damage than the centralised filter and does not detectably do so, the estimate
+leaning the other way. Local adapt does take more.
+
+**The named reading sits on one evaluation, so it was re-read over windows** of ±10, ±20
+and ±30 steps (up to seven evaluations, 0.091–0.114 °/step): every sign and size
+holds, one-hop − centralised stays near −0.003 (t ≈ −1), and local adapt − ATC sharpens to
+−0.007 ($p_\text{holm}$ 0.02–0.03) — suggestive, exploratory.
+
+**Exploratory.** Damage at the matched rate: one-hop full 0.016, one-hop 0.017,
+centralised EKF 0.021, local adapt (and full) 0.030, SGD 0.035, ATC 0.036, centralised
+AdamW 0.044, ATC plain 0.047, ATC AdamW 0.057, `local_only` 0.064, local AdamW 0.088,
+frozen 0.203. Break rates on the pooled bar: one-hop 0.054, centralised 0.052, local adapt
+0.046, SGD and ATC 0.040, AdamW 0.025–0.030. The centralised filter's 0.052 is below X16's
+0.064 because the pool now holds the AdamW and full-sharing arms, which is why the damage
+is the named reading. The comparative break says nothing here: the frozen model degrades
+so fast that every learner ahead at the freeze stays ahead, and `local_only` and ATC plain
+are "never ahead" because they trailed ATC at step 300, before any real drift.
+
+**Why Adam is damaged more than SGD with momentum** (asked by the user; exploratory).
+*Not tuning:* read in the matched-rate window, the lr sweep's best AdamW rate is the same
+3e-3 (0.141 against 0.176 at 1e-3 and 0.164 at 1e-2), and none approaches ATC's 0.119 at
+0.01. *Split, paired per seed over ±30 steps:*
+
+| contrast | damage diff | $p$ |
+|---|---|---|
+| centralised AdamW − centralised SGD (the optimiser) | +0.008 | 0.007 |
+| ATC − centralised SGD (diffusing, SGD) | +0.001 | 0.21 |
+| ATC AdamW − centralised AdamW (diffusing, Adam) | +0.013 | <0.001 |
+| interaction | +0.012 | 0.003 |
+| local AdamW − `local_only` | +0.026 | 0.001 |
+
+About 40% of the gap is the optimiser and 60% a diffusion cost that SGD does not pay. Two
+hypotheses fit and are **not isolated**: (a) ATC with SGD is linear, so averaging steps is
+stepping on the averaged gradient and the agents' 4-sample noise cancels in the combine;
+ATC AdamW divides each agent's step by its own $\sqrt{\boldsymbol v}$ *before* the combine,
+a normaliser inflated by sampling noise the combine would have averaged away, and one
+that amplifies noise where gradients are usually small — a worse tracking-against-noise
+trade-off at every rate, as the sweep shows; (b) SGD's step grows with its gradient, so
+with its error, as a Kalman gain grows with the innovation, while Adam's
+$\eta\,\boldsymbol m/\sqrt{\boldsymbol v}$ is nearly scale-invariant, damped only by
+$\boldsymbol v$'s ~1000-step memory. **Decided 2026-10-02 with the user: confirm them**, as
+schedule step C5 after Track C's C4. (This "AdamW" has weight decay 0, as recorded at the
+port, so it is Adam; it does not explain the damage, but the paper must say so.)
+
+Figure 49 (private `plot_break_rate.py`; `--window` prints the sensitivity).
+
+🔄 Open only for C5's mechanism; the confirmatory family is closed.
 
 ### 🔄 D122. P5.4: sparse labels, $n\times\pi_{\text{lab}}$, three questions named before the run
 

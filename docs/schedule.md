@@ -94,7 +94,11 @@ original estimate, because every diffusion variant and the AdamW cell now run in
 of nine cells. **P5.5 runner ready** too (`scripts/run_break_rate.py`, [[D123]]): the
 ramp and its stationary twin on ER 0.3, baselines tuned on the ramp, damage at 0.10
 °/step as the named reading; ~8–10 GPU-h. The filter's 0.0639 °/step target was
-reproduced from X16 before it was built on.
+reproduced from X16 before it was built on. **P5.5 done** 2026-09-30 (8.1 h): one-hop
+takes less damage than ATC (−0.020) and ATC AdamW (−0.040), and no detectably more than
+the centralised filter (−0.004, predicted positive); local adapt more than the
+centralised filter (+0.009) ([[D123]]); figure 49. Adam's extra damage is ~40% the
+optimiser's and ~60% a diffusion cost SGD does not pay; its mechanism is C5.
 
 **Tier 3 — decided 2026-09-15:**
 
@@ -277,8 +281,9 @@ cumulative bits.
 | C2 | Public copies and difference transmission with a pluggable $Q$, error feedback; also for ATC | 4–5 days |
 | C3 | Event trigger and periodic-$K$ baseline | 2 days |
 | C4 | Error against bits on MNIST (IID and severe skew), then on Mackey–Glass | ~3 days GPU |
+| C5 | **Why Adam tracks drift worse than SGD** (added 2026-10-02, [[D123]]): log each agent's step norm, its $\sqrt{\boldsymbol v}$, and the step's projection on the pooled gradient, for centralised, ATC and local Adam and SGD under P5.5's ramp. Tests (a) the per-agent normaliser inflated by 4-sample noise before the combine, and (b) Adam's step not scaling with its error | ~1 day code, ~8 GPU-h |
 
-About **two and a half to three weeks.**
+About **two and a half to three weeks**, plus C5.
 
 ---
 
