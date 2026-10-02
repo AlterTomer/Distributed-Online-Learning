@@ -5113,7 +5113,7 @@ Figure 49 (private `plot_break_rate.py`; `--window` prints the sensitivity).
 
 🔄 Open only for C5's mechanism; the confirmatory family is closed.
 
-### 🔄 D122. P5.4: sparse labels, $n\times\pi_{\text{lab}}$, three questions named before the run
+### ✅ D122. P5.4: sparse labels widen the gap to the centralised filter, and one-hop's lead does not grow
 
 `scripts/run_label_sparsity.py`, written 2026-09-27; this note and its docstring are
 the [[D118]] record. The X4 analogue: at $\pi_{\text{lab}}<1$ an agent has labels on
@@ -5154,7 +5154,42 @@ or widens.
 Exploratory: full sharing, the AdamW family, $\pi_{\text{lab}}=0.5$, one-hop against ATC
 AdamW, and the belief's $\kappa^\star$ before and after combine (D120's scoring is on).
 
-🔄 Open until the run: `--lr`, then the main pass (~12–14 GPU-h plus tuning).
+**The run, 2026-10-01/02** (tuning 291 min, cells 1357 min, five seeds; the n = 4 cells
+cost half as much again as the n = 2 ones). The X4 mechanism shows in the tuning: ATC's rate
+rises in the sparse corner (0.05 at $n=4$, $\pi=0.25$; ATC plain 0.2); no rate on a grid
+edge. **The merge gate reproduces to 0.0e+00 in all nine cells.**
+
+**Q1: one-hop's lead holds at $n=1$ and 4 and fails at $n=2$.** Change from $\pi$ 1 to
+0.25: $n=1$ −0.004 ($p_\text{holm}$ 0.58), $n=2$ **+0.009 (0.044)**, $n=4$ +0.005 (0.48). At
+$n=2$ one-hop leads local adapt by 0.007 at $\pi=1$ and trails by 0.002 at 0.25; at
+$n=1$, $\pi=0.5$ it trails too (0.145 against 0.141). The lead is fragile, not growing: the
+coverage argument (67% of steps updated against 25%) does not become an advantage. A
+candidate, untested, is the caveat named in advance: one-hop's selection is X20's ($n=4$,
+$\pi=1$), and in sparse cells the labels per update swing widely.
+
+**Q2: the gap to the centralised filter widens as labels thin**, all six positive, three
+established: local adapt +0.017 (0.020) / +0.008 (0.052) / +0.006 (0.004); one-hop +0.013
+(0.11) / +0.017 (0.025) / +0.011 (0.11), at $n$ = 1 / 2 / 4. **Q3: local adapt − ATC is
+not detected** at any $n$ ($p_\text{holm}\ge0.15$).
+
+**Exploratory.** The centralised filter is best in all nine cells; a one-hop variant is
+second in seven, local adapt in the other two. It pools $Nn\pi$ labelled samples a step —
+at $n=1$, $\pi=0.25$, about 2.5, and none on only $0.75^{10}\approx6\%$ of steps, against
+75% for a local-adapt agent and about 33% for a one-hop one — which is why sparsity hurts
+it least. **Centralised SGD and AdamW collapse in the sparse corner and the centralised
+filter does not:** at $n=1$, $\pi=0.25$ they reach 0.243 and 0.219, worse than their ATC
+versions (0.172, 0.199), against the filter's 0.125 — X4's effect, replicated for the
+gradient methods. Full sharing adds nothing as labels thin (every change null). ATC AdamW's
+gap to centralised AdamW does not move; one-hop beats ATC AdamW in all nine cells (−0.003
+to −0.036), established only at $n=4$, $\pi=1$ after Holm across nine. $\kappa^\star$ is
+floored at 0 in every cell, as in D120.
+
+**For the paper:** sparse labels hurt everyone; the centralised filter bears them best,
+and the decentralised filters lose ground to it as labels thin. One-hop stays the best
+decentralised learner in most cells — "second to the centralised filter in most
+conditions" — but its lead over local adapt does not grow with sparsity. Figures 52 (the
+questions) and 53 (every learner's error in every cell; asked for by the user), private
+`plot_label_sparsity.py`.
 
 ### ✅ D121. M12b at five seeds, then ten: M12's ordering holds on the abrupt schedule, and nothing is established at the pre-registered level
 
