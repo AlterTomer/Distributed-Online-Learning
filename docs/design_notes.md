@@ -4888,7 +4888,7 @@ baselines' passes.
 
 🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass.
 
-### 🔄 D125. P5.23: a second shift placed mid-transient, as one adversarial comparison
+### ✅ D125. P5.23: a second shift mid-transient costs every learner 30–60% more, and nothing diverges
 
 `scripts/run_midtransient_shift.py`, written 2026-09-27; this note and its docstring
 are the [[D118]] record. The plan's worry: X20's filter sits a decade below a
@@ -4922,7 +4922,39 @@ absorbing the second says negative; (2) divergence, counted per cell, not tested
 any is the finding. Exploratory: full sharing, the gradient baselines, the
 filter-minus-ATC contrast, the floors.
 
-🔄 Open until the run: `--lr`, then the main pass.
+**The run, 2026-09-30** (tuning 82 min, cells 349 min, five seeds). Rates tuned on late:
+SGD and ATC 0.01, ATC plain 0.2, `local_only` 0.05, centralised and ATC AdamW 3e-3, local
+AdamW 1e-3; none on a grid edge. **Mid and late are paired in all three groups, and the
+merge gate reproduces to 0.0e+00.**
+
+**Q1: the mid placement costs more, for all three filters** ($p_\text{holm}\le0.001$):
+centralised +4.07, local adapt +5.31, one-hop +3.18 error-steps. **Q2: no divergence** —
+no seed of any of the twelve learners, in either cell. The cliff worry does not
+materialise at this placement; the cost is a larger, longer wound, not instability.
+
+**⚠ A bias in the pre-registered wound, found in the analysis.** The late cell is still
+recovering at $T=1250$: its 30° floor, read from its own last 100 steps, sits
+0.003–0.024 above mid's (mid has had 490 steps to recover, late 250) and is still
+falling inside the window (centralised 0.0669 → 0.0653). Its own floor shrinks its wound
+and inflates $W_\text{mid}-W_\text{late}$. Measured against mid's floor for both cells,
+the differences fall by 20–35% — **+3.20 / +3.65 / +2.08**, $p_\text{holm}$ 0.001 each —
+and the verdict stands. The late wound is still truncated at 1250; extrapolating its
+decay adds about 0.3 error-steps for the filters and 1 for ATC AdamW, too little to
+matter. **The common floor is the reading to quote.**
+
+**Exploratory, on the common floor.** $W_\text{mid}/W_\text{late}$ is 1.30–1.49 for the
+filters and 1.50–1.60 for the gradient methods: the second shift lands on a model still
+0.12–0.17 off its floor, and its peak is twice the late one's (centralised 0.276 against
+0.138). Filter minus ATC AdamW is negative for all three ($-3.4/-3.0/-4.5$,
+$p_\text{holm}\le0.005$); against momentum ATC only one-hop's is ($-2.87$, 0.010;
+centralised and local adapt $-1.75$/$-1.31$, 0.063). On the pre-registered floors all
+three had been significant against ATC, so the floor bias was doing part of that work.
+No sign of an open covariance absorbing the second shift: that would have put the
+filters' ratio below 1.
+
+**For the paper:** the adversarial placement is a real cost, not a hazard — 30–60% more
+total error for every learner, nothing diverges, one-hop pays least. Figure 48 (private
+`plot_midtransient_shift.py`) shows both floor readings.
 
 ### 🔄 D124. P5.8: label shift, the second place per-agent beliefs could win — predicted not to
 
