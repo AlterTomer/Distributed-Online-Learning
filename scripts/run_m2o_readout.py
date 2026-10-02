@@ -94,6 +94,15 @@ CONFIRMATORY = [*FILTERS, "centralized_adamw", "diffusion_atc_adamw"]
 BASELINES = [*SGD_FAMILY, *ADAMW_FAMILY]
 
 HORIZON, SEEDS, EVAL_EVERY, LR_SEEDS = 1500, [0, 1, 2, 3, 4], 25, [0, 1]
+#: The SGD grid's extension for the many-to-one readouts (2026-10-02). A last-position
+#: readout differentiates one output per window, not 31, so its gradients are smaller
+#: and M3's grid -- built for many-to-many, where 1e-4 and 3e-4 diverged -- was outgrown:
+#: every m2o_b SGD learner, and centralised SGD and ATC on m2o_c, chose its top, 3e-4,
+#: still falling steeply. Recorded runs are kept; only these rates are new.
+SGD_EXTRA = [1e-3, 3e-3]
+#: The SGD-only cell's reproduction arm (D119): centralised AdamW at cell a's own rate,
+#: which must match cell a to this tolerance before the SGD rows are pooled with it.
+REPRODUCTION_ARM, REPRODUCTION_TOLERANCE = "centralized_adamw", 1e-9
 STATUS = ROOT / "results" / "m2o_status.json"
 M3_RATES = ROOT / "results" / "m3_rates.json"
 M4_SELECTION = ROOT / "results" / "m4_selection.json"
@@ -105,6 +114,49 @@ def cell_name(readout: str, group: str, suffix: str = "") -> str:
 
 def lr_name(readout: str, index: int, suffix: str = "") -> str:
     return f"m2o_lr_{readout}_r{index}{suffix}"
+
+
+def lr_extra_name(readout: str, index: int, suffix: str = "") -> str:
+    """An SGD-only tuning cell at ``SGD_EXTRA[index]``."""
+    return f"m2o_lr_{readout}_sgdx{index}{suffix}"
+
+
+def sgd_cell_name(readout: str, suffix: str = "") -> str:
+    """The SGD family at its extended-grid rates, beside cell a (D119's pattern)."""
+    return cell_name(readout, "sgd", suffix)
+
+
+def sgd_curve(readout: str, learner: str, suffix: str = "") -> list[tuple[float, float]]:
+    """(rate, settled RMSE) over M3's grid and the extension; inf where not run."""
+    base = [(rate, settled(lr_name(readout, k, suffix), learner))
+            for k, rate in enumerate(SGD_RATES)]
+    extra = [(rate, settled(lr_extra_name(readout, k, suffix), learner))
+             for k, rate in enumerate(SGD_EXTRA)]
+    return base + extra
+
+
+def extended_sgd_rates(readout: str, suffix: str = "") -> dict[str, float] | None:
+    """Each SGD learner's argmin over the extended grid; None until the extension ran."""
+    if any(not (ROOT / "results" / lr_extra_name(readout, k, suffix) / "_complete").exists()
+           for k in range(len(SGD_EXTRA))):
+        return None
+    rates = {}
+    for learner in SGD_FAMILY:
+        finite = [(v, r) for r, v in sgd_curve(readout, learner, suffix) if v != float("inf")]
+        if finite:
+            rates[learner] = min(finite)[1]
+    return rates
+
+
+def recorded_rates(run: str) -> dict[str, float]:
+    """The learning rates a completed cell actually ran with, from its own config."""
+    import yaml  # noqa: PLC0415
+
+    path = ROOT / "results" / run / "config.yaml"
+    if not path.exists():
+        return {}
+    learners = yaml.safe_load(path.read_text(encoding="utf-8")).get("learners", [])
+    return {e["name"]: e["lr"] for e in learners if e.get("lr") is not None}
 
 
 def r_profile(readout: str, smoke: bool) -> list[float]:
@@ -168,6 +220,72 @@ def save_status(status: dict) -> None:
     STATUS.write_text(json.dumps(status, indent=2), encoding="utf-8")
 
 
+def note_status(entries: dict) -> None:
+    """Merge into the status file as it is now, so a concurrent sweep's entries survive."""
+    status = load_status()
+    status.update(entries)
+    save_status(status)
+
+
+def extend_sgd(args, suffix: str, horizon: int) -> int:
+    """Tune SGD_EXTRA for the M2O readouts, then run each readout's SGD-only cell if needed.
+
+    Nothing recorded is touched: the extra tuning cells and the SGD-only cells have names
+    of their own. A readout gets its SGD cell only when the extended selection differs
+    from the rates its cell a ran with; the cell carries the reproduction arm at cell a's
+    rate, and the report pools its SGD rows with cell a only if that arm reproduces.
+    """
+    lr_seeds = [0] if suffix else LR_SEEDS
+    seeds = [0] if suffix else args.seeds
+    cells = [(readout, k) for readout in TUNED for k in range(len(SGD_EXTRA))]
+    print(f"M2O SGD extension{' SMOKE' if suffix else ''}: {len(cells)} tuning cells at "
+          f"{', '.join(f'{r:g}' for r in SGD_EXTRA)}, {len(lr_seeds)} seed(s)\n", flush=True)
+    started = time.time()
+    for index, (readout, k) in enumerate(cells, start=1):
+        learners = [{"name": n, "lr": SGD_EXTRA[k], **o} for n, o in SGD_FAMILY.items()]
+        name = lr_extra_name(readout, k, suffix)
+        note = run_one(config_for(args, name, readout, learners, bool(suffix), horizon,
+                                  lr_seeds), None, None, args.fresh)
+        note_status({name: note})
+        print(f"[{index}/{len(cells)}] {name:<30} {note:<20} "
+              f"{(time.time() - started) / 60:.0f} min", flush=True)
+
+    for readout in TUNED:
+        rates = extended_sgd_rates(readout, suffix) or {}
+        recorded = recorded_rates(cell_name(readout, "a", suffix))
+        print(f"\n  {readout}: settled RMSE over the extended SGD grid")
+        for learner in SGD_FAMILY:
+            curve = sgd_curve(readout, learner, suffix)
+            edge = rates.get(learner) == SGD_EXTRA[-1]
+            print(f"    {learner:<26}" + "  ".join(f"{r:g}:{v:.4f}" for r, v in curve)
+                  + f"   -> {rates.get(learner, float('nan')):g}"
+                  + ("  EDGE: still the top of the grid" if edge else "")
+                  + f"  (cell a ran {recorded.get(learner, float('nan')):g})")
+        changed = {n: r for n, r in rates.items() if recorded.get(n) != r}
+        if not recorded:
+            print(f"  {readout}: cell a not recorded yet; run the main pass first, then this.")
+            continue
+        if not changed:
+            print(f"  {readout}: the extension changes no selection; cell a stands.")
+            continue
+        arm = {"name": REPRODUCTION_ARM, "lr": recorded[REPRODUCTION_ARM],
+               **ADAMW_FAMILY[REPRODUCTION_ARM]}
+        learners = [{"name": n, "lr": rates[n], **o} for n, o in SGD_FAMILY.items()] + [arm]
+        name = sgd_cell_name(readout, suffix)
+        began = time.time()
+        note = run_one(config_for(args, name, readout, learners, bool(suffix), horizon, seeds),
+                       None, None, args.fresh)
+        entries = {name: note}
+        if note != "cached":
+            entries[f"{name}__seconds"] = round(time.time() - began, 1)
+        note_status(entries)
+        print(f"  {readout}: {name} {note} ({(time.time() - began) / 60:.0f} min), "
+              f"changed: " + ", ".join(f"{n} {r:g}" for n, r in changed.items()), flush=True)
+    print()
+    report(suffix)
+    return 0
+
+
 def tune(args, suffix: str, horizon: int) -> int:
     """M3's grids, once per many-to-one readout, both families per cell as M3 does."""
     status = load_status()
@@ -195,6 +313,9 @@ def tune(args, suffix: str, horizon: int) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = sweep_parser(__doc__.split("\n")[0], horizon=HORIZON, seeds=SEEDS, device="cpu")
     parser.add_argument("--lr", action="store_true", help="tune the baselines per M2O readout")
+    parser.add_argument("--extend-sgd", action="store_true",
+                        help="tune the SGD family at SGD_EXTRA, then run each readout's "
+                             "SGD-only cell where the selection moved (after the main pass)")
     parser.add_argument("--smoke", action="store_true", help="short horizon, one seed")
     parser.add_argument("--report-only", action="store_true")
     parser.add_argument("--threads", type=int, default=4)
@@ -211,6 +332,8 @@ def main(argv: list[str] | None = None) -> int:
     seeds = [0] if args.smoke else args.seeds
     if args.lr:
         return tune(args, suffix, horizon)
+    if args.extend_sgd:
+        return extend_sgd(args, suffix, horizon)
     centralised, diffusion, _m6_rates = load_settings(args.smoke)
     if not args.smoke and not M3_RATES.exists():
         print("  REFUSED: m3_rates.json is missing; m2m reuses M3's selections.")
@@ -268,10 +391,36 @@ def seed_values(run: str, learner: str, metric: str) -> dict[int, float]:
 def report(suffix: str = "") -> None:
     mean = lambda d: sum(d.values()) / len(d) if d else float("nan")  # noqa: E731
     group = lambda learner: "b" if learner in GROUP_B_FILTERS else "a"  # noqa: E731
-    cell = lambda readout, learner: cell_name(readout, group(learner), suffix)  # noqa: E731
     if suffix:
         print("  SMOKE: a short run at one seed with placeholder settings. These numbers")
         print("  mean nothing; the point is that every code path below ran.\n")
+
+    # ---- the SGD extension's merge gate (D119) ------------------------------------
+    pooled = set()
+    for readout in TUNED:
+        extra = sgd_cell_name(readout, suffix)
+        if not (ROOT / "results" / extra / "_complete").exists():
+            continue
+        recorded = seed_values(cell_name(readout, "a", suffix), REPRODUCTION_ARM, "rmse")
+        rerun = seed_values(extra, REPRODUCTION_ARM, "rmse")
+        shared = sorted(set(recorded) & set(rerun))
+        worst = max((abs(recorded[s] - rerun[s]) for s in shared), default=None)
+        ok = worst is not None and worst <= REPRODUCTION_TOLERANCE
+        if ok:
+            pooled.add(readout)
+        shown = f"{worst:.1e}" if worst is not None else "-"
+        print(f"  merge gate, {extra}: {REPRODUCTION_ARM} against cell a, {len(shared)} seed(s), "
+              f"max |diff| {shown}  {'reproduces' if ok else 'DOES NOT REPRODUCE'}")
+    for readout in TUNED:
+        if readout not in pooled:
+            print(f"  {readout}: SGD rows from cell a, on M3's grid -- EDGE-LIMITED "
+                  f"(see the extension, 2026-10-02)")
+    print()
+
+    def cell(readout: str, learner: str) -> str:
+        if learner in SGD_FAMILY and readout in pooled:
+            return sgd_cell_name(readout, suffix)
+        return cell_name(readout, group(learner), suffix)
 
     learners = [*FILTERS, *GROUP_B_FILTERS, *BASELINES]
     print("  settled RMSE, current set. m2m reads three ways (M2O-a): every position,")
