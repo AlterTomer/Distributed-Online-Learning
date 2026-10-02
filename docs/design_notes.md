@@ -4956,7 +4956,7 @@ filters' ratio below 1.
 total error for every learner, nothing diverges, one-hop pays least. Figure 48 (private
 `plot_midtransient_shift.py`) shows both floor readings.
 
-### 🔄 D124. P5.8: label shift, the second place per-agent beliefs could win — predicted not to
+### ✅ D124. P5.8: label shift — cooperation absorbs it for every family, and per-agent beliefs give the filter nothing extra
 
 `scripts/run_label_shift.py`, written 2026-09-27; this note and its docstring are the
 [[D118]] record. X10's configs: each agent's class prior travels from uniform to its
@@ -4983,7 +4983,35 @@ filter, shifted minus twin, Holm across two; **predicted positive**, as X10 foun
 ATC (+0.0445). Exploratory: the X10 contrast for the gradient methods, the centralised
 filter's damage against centralised SGD's, the AdamW family.
 
-🔄 Open until the run: `--lr`, then the main pass.
+**The run, 2026-10-01** (tuning 36 min, cells 193 min, five seeds). Rates tuned on the
+shifted condition: SGD and ATC 0.01, `local_only` and ATC plain 0.05, centralised and ATC
+AdamW 3e-3, local AdamW 1e-3; none on a grid edge. **Every shifted cell is paired with its
+twin, and the merge gate reproduces to 0.0e+00.**
+
+**Q1: diffusion does not close its gap to the centralised filter, as predicted.** Gap
+change, shifted minus twin: local adapt +0.0019, one-hop −0.0009, local adapt full
++0.0001, one-hop full −0.0020, $p_\text{holm}$ 1.000 for all four; the intervals rule out a
+closing larger than about 0.005–0.007. Per-agent beliefs buy nothing under label shift,
+consistent with D115: diffusion agents never leave consensus.
+
+**Q2: cooperation pays more under shift, as predicted.** `local_only` minus the filter,
+shifted minus twin: local adapt +0.063, one-hop +0.066, $p_\text{holm}$ 0.005 each.
+
+**Exploratory.** The same gain for ATC (+0.062) and ATC plain (+0.061; X10 found +0.045
+for ATC): the filters' gain over ATC's is +0.0006 (local adapt, $p_\text{holm}$ 0.81) and
++0.003 (one-hop, 0.73). Cooperation absorbs label shift equally for every family. Local
+AdamW minus ATC AdamW: +0.094 (0.003). Damage, shifted minus twin: every learner that
+combines or pools loses 0.010–0.015 (one-hop full 0.0097, ATC AdamW 0.0105, one-hop
+0.0108, centralised EKF 0.0117); the two that never combine pay 0.077 (`local_only`) and
+0.105 (local AdamW). The centralised filter's damage equals centralised SGD's (−0.0007,
+0.85), and ATC AdamW's gap to centralised AdamW does not move (−0.0025, 0.39). One-hop
+beats ATC AdamW in the shifted cells by 0.019 (0.011).
+
+**For the paper:** label shift is, after P5.7's heterogeneous drift, the second place
+per-agent beliefs could have helped the filter, and it does not. Cooperation does the
+work for every family, cutting the damage from ~0.08 to ~0.01; the filter keeps the level
+advantage it has without shift. Figure 50 (damage and the two questions) and figure 51
+(the settled errors themselves, and their trajectories), private `plot_label_shift.py`.
 
 ### 🔄 D123. P5.5: one-hop tolerates fast drift as well as the centralised filter; Adam pays a diffusion cost SGD does not
 

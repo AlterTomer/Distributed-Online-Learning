@@ -104,7 +104,7 @@ optimiser's and ~60% a diffusion cost SGD does not pay; its mechanism is C5.
 
 | item | analogue of | what it asks | GPU | decision |
 |---|---|---|---|---|
-| P5.8 | X10 | Prior drift / label shift instead of covariate shift — the other row where per-agent beliefs could win | ~8 h | **kept**; runner ready 2026-09-27 (`run_label_shift.py`, [[D124]]) |
+| P5.8 | X10 | Prior drift / label shift instead of covariate shift — the other row where per-agent beliefs could win | ~8 h | **Done** 2026-10-01 (3.8 h): diffusion does not close its gap to the centralised filter (as predicted); cooperation pays +0.063–0.066 more under shift, and just as much for ATC ([[D124]]); figures 50–51 |
 | P5.23 | — | One `piecewise` cell placing a shift mid-transient, as an adversarial probe | ~3 h | **Done** 2026-09-30 (7.2 h): the mid placement costs all three filters more ($p_\text{holm}\le0.001$, on a floor corrected for late's unfinished recovery), nothing diverges, one-hop pays least ([[D125]]); figure 48 |
 | P5.6 | X11 | Repeated abrupt shifts on a $J\times t'$ grid. X11 found longer intervals leave *bigger* wounds (0.209 at $J=30$, $t'=200$) | ~3 days | deferred |
 | P5.9 | X14 | The generalisation grid: 21 conditions ($t'\in\{2,\dots,200\}\times J\in\{5,15,20,30\}$, three linear rates, a low-sample block). X14 found the centralised filter less damaged than ATC in 21 of 21 | ~4 days | deferred |
