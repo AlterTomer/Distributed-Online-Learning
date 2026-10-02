@@ -4886,7 +4886,28 @@ sharing, the SGD family, calibration by readout, and each cell's wall-clock — 
 side, where the resource note predicts about 2× the filter's $C_J$ and 31× the
 baselines' passes.
 
-🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass.
+**The tuning, 2026-10-02 (236 min): M3's SGD grid was outgrown.** Every SGD learner on
+m2o_b, and centralised SGD and ATC on m2o_c, chose the grid's top, 3e-4, still falling
+steeply (centralised SGD on m2o_b: 0.159 at 1e-4, 0.134 at 3e-4). The grid was built for
+many-to-many, where 1e-4 and 3e-4 diverged; a last-position readout differentiates one
+output per window, not 31, so its gradients are smaller and it tolerates larger rates —
+foreseeable, and missed when the runner was written. AdamW is interior on m2o_b (3e-3 for
+both); centralised AdamW sits on m2o_c's lower edge (1e-3) on a flat curve (0.1475 / 0.1534
+/ 0.1479 at 1e-3 / 3e-3 / 1e-2), noise rather than an optimum below. **The confirmatory
+family is unaffected** (the filters carry M4/M5's selections, AdamW is interior); the SGD
+rows and M2O-c are what the edge compromises.
+
+**Decided with the user: finish the queue, then extend.** `--extend-sgd` tunes the SGD
+family at 1e-3 and 3e-3 for both readouts under names of their own
+(`m2o_lr_<readout>_sgdx<k>`), selects over the extended curve (flagging a new edge), and,
+where a selection moved, runs an SGD-only cell `m2o_<readout>_sgd` beside cell a, with
+centralised AdamW at cell a's rate as D119's reproduction arm. The report pools those SGD
+rows only if the arm reproduces cell a, and otherwise labels them edge-limited. Nothing
+recorded is touched, and the filters are not re-run. Smoked on CPU 2026-10-02: every path
+ran, both merge gates at 0.0e+00.
+
+🔄 Open until the main pass ends, then `--extend-sgd` (~2 h tuning, plus ~1 h per SGD
+cell).
 
 ### ✅ D125. P5.23: a second shift mid-transient costs every learner 30–60% more, and nothing diverges
 
