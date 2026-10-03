@@ -158,9 +158,9 @@ they need different arms:
 
 | item | what | answers | cost | status |
 |---|---|---|---|---|
-| M2O-a | Score the **last position alone** ($\hat x_L$, full 31-sample context) of a many-to-many run | "is the headline inflated by the short-context positions?" | one metric (`rmse_last`) + a run that records it | open |
-| M2O-b | **Supervision-matched** many-to-one: windows strided by **1**, only the last position scored, so each step still consumes 31 fresh targets | "why not many-to-one?" — the honest version | build 1–2 days (est.); GPU sized at pre-flight | **built** 2026-09-27 with M2O-a and M2O-c (mg, `run_m2o_readout.py`, [[D126]]) |
-| M2O-c | **Sample-matched** many-to-one: windows strided by $L$, one target per block | the rank-1 starvation that motivated the design | small, on M2O-b's plumbing | open |
+| M2O-a | Score the **last position alone** ($\hat x_L$, full 31-sample context) of a many-to-many run | "is the headline inflated by the short-context positions?" | one metric (`rmse_last`) + a run that records it | **done** with M2O-b ([[D126]]) |
+| M2O-b | **Supervision-matched** many-to-one: windows strided by **1**, only the last position scored, so each step still consumes 31 fresh targets | "why not many-to-one?" — the honest version | build 1–2 days (est.); GPU sized at pre-flight | **Done** 2026-10-03 with M2O-a and M2O-c (mg, `run_m2o_readout.py`, [[D126]]): M2O-b − m2m's last position not detected (the comparator scores 1/31 of the targets; underpowered); against m2m's 16+ positions many-to-one is ~6% better for the filters and 15–20% for the gradient methods, so the filter's lead shrinks (~0.025 → 0.013 against ATC AdamW) but holds. The SGD extension exposed a NaN-skipping bug in `settled()`, fixed; figure MG22 |
+| M2O-c | **Sample-matched** many-to-one: windows strided by $L$, one target per block | the rank-1 starvation that motivated the design | small, on M2O-b's plumbing | **done** with M2O-b ([[D126]]) |
 
 ⚠ **M2O-a is not free from existing results.** The series runs record `rmse` (every
 position) and `rmse_full_context` (positions $\ge16$, a whole delay of context), not

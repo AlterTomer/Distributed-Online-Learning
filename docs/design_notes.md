@@ -4850,7 +4850,7 @@ receiver-point rows hollow, computed through the runner's own `per_seed`, `paire
 `holm` so it cannot disagree with the report.
 
 
-### 🔄 D126. M2O: a many-to-one readout, paired sample for sample with many-to-many
+### ✅ D126. M2O: no difference detected at full context (an underpowered comparator), and the filter's lead shrinks but holds under many-to-one
 
 mg branch: `scripts/run_m2o_readout.py`, with source changes, written 2026-09-27;
 this note and the runner's docstring are the [[D118]] record. The reviewer question
@@ -4906,8 +4906,60 @@ rows only if the arm reproduces cell a, and otherwise labels them edge-limited. 
 recorded is touched, and the filters are not re-run. Smoked on CPU 2026-10-02: every path
 ran, both merge gates at 0.0e+00.
 
-🔄 Open until the main pass ends, then `--extend-sgd` (~2 h tuning, plus ~1 h per SGD
-cell).
+**The run, 2026-10-02 (cells 603 min).** Settled RMSE, m2m every position / 16+ / last
+position / M2O-b: centralised EKF 0.141 / 0.117 / 0.118 / 0.110; one-hop 0.142 / 0.116 /
+0.120 / 0.110; ATC AdamW 0.167 / 0.153 / 0.160 / 0.123.
+
+**Confirmatory: M2O-b − m2m's last position is not detected for any of the five**
+(centralised −0.0079, local adapt −0.0112, one-hop −0.0096, $p_\text{holm}$ 1.000;
+centralised and ATC AdamW −0.029 and −0.038, 0.255). **⚠ The test is underpowered by
+its comparator, a design weakness of the registration:** m2m's last position scores one
+target per block where M2O-b scores 31, so its seeds scatter 0.09–0.16 for the filters
+(0.11–0.19 for AdamW) against M2O-b's 0.104–0.113, and the noise swamps an estimate
+that leans to many-to-one throughout. Not evidence of no difference.
+
+**Exploratory.** Against m2m's 16+ positions, which are stable, M2O-b is more accurate
+for all five ($p_\text{holm}\le0.007$): the filters by 0.007–0.009 (~6%), AdamW by
+0.023–0.030 (~15–20%), and SGD likewise by ~0.03. **The filter's lead shrinks under
+M2O-b but holds:** one-hop − ATC AdamW −0.025 (m2m, every position) → −0.013 (t −13.5),
+centralised EKF − centralised AdamW −0.023 → −0.014, one-hop − ATC −0.036 → −0.026,
+centralised EKF − centralised SGD −0.035 → −0.026; the change is significant for the
+AdamW pair (p 0.006–0.012) and for one-hop − ATC (0.028). Many-to-many favours the
+filter against the gradient methods, which gain most from a readout that gives the whole
+model to the last position. The filters' variance ratio at κ = 1 falls from 0.83–0.89
+(m2m) to 0.74 (M2O-b). Wall-clock: M2O-b's cell a 1.26× m2m's, the filter-only cell b
+1.12×, well under the cost model's ~2×; the gradient methods pay ~31× the passes. Full
+sharing matches its mean-only twin to 0.0015 in every reading; M2O-c's filters
+(0.118–0.127) show the starvation it illustrates.
+
+**The SGD extension, 2026-10-03 — and a scoring bug it exposed.** The extended grid
+selected 1e-3 on m2o_b for all four SGD learners; the SGD-only cell then showed
+centralised SGD and ATC diverging at the first evaluation on 3 of 5 seeds, ATC plain on
+1, local only on 4. Tuning seed 0 had diverged too (600 of 610 rows NaN), but
+**`settled()` in `run_m3_rates.py` averaged with pandas, which skips NaN, so a rate that
+diverged on one seed of two scored as the other seed alone.** Fixed: any NaN in a
+learner's settled window is inf, with `tests/test_settled_divergence.py` (5 tests). The
+same skip sat in M2O's `seed_values`, M12's `_cell_values` and the private MG18 builder;
+all now leave a diverged seed out (or mark it NaN) instead. **Rule, decided with the
+user:** a rate that diverges on any seed of the main pass is unusable and the next-best
+stable rate is taken — ATC plain's 1e-3 was stable on both tuning seeds and diverged on
+seed 2 of five. Under both, **every SGD selection is 3e-4 on m2o_b and unchanged on
+m2o_c: cell a's rates are the extended grid's argmin**, the next rate up diverging or
+worse, so the SGD rows stand and are not edge-limited, and the SGD-only cell is moot (its
+merge gate reproduced, at rates that are unusable).
+
+**The audit**, all 122 completed mg runs, for a learner partly NaN in its settled
+window: no other tuning run is affected, so no other selection moves. Two others:
+`f32_m6` (centralised SGD, seed 1 — D133's θ₀ divergence, already recorded) and M12b's
+top-up cells (local only, seeds 6 and 8, every condition) — corrected in D121, no verdict
+changes.
+
+**For the paper:** not "many-to-many costs the filter accuracy at full context" — the
+registered test cannot tell; but both exploratory readings point to many-to-one being
+somewhat more accurate, and much more so for the gradient methods. Report the filter's
+lead under both readouts (~0.025–0.036 many-to-many, ~0.013–0.026 M2O-b), and justify
+many-to-many by its cost, not its accuracy. Figure MG22 (private
+`plot_m2o_readout.py`, mg).
 
 ### ✅ D125. P5.23: a second shift mid-transient costs every learner 30–60% more, and nothing diverges
 
@@ -5284,6 +5336,15 @@ $\alpha=0.025$, Holm across six, unrounded:
 | centralised AdamW | $-0.0026$ | 0.655 | $-0.0002$ | 1.000 |
 | ATC AdamW | $-0.0029$ | 0.655 | $-0.0006$ | 1.000 |
 | local only | $-0.0035$ | 0.655 | $-0.0004$ | 1.000 |
+
+**⚠ Corrected 2026-10-03 (D126): local only's row.** Local only diverged in parts of
+seeds 6 and 8 in every top-up cell; the reader averaged over the evaluations that
+survived (pandas skips NaN) and reported those seeds as finite. With them left out, n = 8:
+anti − correlated $-0.0051$ $[-0.0145, +0.0043]$, $p_\text{holm}$ 0.655;
+independent − correlated $-0.0003$, 1.000. **No verdict changes, and local adapt's
+adjusted $p$ is unchanged at 0.02510** — this mattered, because local only sits in the
+Holm-six family, and a smaller raw $p$ for it would have changed local adapt's
+multiplier. MG18 and its tables are regenerated with the fix.
 
 **Nothing is established.** Local adapt misses the pre-registered bar by $10^{-4}$
 ($p_\text{holm}=0.025095$ against 0.025). Under rule 1 above this was the one extension,
