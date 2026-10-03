@@ -29,7 +29,7 @@ import torch
 
 # `pool` is re-exported: the runner now asks the environment for its pooled batch,
 # but callers (and tests) import the image version from here.
-from dekf_bench.compression import Channel, data_bits, working_bits
+from dekf_bench.compression import Channel, CodecChannel, data_bits, working_bits
 from dekf_bench.env.environment import Environment, pool  # noqa: F401
 from dekf_bench.evaluation import belief, protocol
 from dekf_bench.evaluation.evalsets import EvalSetBuilder
@@ -145,7 +145,7 @@ def run(
 
     for learner in learners.values():
         learner.init(theta0)
-    _attach_channels(config, learners, environment.seeds)
+    _attach_channels(config, learners, environment.seeds, theta0)
 
     # Resume where a previous run stopped, if it did. Exact rather than
     # approximate: the loop consumes no randomness, so there is no RNG state to
@@ -157,6 +157,10 @@ def run(
             raise SimulationError(
                 "a run with stochastic rounding cannot resume: its channel draws from a "
                 "generator whose state the checkpoint does not hold. Re-run it from step 0.")
+        if config.comm.compressor == "codec":
+            raise SimulationError(
+                "a codec run cannot resume: its public copies and counts are not in the "
+                "checkpoint. Re-run it from step 0.")
         print(f"  resuming from step {start_step}")
     pricing = _bit_prices(config)
     cum_bits = {name: 0 for name in learners}
@@ -252,6 +256,13 @@ def run(
         if progress_every and step % progress_every == 0:
             _report(step, environment.horizon, records)
 
+    # A channel with something to keep -- the codec's counts, scales and totals --
+    # writes it beside the seed's parquet, once the seed has run to the end.
+    if recorder is not None and last_step == environment.horizon - 1:
+        for name, learner in learners.items():
+            channel = getattr(learner, "channel", None)
+            if channel is not None:
+                channel.finish(recorder.out_dir, recorder.context.seed, name)
     return records
 
 
@@ -271,14 +282,20 @@ def _predictive_variance(learner: Any, likelihood: Any):
     return variance
 
 
-def _attach_channels(config: Any, learners: dict[str, Any], seeds: Any) -> None:
+def _attach_channels(config: Any, learners: dict[str, Any], seeds: Any,
+                     theta0: torch.Tensor | None = None) -> None:
     """Give every diffusing learner the run's compressor (compression.py, Track C).
 
     One channel per learner, each with its own seed stream when it rounds
     stochastically, so adding or removing a learner cannot change another's draws.
+    The codec's channel is the learner's own too: its public copies start at
+    theta_0, and its tables and the moments' scales are looked up by learner name.
     """
     for name, learner in learners.items():
         if not hasattr(learner, "channel"):
+            continue
+        if config.comm.compressor == "codec":
+            learner.channel = _codec_channel(config, name, learner, theta0)
             continue
         stochastic = config.comm.compressor == "stochastic"
         learner.channel = Channel(
@@ -286,6 +303,41 @@ def _attach_channels(config: Any, learners: dict[str, Any], seeds: Any) -> None:
             precision=config.comm.precision,
             generator=seeds.torch_generator("channel", name) if stochastic else None,
         )
+
+
+def _codec_channel(config: Any, name: str, learner: Any, theta0: torch.Tensor | None) -> Any:
+    """A learner's codec channel: its layers, theta_0, its tables and moment scales."""
+    import json  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    from dekf_bench.codec import LayerCode, module_layers  # noqa: PLC0415
+
+    if theta0 is None:
+        raise SimulationError("the codec's public copies start at theta_0, which was not given")
+    comm = config.comm
+    layers = module_layers(learner.model)
+    names = [layer for layer, _part in layers]
+
+    def per_layer(entry: dict, what: str, build: Any) -> list:
+        missing = [layer for layer in names if layer not in entry]
+        if missing:
+            raise SimulationError(f"{name}: {what} has no entry for layers {missing}")
+        return [build(entry[layer]) for layer in names]
+
+    scales, codes = {}, {}
+    if comm.codec_scales:
+        table = json.loads(Path(comm.codec_scales).read_text(encoding="utf-8"))
+        for kind, entry in table.get("learners", {}).get(name, {}).items():
+            scales[kind] = per_layer(entry, f"the scales for {kind!r}", float)
+    if comm.codec_mode == "code":
+        table = json.loads(Path(comm.codec_tables).read_text(encoding="utf-8"))
+        if abs(float(table["c"]) - comm.codec_c) > 1e-12 * comm.codec_c:
+            raise SimulationError(
+                f"the tables were trained at c={table['c']}, the run asks for c={comm.codec_c}")
+        for kind, entry in table.get("learners", {}).get(name, {}).items():
+            codes[kind] = per_layer(entry, f"the tables for {kind!r}", LayerCode.from_json)
+    return CodecChannel(c=comm.codec_c, mode=comm.codec_mode, layers=layers,
+                        theta0=theta0.detach().clone(), moment_scales=scales, codes=codes)
 
 
 def _bit_prices(config: Any) -> dict[str, int]:

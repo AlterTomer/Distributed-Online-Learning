@@ -867,9 +867,20 @@ class CommConfig:
     compressor: str = "none"
     #: Bits per value for ``stochastic``; ignored by the casts, which carry their own.
     precision: int = 8
+    #: The codec (C2, D137, D138): the global multiplier c in Delta_l = c * s_l, the mode
+    #: (scale | count | code), the trained tables (code mode) and the moments' scales
+    #: (count and code modes), both JSON files written by `scripts/run_codec.py`.
+    codec_c: float = 0.0
+    codec_mode: str = "count"
+    codec_tables: str | None = None
+    codec_scales: str | None = None
 
     def __post_init__(self) -> None:
-        from dekf_bench.compression import COMPRESSORS, STOCHASTIC_BITS  # noqa: PLC0415
+        from dekf_bench.compression import (  # noqa: PLC0415
+            CODEC_MODES,
+            COMPRESSORS,
+            STOCHASTIC_BITS,
+        )
 
         _one_of(self.compressor, COMPRESSORS, "comm.compressor")
         low, high = STOCHASTIC_BITS
@@ -877,6 +888,13 @@ class CommConfig:
             raise ConfigError(
                 f"comm.precision must lie in [{low}, {high}] bits for stochastic rounding, "
                 f"got {self.precision}")
+        if self.compressor != "codec":
+            return
+        _one_of(self.codec_mode, CODEC_MODES, "comm.codec_mode")
+        if self.codec_mode != "scale" and not self.codec_c > 0:
+            raise ConfigError(f"comm.codec_c must be positive, got {self.codec_c}")
+        if self.codec_mode == "code" and not self.codec_tables:
+            raise ConfigError("comm.codec_mode 'code' needs comm.codec_tables")
 
 
 @dataclass
