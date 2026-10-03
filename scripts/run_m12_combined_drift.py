@@ -274,7 +274,10 @@ def _cell_values(cell: str) -> dict[str, dict[int, float]]:
         # rather than equal-by-coincidence.
         for learner, group in rows.groupby("learner"):
             kept = group[group["t"] >= int(0.8 * group["t"].max())]
-            if len(kept):
+            # A seed that diverged anywhere in the window is left out, not averaged
+            # over what survived: pandas skips NaN, and that once reported local
+            # only's diverged seeds 6 and 8 as finite in M12b's top-up (D121, D126).
+            if len(kept) and not kept["value"].isna().any():
                 out.setdefault(str(learner), {})[seed] = float(kept["value"].mean())
     _CELL_CACHE[cell] = out
     return out

@@ -89,11 +89,18 @@ def settled(run: str, learner: str, metric: str = "rmse", evalset: str = "curren
     )
     rows = frame[(frame["learner"] == learner) & (frame["metric"] == metric)
                  & (frame["evalset"] == evalset) & (frame["t"] >= int(0.8 * frame["t"].max()))]
-    value = float(rows["value"].mean()) if len(rows) else float("inf")
     # A diverged regression learner records NaN rather than raising -- which keeps
     # the other learners in its cell, unlike MNIST, where one divergence discards
     # the cell. But NaN compares False both ways, so min() could select it.
     # Non-finite is unusable, and inf is how unusable is spelled here.
+    #
+    # **Any** NaN, not only an all-NaN window (fixed 2026-10-03, D126): pandas' mean
+    # skips NaN, so a rate that diverged on one seed of two scored as the other seed
+    # alone -- and M2O's extended grid selected 1e-3, which diverges on 3 of 5 seeds,
+    # over the stable 3e-4. A rate that diverges anywhere is unusable.
+    if not len(rows) or rows["value"].isna().any():
+        return float("inf")
+    value = float(rows["value"].mean())
     return value if math.isfinite(value) else float("inf")
 
 

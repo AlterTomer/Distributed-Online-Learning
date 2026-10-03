@@ -64,6 +64,7 @@ added only if stationary separates the designs (schedule.md).
 from __future__ import annotations
 
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -140,9 +141,19 @@ def extended_sgd_rates(readout: str, suffix: str = "") -> dict[str, float] | Non
     if any(not (ROOT / "results" / lr_extra_name(readout, k, suffix) / "_complete").exists()
            for k in range(len(SGD_EXTRA))):
         return None
+    # Rule (2026-10-03, D126): a rate that diverges on any seed of the main pass is
+    # unusable, and the next-best stable rate is taken. Two tuning seeds can miss an
+    # instability five seeds find -- ATC plain at 1e-3 on m2o_b was stable on seeds 0-1
+    # and diverged on seed 2 of the SGD-only cell.
+    main_pass = recorded_rates(sgd_cell_name(readout, suffix))
     rates = {}
     for learner in SGD_FAMILY:
-        finite = [(v, r) for r, v in sgd_curve(readout, learner, suffix) if v != float("inf")]
+        unstable = (main_pass.get(learner)
+                    if any(math.isnan(v) for v in
+                           seed_values(sgd_cell_name(readout, suffix), learner, "rmse").values())
+                    else None)
+        finite = [(v, r) for r, v in sgd_curve(readout, learner, suffix)
+                  if v != float("inf") and r != unstable]
         if finite:
             rates[learner] = min(finite)[1]
     return rates
@@ -384,7 +395,10 @@ def seed_values(run: str, learner: str, metric: str) -> dict[int, float]:
         rows = frame[(frame["learner"] == learner) & (frame["metric"] == metric)
                      & (frame["evalset"] == "current") & (frame["t"] >= 0.8 * frame["t"].max())]
         if len(rows):
-            out[int(path.stem.split("_")[1])] = float(rows["value"].mean())
+            # A seed that diverged anywhere in the window is NaN, not the mean of what
+            # survived: pandas skips NaN, which once hid a diverged rate (D126).
+            value = float("nan") if rows["value"].isna().any() else float(rows["value"].mean())
+            out[int(path.stem.split("_")[1])] = value
     return out
 
 
@@ -396,8 +410,16 @@ def report(suffix: str = "") -> None:
         print("  mean nothing; the point is that every code path below ran.\n")
 
     # ---- the SGD extension's merge gate (D119) ------------------------------------
-    pooled = set()
+    # The SGD-only cell is pooled only where the extended grid's selection moved off
+    # cell a's rates. Where it did not -- the next rate up diverges or is worse -- cell
+    # a's SGD rows are confirmed, not edge-limited (2026-10-03, D126).
+    pooled, confirmed = set(), set()
     for readout in TUNED:
+        extended = extended_sgd_rates(readout, suffix)
+        ran = recorded_rates(cell_name(readout, "a", suffix))
+        if extended is not None and all(ran.get(n) == r for n, r in extended.items()):
+            confirmed.add(readout)
+            continue
         extra = sgd_cell_name(readout, suffix)
         if not (ROOT / "results" / extra / "_complete").exists():
             continue
@@ -412,9 +434,12 @@ def report(suffix: str = "") -> None:
         print(f"  merge gate, {extra}: {REPRODUCTION_ARM} against cell a, {len(shared)} seed(s), "
               f"max |diff| {shown}  {'reproduces' if ok else 'DOES NOT REPRODUCE'}")
     for readout in TUNED:
-        if readout not in pooled:
+        if readout in confirmed:
+            print(f"  {readout}: SGD rows from cell a -- its rates are the extended grid's "
+                  f"argmin, the next rate up diverging or worse")
+        elif readout not in pooled:
             print(f"  {readout}: SGD rows from cell a, on M3's grid -- EDGE-LIMITED "
-                  f"(see the extension, 2026-10-02)")
+                  f"(run --extend-sgd)")
     print()
 
     def cell(readout: str, learner: str) -> str:
