@@ -245,6 +245,17 @@ class LayerCode:
         total.index_add_(0, rows, per_event)
         return total + run_costs[EOB]
 
+    def escapes(self, q: torch.Tensor) -> tuple[int, int]:
+        """(escaped symbols, symbols) in a block: the transfer check (D137)."""
+        _rows, runs, amps = events(q)
+        unseen = 0
+        for values, costs, tokens in ((runs, self.run_lengths, (ESC, EOB)),
+                                      (amps, self.amp_lengths, (ESC,))):
+            seen = torch.tensor([s for s in costs if s not in tokens], dtype=torch.int64,
+                                device=values.device)
+            unseen += int((~torch.isin(values, seen)).sum())
+        return unseen, 2 * runs.numel() + q.shape[0]
+
     def message_bits(self, q: torch.Tensor) -> torch.Tensor:
         """Bits of each row's message (rows = agents' messages for this layer)."""
         return self._total(q, self.run_lengths, self.amp_lengths, "len").round().to(torch.int64)

@@ -171,3 +171,11 @@ def test_tables_survive_json():
 def test_run_table_needs_eob():
     with pytest.raises(CodecError):
         LayerCode({0: 3}, {1: 3})
+
+
+def test_escapes_are_counted():
+    code = _trained(torch.tensor([[0, 1, 0, -1, 0, 0]]))
+    q = torch.tensor([[0] * 40 + [57], [0, 1, 0, 0, 0, 0] + [0] * 35])
+    escaped, symbols = code.escapes(q)
+    assert escaped == 2                       # row 0's run of 40 and its amplitude 57
+    assert symbols == 2 * 2 + 2               # two events, two EOBs

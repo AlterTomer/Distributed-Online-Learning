@@ -4136,7 +4136,27 @@ abrupt and skew 0.1; AdamW's reconstructed $\tilde{\boldsymbol v}$ clamped $\ge0
 
 **Built so far (2026-10-03):** `codec.py` (events, canonical Huffman, Elias-gamma, the counted length, a real encoder and decoder; 32 tests) and `compression.CodecChannel` (public copies per kind, module-level steps, the three modes, per-sender bits times out-degree, the second-moment clamp, a refusal to resume, a per-seed summary; 18 tests, the last running scale → count → tables → code through `simulate.run`). The full suite: 1461 passed.
 
-🔄 Open until the runner is built and smoked (`scripts/run_codec.py`), then ported to mg as C1 was.
+**Three more, asked while writing the runner:** $\mathcal C^\star$ is **per learner** (each at
+its own cheapest c within $arepsilon$; the transfer cells group learners by their
+$\mathcal C^\star$, since c is a run setting); the rate $R$ is **the whole run's** coded
+bits per transmitted scalar (per parameter per link-message); and **every report cell has an
+uncompressed twin** at the re-tuned rates — 12 report cells, ~18 h on MNIST.
+
+**The runner, `scripts/run_codec.py`, built and smoked 2026-10-03.** `--calibrate` re-tunes
+the uncompressed point in `scale` mode (its selected runs give `scales.json`), then every c
+in `count` mode, with the filters at their recorded settings, and writes `tables_<c>.json`
+from the selected runs' pooled counts; `--validate` runs each c with its frozen tables and
+the uncompressed twin on seeds 200–204, prints the frontier (R, the trained-probability
+bound, D136's entropy, the escape rate, settled error, the paired cost against the twin)
+and writes $\mathcal C^\star$ per learner; `--report-runs` runs the stationary frontier and
+its twin on seeds 0–4, then each learner's $\mathcal C^\star$ in linear (X20), abrupt (X20)
+and skew 0.1 (X25) with a twin in each. The source cell is P5.3's ER 0.3. The escape count
+was added to the channel for the transfer check. Every stage smoked on CPU (20 steps, one
+seed per role, two values of c): 41 calibration cells, 3 validation, 9 report; every
+condition's recorded config checked. GPU cost, MNIST, estimated from earlier cells:
+calibrate ~27 h, validate ~7 h, report ~14 h — about 48 h.
+
+🔄 Open until it runs: on MNIST after queue 3, then ported to mg as C1 was.
 
 ### 🔄 D137. The offline codec protocol: trained on disjoint seeds, one global step multiplier, the frontier first
 The user's protocol, `Diff_EKF_Offline_Codec_Training_Protocol.tex` (OneDrive, Diff-EKF),

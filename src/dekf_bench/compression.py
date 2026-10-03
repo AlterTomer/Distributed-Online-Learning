@@ -314,6 +314,9 @@ class CodecChannel(Channel):
                 continue
             code = self._code(kind, index, name)
             per_sender += code.message_bits(block).double()
+            escaped, symbols = code.escapes(block)
+            self.totals["escapes"] += escaped
+            self.totals["symbols"] += symbols
             ideal += code.ideal_bits(block)
         weights = degrees.double()
         if self.mode == "count":
