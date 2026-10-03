@@ -268,3 +268,13 @@ def test_tables_trained_at_another_c_are_refused(tmp_path):
     with pytest.raises(Exception, match="trained at c"):
         _run({"compressor": "codec", "codec_c": 1e-2, "codec_mode": "code",
               "codec_tables": str(tables)}, tmp_path / "x")
+
+
+def test_a_diverged_message_is_mixed_exactly_and_never_counted():
+    ch = channel()
+    x = walk(1)[0]
+    x[1, 3] = float("nan")
+    mixed = ch.mix(ring(), x)
+    assert torch.isnan(mixed).any()
+    assert ch.totals["diverged_messages"] == 1
+    assert "psi" not in ch.counts

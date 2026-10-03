@@ -209,32 +209,35 @@ class LayerCode:
 
     # -- per-symbol costs, vectorised ----------------------------------------- #
 
-    def _dense_of(self, name: str, costs: dict, device) -> tuple[torch.Tensor, int, int]:
-        """A dense cost array over the seen integer range; NaN marks unseen."""
+    def _keys_of(self, name: str, costs: dict, device) -> tuple[torch.Tensor, torch.Tensor]:
+        """The table's seen integers, sorted, and their costs -- a lookup by search.
+
+        Not a dense array over the seen range: amplitudes can be arbitrarily large (a
+        diverging learner, a jump), and a range array would have to span them.
+        """
         cache = (name, str(device))
         if cache not in self._dense:
             # EOB is -1, a token of the run alphabet only: in the amplitude alphabet -1 is
             # an ordinary value and must not be filtered out with it.
             tokens = (ESC, EOB) if name.endswith("runs") else (ESC,)
-            ints = [s for s in costs if s not in tokens]
-            low, high = (min(ints), max(ints)) if ints else (0, 0)
-            dense = torch.full((high - low + 1,), float("nan"), dtype=torch.float64,
-                               device=device)
-            for s in ints:
-                dense[s - low] = costs[s]
-            self._dense[cache] = (dense, low, high)
+            ints = sorted(s for s in costs if s not in tokens)
+            keys = torch.tensor(ints, dtype=torch.int64, device=device)
+            values = torch.tensor([float(costs[s]) for s in ints], dtype=torch.float64,
+                                  device=device)
+            self._dense[cache] = (keys, values)
         return self._dense[cache]
 
     def _costs(self, values: torch.Tensor, costs: dict, name: str,
                signed: bool) -> torch.Tensor:
-        dense, low, high = self._dense_of(name, costs, values.device)
-        inside = (values >= low) & (values <= high)
-        found = dense[(values - low).clamp(0, high - low)]
-        found = torch.where(inside, found, torch.full_like(found, float("nan")))
+        keys, key_costs = self._keys_of(name, costs, values.device)
         magnitude = values.abs() if signed else values + 1
         escaped = (costs[ESC] + elias_gamma_length(magnitude.clamp_min(1)).double()
                    + float(signed))
-        return torch.where(torch.isnan(found), escaped, found)
+        if keys.numel() == 0:
+            return escaped
+        index = torch.searchsorted(keys, values).clamp(max=keys.numel() - 1)
+        hit = keys[index] == values
+        return torch.where(hit, key_costs[index], escaped)
 
     def _total(self, q: torch.Tensor, run_costs: dict, amp_costs: dict,
                tag: str) -> torch.Tensor:

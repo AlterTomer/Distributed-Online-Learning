@@ -274,6 +274,13 @@ class CodecChannel(Channel):
             self._measure(kind, stack)
             self.bits += int(degrees.sum()) * p * working_bits(stack.dtype)
             return mixing @ stack
+        if not bool(torch.isfinite(stack).all()):
+            # A diverged learner (a regression learner records NaN and runs on). Its
+            # message is no symbol stream: mix it exactly so the NaN propagates as it
+            # would uncompressed, and neither count nor code it -- garbage symbols must
+            # never reach a table. Flagged, so the summary says why it stopped costing.
+            self.totals["diverged_messages"] += 1
+            return mixing @ stack
         copy = self._copy(kind, stack)
         delta = self._delta(kind, stack)
         q = torch.round((stack - copy) / delta)

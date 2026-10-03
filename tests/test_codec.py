@@ -179,3 +179,9 @@ def test_escapes_are_counted():
     escaped, symbols = code.escapes(q)
     assert escaped == 2                       # row 0's run of 40 and its amplitude 57
     assert symbols == 2 * 2 + 2               # two events, two EOBs
+
+
+def test_huge_and_unseen_values_cost_an_escape_not_a_crash():
+    code = _trained(torch.tensor([[0, 1, 0, -1, 0, 0]]))
+    row = torch.tensor([[0, 10**12, 0, -(10**12), 1, 0]])
+    assert int(code.message_bits(row)[0]) == len(encode(row[0], code))
