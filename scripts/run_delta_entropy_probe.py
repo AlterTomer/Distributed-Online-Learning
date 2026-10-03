@@ -191,7 +191,9 @@ class RecordingChannel(Channel):
         self.hists: dict[str, torch.Tensor] = {}
         self.hist_zeros: dict[str, int] = defaultdict(int)
 
-    def mix(self, mixing: torch.Tensor, stack: torch.Tensor) -> torch.Tensor:
+    def mix(self, mixing: torch.Tensor, stack: torch.Tensor, kind: str = "psi") -> torch.Tensor:
+        # `kind` is accepted for the learners' call (C2); the probe keeps counting calls
+        # within a step, which orders psi before the moments either way.
         out = super().mix(mixing, stack)
         x = stack.detach().double()
         self._record(self.call, x)

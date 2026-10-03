@@ -304,8 +304,12 @@ run, filter and gradient baselines alike.
 
 | Field | Type | Default | Legal values | Notes |
 |---|---|---|---|---|
-| `compressor` | str | `none` | `none`, `float32`, `float16`, `bfloat16`, `stochastic` | `none` is exact: the arithmetic of every run before the channel existed |
+| `compressor` | str | `none` | `none`, `float32`, `float16`, `bfloat16`, `stochastic`, `codec` | `none` is exact: the arithmetic of every run before the channel existed |
 | `precision` | int | `8` | 2–16 | Bits per value, `stochastic` only; the casts carry their own |
+| `codec_c` | float | `0.0` | > 0 (not needed for `scale`) | `codec` only: the global multiplier in $\Delta_\ell=c\,s_\ell$ (D137, D138) |
+| `codec_mode` | str | `count` | `scale`, `count`, `code` | `scale`: exact, measures the moments' per-layer rms; `count`: quantises and pools symbol counts; `code`: the trained tables |
+| `codec_tables` | str \| null | `null` | a JSON path | Required for `code`; trained at the same `codec_c` or the run refuses |
+| `codec_scales` | str \| null | `null` | a JSON path | The moments' scales from the `scale` pass; needed by any learner that mixes moments |
 
 Compression acts inside each learner's mix: every **received** vector is decoded
 from its compressed form, while an agent's own term stays exact. Full sharing's
@@ -313,6 +317,16 @@ covariance and one-hop's raw batch are not compressed. `cum_bits_tx` records the
 bits sent: vectors at the compressor's price, the rest at their own precision.
 `stochastic` draws from a per-learner seed stream, and a run using it refuses to
 resume.
+
+`codec` sends each vector as a quantised difference against a public copy every
+agent holds (starting at $\boldsymbol\theta_0$ for $\boldsymbol\psi$, 0 for the moments), per
+module, run-length and canonical-Huffman coded with tables trained offline
+(`codec.py`, `compression.CodecChannel`). Its bits are the tables' code lengths summed
+per message, **not** bitstreams produced each step; the tests tie the two together bit
+for bit. A received second moment is clamped at zero. A codec run refuses to resume,
+and at the end of each seed writes `codec_<learner>_seed<k>.json` beside the parquet:
+its counts (`count`), moment scales (`scale`) and totals (coded bits, the bound under the
+trained probabilities, D136's empirical entropy, the clamp count).
 
 ## The reference classifier
 
@@ -717,5 +731,6 @@ learner.linearization_point  sender | receiver (one_hop only)
 learner.combine_exponent  1.0 .. 2.0
 model.likelihood          categorical | gaussian
 eval.evalsets             prequential | current | backward | canonical
-comm.compressor           none | float32 | float16 | bfloat16 | stochastic
+comm.compressor           none | float32 | float16 | bfloat16 | stochastic | codec
+comm.codec_mode           scale | count | code
 ```

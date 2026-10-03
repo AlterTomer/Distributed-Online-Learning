@@ -326,10 +326,11 @@ def _combine_states(
     # at N x N the move costs nothing next to the p-vectors it multiplies.
     mixing = weights.to(device=psi.device, dtype=psi.dtype)
     channel = channel or exact_channel()
-    combined = channel.mix(mixing, psi)
+    combined = channel.mix(mixing, psi, kind="psi")
 
     mixed_stacks = {
-        name: channel.mix(mixing, torch.stack([intermediates[node].extras[name] for node in order]))
+        name: channel.mix(mixing, torch.stack([intermediates[node].extras[name] for node in order]),
+                          kind=name)
         for name in mixed
     }
 

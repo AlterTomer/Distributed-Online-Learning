@@ -418,7 +418,7 @@ class DiffusionEKF:
         # Through the channel: under one-hop these are the post-adapt means computed
         # just above, which is what crosses the second link (D92). The covariance
         # combine below is not compressed (communication_plan.md, C-8).
-        combined_mean = self.channel.mix(mixing, stacked_psi)
+        combined_mean = self.channel.mix(mixing, stacked_psi, kind="psi")
 
         combined_cov: dict[int, torch.Tensor] = {}
         if self.covariance_sharing == "full":

@@ -37,6 +37,25 @@ class CodecError(ValueError):
     """Raised for tables that cannot code what they are given."""
 
 
+def module_layers(model) -> list[tuple[str, slice]]:
+    """The codec's layers: (module, slice of the flat vector), weight and bias together.
+
+    A layer is a module, not a tensor (D138): a bias starts at zero, so its own
+    rms(theta_0) is no scale. MNIST's MLP gives 2 layers, the MG Transformer 8.
+    """
+    out: list[tuple[str, slice]] = []
+    start = 0
+    for name, shape in zip(model.names, model.shapes, strict=True):
+        size = int(torch.Size(shape).numel())
+        module = name.rsplit(".", 1)[0]
+        if out and out[-1][0] == module:
+            out[-1] = (module, slice(out[-1][1].start, start + size))
+        else:
+            out.append((module, slice(start, start + size)))
+        start += size
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # Elias-gamma
 # --------------------------------------------------------------------------- #

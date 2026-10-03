@@ -4124,6 +4124,9 @@ algorithmic or implementation question not yet decided is asked first).
 | **Full sharing** (C-8) | **Out of scope for now**; reported uncompressed. Its compression ($\boldsymbol P$ is $p\times p$, ~8.5M numbers a message on MNIST) is added to the end of the schedule, if time allows |
 | The **moments' scales** $s_\ell$ (momentum; AdamW's $\boldsymbol m$, $\boldsymbol v$) | **An uncompressed scale pass:** the stationary IID cell on seeds 100–104 at each learner's uncompressed tuned rate, recording each moment's per-layer rms pooled over seeds, agents and steps; fixed once, used at every $c$. ($\boldsymbol\psi$'s is $\mathrm{rms}(\boldsymbol\theta_0)$ per layer.) D137's "over the calibration runs" was circular: those runs are quantised with the scale |
 | How much a table reserves for **ESC** | **Good–Turing:** ESC's count is the number of symbols seen exactly once in calibration, at least 1 — the standard estimate of the unseen mass |
+| What runs on the **report seeds 0–4** | **The whole frontier (all five $c$) in the stationary condition, and $\mathcal C^\star$ alone carried to linear, abrupt and skew 0.1**: 8 cells, ~12 h on MNIST |
+| The **uncompressed twin's rates** | **Re-tuned on seeds 100–104 too**, as one more grid point, so compressed minus uncompressed differs only in compression |
+| The re-tuning **objective** | Settled error, the benchmark's convention for a stationary cell (no question needed) |
 | The **roster** | **The paper's set:** one-hop (receiver), local adapt, ATC + momentum, ATC plain, ATC AdamW — every vector each sends, its own tables per vector kind and layer. The centralised filter, centralised SGD and AdamW, `local_only` and local AdamW send nothing: they are the uncompressed reference lines |
 
 Carried from D137: calibrate on seeds 100–104, validate on 200–204, report on 0–4 at the
@@ -4131,7 +4134,9 @@ full horizon; the frontier first, the operating point by paired settled error wi
 $\varepsilon=0.002$; trained on the stationary IID cell, carried unchanged to linear,
 abrupt and skew 0.1; AdamW's reconstructed $\tilde{\boldsymbol v}$ clamped $\ge0$ at the receiver.
 
-🔄 Open until built: on main first, then ported to mg as C1 was.
+**Built so far (2026-10-03):** `codec.py` (events, canonical Huffman, Elias-gamma, the counted length, a real encoder and decoder; 32 tests) and `compression.CodecChannel` (public copies per kind, module-level steps, the three modes, per-sender bits times out-degree, the second-moment clamp, a refusal to resume, a per-seed summary; 18 tests, the last running scale → count → tables → code through `simulate.run`). The full suite: 1461 passed.
+
+🔄 Open until the runner is built and smoked (`scripts/run_codec.py`), then ported to mg as C1 was.
 
 ### 🔄 D137. The offline codec protocol: trained on disjoint seeds, one global step multiplier, the frontier first
 The user's protocol, `Diff_EKF_Offline_Codec_Training_Protocol.tex` (OneDrive, Diff-EKF),
