@@ -59,35 +59,70 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import yaml  # noqa: E402
 from _args import sweep_parser  # noqa: E402
-from run_atc_plain import PLAIN  # noqa: E402
-from run_diffusion_skew import BASELINES, LEARNING_RATES, settled  # noqa: E402
 from run_ekf_generalization import run_one  # noqa: E402
-from run_linearization_point import per_seed  # noqa: E402
-from run_network_size import ADAMW_RATES  # noqa: E402
 
 from dekf_bench.codec import LayerCode  # noqa: E402
-from dekf_bench.data.registry import dataset_is_cached, load_dataset  # noqa: E402
 from dekf_bench.metrics.paired import paired  # noqa: E402
 from dekf_bench.utils.config import load_config  # noqa: E402
 
-TASK = "mnist"
-SOURCE = "p53_er030_a"
-#: condition -> (the env section that changes, the recorded cell it is read from).
-TRANSFER = {"linear": ("drift", "x20_linear_a0p03_erdos_renyi"),
-            "abrupt": ("drift", "x20_every25_jump15_erdos_renyi"),
-            "skew": ("partition", "x25p_onehop_b0p1_beta1")}
-
 LOCAL, ONEHOP = "diffusion_ekf", "diffusion_ekf_onehop_mean_receiver"
 FILTERS = [LOCAL, ONEHOP]
-ATC, ATC_PLAIN, ATC_ADAMW = "diffusion_sgd_atc", PLAIN["name"], "diffusion_atc_adamw"
-#: The gradient baselines, each with its options and its own grid (D138's roster).
-BASELINE_OPTIONS = {ATC: BASELINES[ATC],
-                    ATC_PLAIN: {k: v for k, v in PLAIN.items() if k != "name"},
-                    ATC_ADAMW: {}}
-GRIDS = {ATC: sorted(LEARNING_RATES, reverse=True),
-         ATC_PLAIN: sorted({*LEARNING_RATES, 1.0, 0.5}, reverse=True),
-         ATC_ADAMW: sorted(ADAMW_RATES, reverse=True)}
+ATC, ATC_PLAIN, ATC_ADAMW = "diffusion_sgd_atc", "diffusion_sgd_atc_plain", "diffusion_atc_adamw"
 FAMILY = {ATC: "sgd", ATC_PLAIN: "sgd", ATC_ADAMW: "adamw"}
+
+#: Everything that differs between the two tasks, so this file is the same on main and
+#: mg-task. Each task's options and grids are its own runners' (MNIST: X25/N>10's;
+#: Mackey--Glass: M3's), copied rather than imported because the two branches do not
+#: share those runners.
+TASKS = {
+    "mnist": {
+        "source": "p53_er030_a",            # P5.3's ER 0.3: stationary, IID, one-hop receiver
+        #: condition -> (the env section that changes, the recorded cell it is read from)
+        "transfer": {"linear": ("drift", "x20_linear_a0p03_erdos_renyi"),
+                     "abrupt": ("drift", "x20_every25_jump15_erdos_renyi"),
+                     "skew": ("partition", "x25p_onehop_b0p1_beta1")},
+        "options": {ATC: {"optimizer": "sgd_momentum", "momentum": 0.9},
+                    ATC_PLAIN: {"optimizer": "sgd", "momentum": 0.0,
+                                "mix_optimizer_state": "none"},
+                    ATC_ADAMW: {}},
+        "grids": {ATC: [0.2, 0.05, 0.01, 0.005, 0.001],
+                  ATC_PLAIN: [1.0, 0.5, 0.2, 0.05, 0.01, 0.005, 0.001],
+                  ATC_ADAMW: [3e-2, 1e-2, 3e-3, 1e-3, 3e-4, 1e-4]},
+        "metric": "error_rate",
+        "data": True,
+    },
+    "mackey_glass": {
+        "source": "m6_stationary_a",        # M6: stationary, the filters as M4/M5 chose
+        #: MG has no label partition; M8's per-agent delays are its heterogeneous-agents
+        #: axis, the analogue of label skew (decided with the user, 2026-10-03, D138).
+        "transfer": {"linear": ("drift", "m6_linear_a"),
+                     "abrupt": ("drift", "m6_abrupt_a"),
+                     "tau": ("series", "m8_tau_spread")},
+        "options": {ATC: {"optimizer": "sgd_momentum", "momentum": 0.9,
+                          "mix_optimizer_state": "momentum"},
+                    ATC_PLAIN: {"optimizer": "sgd", "momentum": 0.0,
+                                "mix_optimizer_state": "none"},
+                    ATC_ADAMW: {}},
+        "grids": {ATC: [3e-4, 1e-4, 3e-5, 1e-5, 3e-6],
+                  ATC_PLAIN: [3e-4, 1e-4, 3e-5, 1e-5, 3e-6],
+                  ATC_ADAMW: [1e-1, 3e-2, 1e-2, 3e-3, 1e-3]},
+        "metric": "rmse",
+        "data": False,
+    },
+}
+
+
+def task_of() -> str:
+    """Mackey--Glass where its source cell exists (the mg worktree), MNIST otherwise."""
+    return "mackey_glass" if (ROOT / "results" / TASKS["mackey_glass"]["source"]).exists()         else "mnist"
+
+
+TASK = task_of()
+SOURCE = TASKS[TASK]["source"]
+TRANSFER = TASKS[TASK]["transfer"]
+BASELINE_OPTIONS = TASKS[TASK]["options"]
+GRIDS = TASKS[TASK]["grids"]
+METRIC = TASKS[TASK]["metric"]
 ROSTER = [*FILTERS, *BASELINE_OPTIONS]
 
 C_GRID = [1e-2, 3e-3, 1e-3, 3e-4, 1e-4]
@@ -95,6 +130,8 @@ SMOKE_C_GRID = [1e-2, 1e-4]
 NONE = "none"
 CALIBRATION, VALIDATION, REPORT = [100, 101, 102, 103, 104], [200, 201, 202, 203, 204], \
     [0, 1, 2, 3, 4]
+#: In the task's own metric: error rate on MNIST (D137), RMSE on Mackey--Glass -- the same
+#: number as a starting value there, to be revisited with the results (D138).
 EPSILON = 0.002
 SMOKE_HORIZON = 20
 DATA_ROOT = ROOT / "data"
@@ -218,11 +255,43 @@ def summaries(run_name: str, learner: str) -> dict[int, dict]:
     return out
 
 
+def seed_scores(run_name: str, learner: str) -> dict[int, float]:
+    """Settled score per seed: the task's metric on `current`, mean of the last 20%.
+
+    A seed with any NaN in its window diverged and is left out, not averaged over what
+    survived (D126) -- a regression learner records NaN and runs on, and pandas skips it.
+    """
+    import pandas as pd  # noqa: PLC0415
+
+    directory = ROOT / "results" / run_name
+    if not (directory / "_complete").exists():
+        return {}
+    out = {}
+    for path in sorted(directory.glob("seed_*.parquet")):
+        frame = pd.read_parquet(path, columns=["learner", "metric", "evalset", "t", "value"])
+        rows = frame[(frame["learner"] == learner) & (frame["metric"] == METRIC)
+                     & (frame["evalset"] == "current")]
+        rows = rows[rows["t"] >= int(0.8 * rows["t"].max())] if len(rows) else rows
+        if len(rows) and not rows["value"].isna().any():
+            out[int(path.stem.split("_")[1])] = float(rows["value"].mean())
+    return out
+
+
+def score(run_name: str, learner: str) -> float:
+    """A tuning cell's score: the mean over its seeds, or inf if any seed failed."""
+    scores = seed_scores(run_name, learner)
+    path = ROOT / "results" / run_name / "config.yaml"
+    expected = len(yaml.safe_load(path.read_text(encoding="utf-8"))["run"]["seeds"])         if path.exists() else 0
+    if not scores or len(scores) < expected:
+        return float("inf")
+    return sum(scores.values()) / len(scores)
+
+
 def selected(point, suffix: str) -> dict[str, float] | None:
-    """Each baseline's argmin of settled error over its grid at this point (D77)."""
+    """Each baseline's argmin of its settled score over its grid at this point (D77)."""
     rates = {}
     for name, grid in GRIDS.items():
-        scored = [(settled(lr_name(point, FAMILY[name], r, suffix), name), r) for r in grid]
+        scored = [(score(lr_name(point, FAMILY[name], r, suffix), name), r) for r in grid]
         scored = [(v, r) for v, r in scored if math.isfinite(v)]
         if not scored:
             return None
@@ -330,7 +399,7 @@ def calibrate(args, train, test, suffix: str) -> int:
 
 def frontier_rows(cell: str, twin: str, learner: str) -> dict | None:
     """Rate, error and the paired cost against the twin, for one learner in one cell."""
-    error, base = per_seed(cell, learner), per_seed(twin, learner)
+    error, base = seed_scores(cell, learner), seed_scores(twin, learner)
     shared = sorted(set(error) & set(base))
     if not shared:
         return None
@@ -428,15 +497,27 @@ def report_runs(args, train, test, suffix: str) -> int:
 # report
 # --------------------------------------------------------------------------- #
 
+def cell_learners(run_name: str) -> list[str]:
+    path = ROOT / "results" / run_name / "config.yaml"
+    return [e["name"] for e in yaml.safe_load(path.read_text(encoding="utf-8"))["learners"]]
+
+
 def print_frontier(title: str, cell_of, twin: str, suffix: str, learners=ROSTER) -> None:
     print(f"\n  {title}")
-    print(f"    {'learner':<36}{'c':>8}{'R':>8}{'ideal':>8}{'H':>7}{'esc':>8}{'error':>8}"
+    print(f"    {'learner':<36}{'c':>8}{'R':>8}{'ideal':>8}{'H':>7}{'esc':>8}{METRIC[:8]:>8}"
           f"{'cost':>9}  95% CI")
     for learner in learners:
         for point in grid_points(suffix):
-            row = frontier_rows(cell_of(point), twin, learner) if complete(cell_of(point)) \
-                else None
+            cell = cell_of(point)
+            if not complete(cell) or learner not in cell_learners(cell):
+                continue
+            row = frontier_rows(cell, twin, learner)
             if not row:
+                # Never dropped silently: a learner that ran with no paired seeds
+                # diverged, compressed or uncompressed -- and that is a result.
+                print(f"    {learner:<36}{point:>8g}   DIVERGED -- settled seeds: "
+                      f"{len(seed_scores(cell, learner))} compressed, "
+                      f"{len(seed_scores(twin, learner))} in the uncompressed twin")
                 continue
             lo, hi = row["ci"]
             print(f"    {learner:<36}{point:>8g}{row['R']:>8.2f}{row['ideal']:>8.2f}"
@@ -449,7 +530,7 @@ def report(suffix: str) -> None:
         print("  SMOKE: 20 steps, one seed per role. These numbers mean nothing.\n")
     print("  R = coded bits per transmitted scalar (per parameter per link-message), whole run;")
     print("  ideal = the bound under the trained probabilities; H = D136's empirical entropy;")
-    print("  esc = escaped symbols / symbols; cost = settled error minus the uncompressed")
+    print(f"  esc = escaped symbols / symbols; cost = settled {METRIC} minus the uncompressed")
     print("  twin's, paired per seed. ⚠ Counted code lengths, not per-step bitstreams.")
     if scales_path(suffix).exists():
         scales = json.loads(scales_path(suffix).read_text(encoding="utf-8"))
@@ -492,10 +573,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.report_only:
         report(suffix)
         return 0
-    if not dataset_is_cached(args.dataset, DATA_ROOT):
-        print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
-        return 1
-    train, test = load_dataset(args.dataset, DATA_ROOT, download=False)
+    train = test = None
+    if TASKS[TASK]["data"]:
+        from dekf_bench.data.registry import dataset_is_cached, load_dataset  # noqa: PLC0415
+
+        if not dataset_is_cached(args.dataset, DATA_ROOT):
+            print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
+            return 1
+        train, test = load_dataset(args.dataset, DATA_ROOT, download=False)
     out_dir(suffix).mkdir(parents=True, exist_ok=True)
     if args.calibrate:
         args.seeds = [CALIBRATION[0]] if suffix else CALIBRATION

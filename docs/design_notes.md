@@ -4156,7 +4156,31 @@ seed per role, two values of c): 41 calibration cells, 3 validation, 9 report; e
 condition's recorded config checked. GPU cost, MNIST, estimated from earlier cells:
 calibrate ~27 h, validate ~7 h, report ~14 h — about 48 h.
 
-🔄 Open until it runs: on MNIST after queue 3, then ported to mg as C1 was.
+**Ported to mg, 2026-10-03.** `codec.py` and `compression.py` copied whole (the latter was
+identical before the channel), the call sites, `CommConfig` and the simulator hooks
+patched with main's blocks verbatim; `run_codec.py` is one file on both branches, a task
+registry choosing MNIST or Mackey–Glass by which source cell exists. The port found two
+faults, fixed on both branches: a **diverged learner's NaN message reached the codec** and
+became garbage symbols (MG's learners record NaN and run on) — it is now mixed exactly,
+never counted or coded, and flagged; and **costs were looked up in a dense range array**,
+which overflowed on huge amplitudes — now a sorted-keys search. A Mackey–Glass test
+(`tests/test_codec_series.py`) runs scale → count → tables → code on the Transformer's
+8 modules. Suites: main 1461 + the new tests, mg 1580, all passing.
+
+**Two Mackey–Glass decisions, asked during the port:** the transfer conditions are **M6's
+linear and abrupt drift and M8's per-agent delays** (`m8_tau_spread`, MG's
+heterogeneous-agents axis, the analogue of label skew); and $\varepsilon$ is **0.002 in RMSE**
+as a starting value (~1.7% of the filters' level, against MNIST's ~3%), to be revisited
+with the results. The calibration source is M6's stationary cell, the grids M3's.
+
+**Smoked on Mackey–Glass too** (20 steps, one seed per role, two values of c; every
+stage, the τ-spread transfer included). One reading worth keeping for the real run: at its
+20-step rate, **ATC with momentum diverged under M8's per-agent delays — uncompressed as
+well**, so not the codec's doing. M8's own roster never carried ATC with momentum, so the
+codec's report will be the benchmark's first look at it there. The report now prints a
+learner with no paired seeds as DIVERGED instead of dropping its row.
+
+🔄 Open until it runs: MNIST and then Mackey–Glass, after queue 3.
 
 ### 🔄 D137. The offline codec protocol: trained on disjoint seeds, one global step multiplier, the frontier first
 The user's protocol, `Diff_EKF_Offline_Codec_Training_Protocol.tex` (OneDrive, Diff-EKF),
