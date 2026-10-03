@@ -4106,6 +4106,31 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### 🔄 D138. The codec build: every implementation question, answered before the code
+
+Asked and answered 2026-10-03, before any of D137's codec was written (the user: every
+algorithmic or implementation question not yet decided is asked first).
+
+| question | decided |
+|---|---|
+| The codec's **layer** (one $\Delta_\ell=c\,s_\ell$, one table pair) | **A module: weight and bias together.** A bias starts at zero, so a per-tensor $\mathrm{rms}(\boldsymbol\theta_0)$ is no scale. MNIST: 2 layers (2758, 150); MG: 8 (embed 32, norm1 32, qkv 816, proj 272, norm2 32, ff1 544, ff2 528, head 17) |
+| The **first message** | **None.** Every agent starts from the same $\boldsymbol\theta_0$ (shared seed) and the moments from 0, so the public copies start there, known to all, and nothing is charged |
+| How the **combine** reads the copies (C-5) | **The exact combine on the copies**, own term exact: $\boldsymbol\psi_v\leftarrow\sum_u a_{vu}\tilde{\boldsymbol\psi}_u+a_{vv}(\boldsymbol\psi_v-\tilde{\boldsymbol\psi}_v)$. No CHOCO $\gamma$ arm unless C4 shows instability |
+| **Re-tuning** under compression (C-9) | **At every $c$, every gradient baseline**, on the **calibration seeds 100–104 — all five** (the user: "more statistically correct"); the filters carry their selections (the X14 discipline). Since the tables never change accuracy, the selected rate's tuning run *is* the calibration run whose counts build the tables |
+| A layer message's **end** | **An EOB symbol in the run-length alphabet**, trained like any symbol (JPEG-style); no header |
+| After **ESC** | **Elias-gamma** of the magnitude, plus a sign bit for amplitudes |
+| The **$c$ grid** | **1e-2, 3e-3, 1e-3, 3e-4, 1e-4**, spanning D136's three $\varepsilon$ |
+| **Counting bits** | **The tables' code lengths, summed per message** (codewords, EOBs and ESC payloads), plus the **ideal-entropy bound** beside it. ⚠ *These are not real bitstreams produced every step.* A canonical-Huffman encoder and decoder live in the codec module, and tests check that encode→decode round-trips and that the encoded length equals the lookup's, bit for bit — so the counted length is the bitstream's, without packing bits each step |
+| **Full sharing** (C-8) | **Out of scope for now**; reported uncompressed. Its compression ($\boldsymbol P$ is $p\times p$, ~8.5M numbers a message on MNIST) is added to the end of the schedule, if time allows |
+| The **roster** | **The paper's set:** one-hop (receiver), local adapt, ATC + momentum, ATC plain, ATC AdamW — every vector each sends, its own tables per vector kind and layer. The centralised filter, centralised SGD and AdamW, `local_only` and local AdamW send nothing: they are the uncompressed reference lines |
+
+Carried from D137: calibrate on seeds 100–104, validate on 200–204, report on 0–4 at the
+full horizon; the frontier first, the operating point by paired settled error within
+$\varepsilon=0.002$; trained on the stationary IID cell, carried unchanged to linear,
+abrupt and skew 0.1; AdamW's reconstructed $\tilde{\boldsymbol v}$ clamped $\ge0$ at the receiver.
+
+🔄 Open until built: on main first, then ported to mg as C1 was.
+
 ### 🔄 D137. The offline codec protocol: trained on disjoint seeds, one global step multiplier, the frontier first
 The user's protocol, `Diff_EKF_Offline_Codec_Training_Protocol.tex` (OneDrive, Diff-EKF),
 reviewed 2026-09-30 and revised with the user's decisions on 2026-10-01 (revision note in

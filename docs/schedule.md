@@ -283,6 +283,8 @@ cumulative bits.
 | C2 | Public copies and difference transmission with a pluggable $Q$, error feedback; also for ATC | 4–5 days |
 | C3 | Event trigger and periodic-$K$ baseline | 2 days |
 | C4 | Error against bits on MNIST (IID and severe skew), then on Mackey–Glass | ~3 days GPU |
+| C2a | **The differences themselves**, before the codec is trained (added 2026-10-03): re-run the extended delta probe (`run_delta_entropy_probe.py`, both tasks, ~50 min GPU) for trend curves and histograms of the per-step change per layer, its persistence (successive-change cosine) and, for the filters, its scale against $\sqrt{P_{ii}}$ | ~1 h GPU |
+| C2b | **The offline codec**, built to [[D137]] and [[D138]]: module-level $\Delta_\ell=c\,s_\ell$, RLE + canonical Huffman with EOB and Elias-gamma ESC, the exact combine on public copies, re-tuning at every $c$ on seeds 100–104 | building from 2026-10-03 (CPU), while queue 3 holds the GPU |
 | C5 | **Why Adam tracks drift worse than SGD** (added 2026-10-02, [[D123]]): log each agent's step norm, its $\sqrt{\boldsymbol v}$, and the step's projection on the pooled gradient, for centralised, ATC and local Adam and SGD under P5.5's ramp. Tests (a) the per-agent normaliser inflated by 4-sample noise before the combine, and (b) Adam's step not scaling with its error | ~1 day code, ~8 GPU-h |
 
 About **two and a half to three weeks**, plus C5.
@@ -415,7 +417,7 @@ verification re-runs.
 | **Oct 4–Nov 7** | B: pilot, build, battery |
 | mid-Oct | **writing starts, from the theory** — experiments continue |
 | **Nov 8–Nov 28** | C |
-| **Nov 29–Dec 27** | buffer: seed top-ups, gaps the draft exposes, supervisor's requests, then deferred tier-3 items, then M10's abrupt condition (`run_m10_network_size.py --abrupt`, ~17 GPU-h; [[D129]]) |
+| **Nov 29–Dec 27** | buffer: seed top-ups, gaps the draft exposes, supervisor's requests, then deferred tier-3 items, then M10's abrupt condition (`run_m10_network_size.py --abrupt`, ~17 GPU-h; [[D129]]), then — last, if time allows — compressing full sharing's covariance (C-8; a separate design: $\boldsymbol P$ is $p\times p$; [[D138]]) |
 | **Dec 27** | experiment freeze |
 | **Dec 28–Jan 22** | alongside writing: reproduction package stage 1 — claim map, driver tiers, anonymised snapshot |
 | **Jan 22, 2027** | ICML deadline; supplementary deadline per the call |

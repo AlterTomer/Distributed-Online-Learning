@@ -286,11 +286,11 @@ on this code (see the note to the user, 2026-09-27) and does not belong in Track
 | C-2 | Does a silent event-triggered agent cost a flag bit? | Yes, one bit |
 | C-3 | Reference precision for the headline | float32; float64 shown as run |
 | C-4 | A quantisation-compensated filter arm (process noise = quantiser variance)? | Yes, as a separate arm |
-| C-5 | How the combine reads public copies ([3], [4] first) | Both CHOCO's γ-step and the exact combine on copies |
+| C-5 | How the combine reads public copies | ✅ **Decided 2026-10-03 (D138):** the exact combine on the copies, own term exact; no CHOCO arm unless C4 shows instability |
 | C-6 | What ATC ranks top-$k$ / sets its dead zone by | Magnitude for SGD, $\lvert\delta\rvert/\sqrt v$ for AdamW; both rankings for the filter |
 | C-7 | The trigger's metric | Diagonal $\sum\delta_i^2/P_{ii}$ |
-| C-8 | Compress full sharing? | No: report it uncompressed, and say why |
-| C-9 | Re-tune baselines per compression level? | Yes, at every level of the headline grid |
+| C-8 | Compress full sharing? | ✅ **Decided 2026-10-03 (D138):** out of scope for now, reported uncompressed; added to the end of the schedule if time allows |
+| C-9 | Re-tune baselines per compression level? | ✅ **Decided 2026-10-03 (D138):** yes, at every c, on calibration seeds 100–104 |
 | C-10 | What the Huffman tables are built on | ✅ **Decided 2026-10-01 (D137):** calibrate on seeds 100–104, validate on 200–204, report on 0–4, all at the full horizon; entropy bound and cross-entropy gap beside the coded length |
 | C-11 | Build C2's codec at all? | **Probed 2026-09-29 (D136): neither condition holds on either task**, so not as a filter-specific contribution; the filter's per-message advantage is structural (one vector against two or three). The user's offline-trained codec, reviewed and revised 2026-10-01 (D137), is built instead as a codec for every learner: C4b's dead-zone arm |
 
