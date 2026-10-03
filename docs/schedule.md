@@ -415,7 +415,7 @@ verification re-runs.
 | **Sep 15–27** | A, tier 1 |
 | **Sep 28–Oct 3** | A, tier 2, then P5.8 and P5.23 — **MNIST done** |
 | **Oct 4–Nov 7** | B: pilot, build, battery |
-| mid-Oct | **writing starts, from the theory** — experiments continue |
+| **week of Oct 5** | **writing starts** (moved forward from mid-Oct, 2026-10-03), from the theory and the settled MNIST results; the analysis of queues 3 and 4 interleaves with it |
 | **Nov 8–Nov 28** | C |
 | **Nov 29–Dec 27** | buffer: seed top-ups, gaps the draft exposes, supervisor's requests, then deferred tier-3 items, then M10's abrupt condition (`run_m10_network_size.py --abrupt`, ~17 GPU-h; [[D129]]), then — last, if time allows — compressing full sharing's covariance (C-8; a separate design: $\boldsymbol P$ is $p\times p$; [[D138]]) |
 | **Dec 27** | experiment freeze |
