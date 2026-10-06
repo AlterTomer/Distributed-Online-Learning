@@ -424,3 +424,124 @@ def test_logit_covariance_is_positive_semidefinite() -> None:
     for sample in spread:
         assert torch.allclose(sample, sample.T, atol=1e-12)
         assert float(torch.linalg.eigvalsh(sample).min()) > -1e-10
+
+
+# -- the iterated EKF (D139) ------------------------------------------------ #
+
+
+def _pair(model: MLP, likelihood: object, x: torch.Tensor, y: torch.Tensor):
+    from dekf_bench.learners.ekf import information_pair
+
+    return lambda theta: information_pair(model, likelihood, theta, x, y)
+
+
+def test_one_iteration_is_the_plain_update_bit_for_bit() -> None:
+    """K = 1 must reproduce every run before D139, so equal, not close."""
+    from dekf_bench.learners.ekf import information_pair, iterated_update, woodbury_update
+
+    model = MLP(**SMALL)
+    likelihood = Categorical(output_dim=4)
+    x, y = _batch(model)
+    mean = model.flatten(model.init_params(torch.Generator().manual_seed(0)))
+    covariance = 0.01 * torch.eye(model.num_params, dtype=torch.float64)
+
+    stacked, score = information_pair(model, likelihood, mean, x, y)
+    plain = woodbury_update(mean, covariance, stacked, score)
+    iterated = iterated_update(_pair(model, likelihood, x, y), mean, covariance, 1)
+    assert torch.equal(plain[0], iterated[0]) and torch.equal(plain[1], iterated[1])
+
+
+def test_iterating_a_linear_gaussian_model_changes_nothing() -> None:
+    """With h linear and a Gaussian likelihood the posterior is Gaussian and one
+    Gauss-Newton step lands on its mode, so every later iteration is a no-op."""
+    from dekf_bench.learners.ekf import iterated_update
+
+    model = MLP(input_size=5, hidden=(), output_dim=3, dtype=torch.float64)
+    likelihood = Gaussian(output_dim=3, variance=0.35)
+    generator = torch.Generator().manual_seed(4)
+    x = torch.rand(6, 1, 5, 5, dtype=torch.float64, generator=generator)
+    y = torch.randn(6, 3, dtype=torch.float64, generator=generator)
+    mean = torch.randn(model.num_params, dtype=torch.float64, generator=generator) * 0.1
+    covariance = 0.5 * torch.eye(model.num_params, dtype=torch.float64)
+
+    once = iterated_update(_pair(model, likelihood, x, y), mean, covariance, 1)
+    four = iterated_update(_pair(model, likelihood, x, y), mean, covariance, 4)
+    assert torch.allclose(once[0], four[0], atol=1e-10)
+    assert torch.allclose(once[1], four[1], atol=1e-12)
+
+
+def _map_gradient(model, likelihood, x, y, prior_mean, prior_cov, theta) -> torch.Tensor:
+    """The gradient of the negative log-posterior the iterations minimise:
+    inv(P-) (theta - m-) - H^T s(theta)."""
+    _stacked, score = _pair(model, likelihood, x, y)(theta)
+    return torch.linalg.solve(prior_cov, theta - prior_mean) - score
+
+
+def test_iterations_converge_to_the_posterior_mode() -> None:
+    """On a nonlinear network the plain EKF stops after one Gauss-Newton step; the
+    iterated one keeps going until the posterior gradient vanishes.
+
+    Measured 2026-10-06 on this problem: from 7.7, the gradient falls to 0.91
+    after one iteration, 3.3e-3 after four and 6.6e-13 after sixteen at a prior of
+    0.01 -- the scale the tuned filters run at. At 0.05 it takes 64 iterations to
+    reach 2.4e-10: Gauss--Newton drops the network's own curvature, and the wider
+    the prior the further a step travels from where that is negligible.
+    """
+    from dekf_bench.learners.ekf import iterated_update
+
+    model = MLP(**SMALL)
+    likelihood = Categorical(output_dim=4)
+    x, y = _batch(model, size=12)
+    mean = model.flatten(model.init_params(torch.Generator().manual_seed(0)))
+    covariance = 0.01 * torch.eye(model.num_params, dtype=torch.float64)
+    norms = []
+    for iterations in (1, 2, 4, 16):
+        theta, _ = iterated_update(_pair(model, likelihood, x, y), mean, covariance, iterations)
+        norms.append(float(_map_gradient(model, likelihood, x, y, mean, covariance, theta).norm()))
+    start = float(_map_gradient(model, likelihood, x, y, mean, covariance, mean).norm())
+    assert start > norms[0] > norms[1] > norms[2] > norms[3]
+    assert norms[3] < 1e-10 * start, f"not at the mode: {norms} from {start:.3e}"
+
+
+def test_the_covariance_is_the_last_linearisations() -> None:
+    """K iterations cost K Jacobians: P comes from the point the last mean step was
+    taken at, not from a (K+1)-th linearisation at the final mean."""
+    from dekf_bench.learners.ekf import iterated_update, woodbury_update
+
+    model = MLP(**SMALL)
+    likelihood = Categorical(output_dim=4)
+    x, y = _batch(model)
+    mean = model.flatten(model.init_params(torch.Generator().manual_seed(0)))
+    covariance = 0.05 * torch.eye(model.num_params, dtype=torch.float64)
+    linearise = _pair(model, likelihood, x, y)
+
+    second_point, _ = iterated_update(linearise, mean, covariance, 1)
+    _, two = iterated_update(linearise, mean, covariance, 2)
+    stacked, score = linearise(second_point)
+    _, expected = woodbury_update(mean, covariance, stacked, score)
+    assert torch.equal(two, expected)
+
+    calls = []
+
+    def counting(theta):
+        calls.append(theta)
+        return linearise(theta)
+
+    iterated_update(counting, mean, covariance, 5)
+    assert len(calls) == 5
+
+
+def test_the_centralised_filter_iterates_through_its_own_update() -> None:
+    model = MLP(**SMALL)
+    likelihood = Categorical(output_dim=4)
+    x, y = _batch(model)
+    plain, iterated = _filter(model, likelihood), _filter(model, likelihood, inner_steps=4)
+    plain.adapt_pooled(x, y)
+    iterated.adapt_pooled(x, y)
+    assert iterated.summary()["inner_steps"] == 4
+    assert not torch.allclose(plain.flat_params(0), iterated.flat_params(0), atol=1e-8)
+
+
+def test_zero_iterations_are_refused() -> None:
+    with pytest.raises(FilterError, match="inner_steps"):
+        _filter(MLP(**SMALL), Categorical(output_dim=4), inner_steps=0)

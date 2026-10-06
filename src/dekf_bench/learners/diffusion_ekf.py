@@ -94,7 +94,7 @@ from dekf_bench.learners.ekf import (
     TRUST_REGION_RATIO,
     FilterError,
     information_pair,
-    woodbury_update,
+    iterated_update,
 )
 from dekf_bench.models.base import Model
 
@@ -132,8 +132,17 @@ class DiffusionEKF:
         combine_exponent: float = 1.0,
         information_exponent: float = 0.0,
         linearization_point: str = "sender",
+        inner_steps: int = 1,
         **_ignored: Any,
     ) -> None:
+        if inner_steps < 1:
+            raise FilterError(f"inner_steps must be >= 1, got {inner_steps}")
+        if inner_steps > 1 and adapt_scope == "one_hop" and linearization_point == "sender":
+            raise FilterError(
+                "inner_steps > 1 needs linearization_point='receiver' under a one-hop adapt. "
+                "Under 'sender' a neighbour ships its information pair at its own mean, "
+                "not its batch, so the receiver has nothing to relinearise (D139)."
+            )
         if adapt_scope not in ADAPT_SCOPES:
             raise FilterError(f"adapt_scope must be one of {ADAPT_SCOPES}, got {adapt_scope!r}")
         if covariance_sharing not in COVARIANCE_SHARING:
@@ -175,6 +184,10 @@ class DiffusionEKF:
         self.likelihood = likelihood
         self._n_nodes = n_nodes
         self.adapt_rounds = adapt_rounds
+        #: Gauss--Newton relinearisations per measurement update, the iterated EKF
+        #: (`iterated_update`, D139). Inside adapt, so the combine -- and with it
+        #: every message -- is unchanged. Not `adapt_rounds`, which counts hops.
+        self.inner_steps = inner_steps
         self.combine_exponent = combine_exponent
         self.information_exponent = information_exponent
         self._reach: torch.Tensor | None = None
@@ -365,22 +378,28 @@ class DiffusionEKF:
             extras = {"x": observation.x, "y": observation.y} if labelled else {}
             return Intermediate(node=node, psi=mean, extras=extras)
 
-        stacked, score = None, None
-        if labelled:
-            stacked, score = information_pair(
-                self.model, self.likelihood, mean, observation.x, observation.y
-            )
-
         if self.adapt_scope == "one_hop":
             # psi is the *predictive* mean here: the update is deferred, so what
             # travels is the prior plus the information to act on it.
+            stacked, score = None, None
+            if labelled:
+                stacked, score = information_pair(
+                    self.model, self.likelihood, mean, observation.x, observation.y
+                )
             self._pending[node] = (stacked, score)
             extras = {} if stacked is None else {"B": stacked, "score": score}
             return Intermediate(node=node, psi=mean, extras=extras)
 
-        if stacked is not None:
-            stacked, score = self._rescale(stacked, score, seen=1)
-            mean, covariance = self._apply(node, mean, covariance, stacked, score)
+        if labelled:
+            x, y = observation.x, observation.y
+            mean, covariance = self._apply(
+                node,
+                mean,
+                covariance,
+                lambda theta: self._rescale(
+                    *information_pair(self.model, self.likelihood, theta, x, y), seen=1
+                ),
+            )
             state.theta, state.extras["P"] = mean, covariance
         # An unlabelled agent passes its prediction through unchanged and still
         # takes part in combine -- one of diffusion's more attractive properties,
@@ -488,26 +507,37 @@ class DiffusionEKF:
                 if bool(reach[row, column]) and self._pending[other][0] is not None
             ]
             if received:
-                if self.linearization_point == "receiver":
-                    stacked, score = information_pair(
-                        self.model,
-                        self.likelihood,
-                        mean,
-                        torch.cat([x for x, _y in received]),
-                        torch.cat([y for _x, y in received]),
-                    )
-                else:
-                    # Concatenating the B blocks column-wise gives
-                    # sum_u B_u B_u^T in one Woodbury solve, which is the same
-                    # identity the centralized filter uses on the pooled batch.
-                    stacked = torch.cat([b for b, _s in received], dim=1)
-                    score = torch.stack([s for _b, s in received]).sum(dim=0)
                 # `seen` is the number of agents that actually contributed, not
                 # the neighbourhood size: an unlabelled neighbour supplies no
                 # information, so counting it would scale by a factor the
                 # evidence does not support.
-                stacked, score = self._rescale(stacked, score, seen=len(received))
-                mean, covariance = self._apply(node, mean, covariance, stacked, score)
+                seen = len(received)
+                if self.linearization_point == "receiver":
+                    # The pooled reachable batch, relinearised at every iterate
+                    # under inner_steps > 1 (the iterated EKF, D139).
+                    xs = torch.cat([x for x, _y in received])
+                    ys = torch.cat([y for _x, y in received])
+
+                    def linearise(theta, xs=xs, ys=ys, seen=seen):
+                        return self._rescale(
+                            *information_pair(self.model, self.likelihood, theta, xs, ys),
+                            seen=seen,
+                        )
+                else:
+                    # Concatenating the B blocks column-wise gives
+                    # sum_u B_u B_u^T in one Woodbury solve, which is the same
+                    # identity the centralized filter uses on the pooled batch.
+                    # Fixed at the senders' means, so one iteration only -- the
+                    # constructor refuses inner_steps > 1 here.
+                    fixed = self._rescale(
+                        torch.cat([b for b, _s in received], dim=1),
+                        torch.stack([s for _b, s in received]).sum(dim=0),
+                        seen=seen,
+                    )
+
+                    def linearise(_theta, fixed=fixed):
+                        return fixed
+                mean, covariance = self._apply(node, mean, covariance, linearise)
             psi[node], cov_psi[node] = mean, covariance
         return psi, cov_psi
 
@@ -582,12 +612,17 @@ class DiffusionEKF:
         node: int,
         mean: torch.Tensor,
         covariance: torch.Tensor,
-        stacked: torch.Tensor,
-        score: torch.Tensor,
+        linearise: Any,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        """The measurement update from ``linearise(theta) -> (B, score)``, iterated
+        ``inner_steps`` times; one iteration is the plain Woodbury update."""
         try:
-            return woodbury_update(
-                mean, covariance, stacked, score, context=self._divergence_context(covariance)
+            return iterated_update(
+                linearise,
+                mean,
+                covariance,
+                self.inner_steps,
+                context=self._divergence_context(covariance),
             )
         except FilterError as failure:
             raise FilterError(
@@ -698,6 +733,7 @@ class DiffusionEKF:
             "covariance_sharing": self.covariance_sharing,
             "linearization_point": self.linearization_point,
             "adapt_rounds": self.adapt_rounds,
+            "inner_steps": self.inner_steps,
             "combine_exponent": self.combine_exponent,
             "information_exponent": self.information_exponent,
             "transition": self.transition,

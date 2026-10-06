@@ -51,7 +51,10 @@ class _SGDBase:
         n_nodes: int,
         mix_policy: str = "none",
         freeze_after: int | None = None,
+        inner_steps: int = 1,
     ) -> None:
+        if inner_steps < 1:
+            raise LearnerError(f"inner_steps must be >= 1, got {inner_steps}")
         self._name = name
         self.model = model
         self.likelihood = likelihood
@@ -65,6 +68,12 @@ class _SGDBase:
         #: same optimizer, up to the same point, and then simply stopped -- so
         #: the comparison isolates *continued adaptation* from initial learning.
         self.freeze_after = freeze_after
+        #: K optimiser steps on each step's batch, all before the combine (D139).
+        #: Every step recomputes the gradient at the current iterate and advances
+        #: the optimiser's moments, so K=2 is two genuine steps, not one step of
+        #: twice the rate. The batch is the same throughout -- that is the point:
+        #: more passes over few samples, which is local SGD's client drift.
+        self.inner_steps = inner_steps
         self._last_step = 0
         #: What a mixed vector looks like on arrival (Track C). Exact until a run
         #: attaches a compressor, and exact means the arithmetic of old: `mixing @ X`.
@@ -146,8 +155,18 @@ class _SGDBase:
         # through unchanged.
         if self.is_frozen(observation.step) or not observation.has_label:
             return state.theta.clone()
-        gradient = self._gradient(state.theta, observation.x, observation.y)
-        return self.optimizer.step(state.theta, gradient, state.extras)
+        return self._steps_on(state, observation.x, observation.y)
+
+    def _steps_on(self, state: LearnerState, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """``inner_steps`` optimiser steps on one batch, from ``state.theta``.
+
+        Returns the final iterate and leaves ``state.theta`` alone, as one step
+        always did: ATC's psi must stay separate from theta until the combine.
+        """
+        theta = state.theta
+        for _ in range(self.inner_steps):
+            theta = self.optimizer.step(theta, self._gradient(theta, x, y), state.extras)
+        return theta
 
     def _payload(self, node: int) -> dict[str, torch.Tensor]:
         """The optimizer entries that travel with psi, if any."""
@@ -185,7 +204,7 @@ class CentralizedSGD(_SGDBase):
         if x.shape[0] == 0:
             return
         shared = self._states[0]
-        theta = self.optimizer.step(shared.theta, self._gradient(shared.theta, x, y), shared.extras)
+        theta = self._steps_on(shared, x, y)
         for node in range(self._n_nodes):
             self._states[node].theta = theta.clone()
             self._states[node].extras = {
@@ -269,6 +288,15 @@ class DiffusionSGDCTA(_SGDBase):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        if self.inner_steps != 1:
+            # CTA evaluates its one gradient before the combine and applies it
+            # after; K steps would need K gradients at points the deferred update
+            # has not reached yet. Not in any roster, so refused, not invented.
+            raise LearnerError(
+                f"{self._name} supports inner_steps=1 only, got {self.inner_steps}: its "
+                "gradient is taken before the combine and applied after it, so there is "
+                "no iterate to take a second step from."
+            )
         self._pending: dict[int, torch.Tensor] = {}
 
     def adapt(self, node: int, observation: Any) -> Intermediate:

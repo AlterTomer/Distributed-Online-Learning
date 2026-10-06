@@ -4176,6 +4176,42 @@ embedding; the receiver applies the message transform with its own $\boldsymbol\
 **Order** (the user): K and the iterated EKF, then dither, then the GNN and the block
 covariance together.
 
+**D1 built, 2026-10-06.** Three more questions were asked before the code, and
+answered: the iterated EKF keeps **the last linearisation's covariance** ($K$
+Jacobians, matching the baselines' $K$ gradients, rather than the textbook's
+$K+1$); it is **plain Gauss–Newton**, undamped; and **the filters carry the $K=1$
+selection** (X20 on MNIST, M4/M5 on MG) at every $K$ while the gradient learners are
+re-tuned per (cell, $K$) — an asymmetry the paper must state.
+
+- *One option, two meanings:* `learner.inner_steps` (the name avoids `adapt_rounds`,
+  which counts hops). `_SGDBase._steps_on` takes $K$ optimiser steps, each a fresh
+  gradient at the current iterate and a moment update; `ekf.iterated_update` takes
+  $K$ Gauss–Newton steps against the prior and serves both filters, as
+  `woodbury_update` does. CTA refuses $K>1$ (its gradient is applied after the
+  combine), and so does a `sender`-point one-hop filter (its neighbours' blocks
+  arrive already linearised); neither is in a roster.
+- *$K=1$ is today's arithmetic, asserted rather than assumed:* the 202 pre-existing
+  learner, filter and exactness tests pass unchanged, and a new test requires
+  `iterated_update` at one iteration to *equal* `woodbury_update`.
+- *What the new tests pin:* $K$ gradient steps equal the hand-written loop for SGD,
+  momentum and AdamW; a linear-Gaussian model gains nothing from iterating; on a
+  nonlinear network the iterations reach the posterior mode (gradient $7.7\to
+  6.6\times10^{-13}$ in 16 iterations at $\sigma_0^2=0.01$; 64 at $0.05$, because
+  Gauss–Newton drops the network's own curvature); the complete-graph identity
+  holds at $K=3$, by hand and through the runner. And the client drift the
+  prediction rests on is already visible in its purest form:
+  `test_k_local_sgd_steps_break_the_atc_identity` — on a complete graph with plain
+  SGD, two local steps break X0.
+- *Runners:* `scripts/run_inner_steps.py` on each branch (the user chose a thin new
+  runner over a mode of an old one), importing every setting from the runners whose
+  results it extends. Two confirmatory questions, named before the run: the
+  centralised learners gain from $K=10$ over $K=1$ (predicted), and each distributed
+  learner's gap to its family's centralised one grows (predicted, largest under
+  skew / the $\tau$ spread). The SGD grids reach one step lower than before, since
+  $K$ steps at $\eta$ travel about as far as one at $K\eta$.
+- *Found on the way:* D137's text carried a vertical tab where `\varepsilon` should
+  be (commit `ab33150`), failing the documentation test; repaired.
+
 ### 🔄 D138. The codec build: every implementation question, answered before the code
 
 Asked and answered 2026-10-03, before any of D137's codec was written (the user: every
@@ -4207,7 +4243,7 @@ abrupt and skew 0.1; AdamW's reconstructed $\tilde{\boldsymbol v}$ clamped $\ge0
 **Built so far (2026-10-03):** `codec.py` (events, canonical Huffman, Elias-gamma, the counted length, a real encoder and decoder; 32 tests) and `compression.CodecChannel` (public copies per kind, module-level steps, the three modes, per-sender bits times out-degree, the second-moment clamp, a refusal to resume, a per-seed summary; 18 tests, the last running scale → count → tables → code through `simulate.run`). The full suite: 1461 passed.
 
 **Three more, asked while writing the runner:** $\mathcal C^\star$ is **per learner** (each at
-its own cheapest c within $arepsilon$; the transfer cells group learners by their
+its own cheapest c within $\varepsilon$; the transfer cells group learners by their
 $\mathcal C^\star$, since c is a run setting); the rate $R$ is **the whole run's** coded
 bits per transmitted scalar (per parameter per link-message); and **every report cell has an
 uncompressed twin** at the re-tuned rates — 12 report cells, ~18 h on MNIST.

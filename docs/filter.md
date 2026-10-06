@@ -165,6 +165,37 @@ step, about an hour of pure inversion per seed. Woodbury inverts a
 $360\times360$ instead and leaves $O(p^2q')$ as the dominant term. Same answer,
 three orders of magnitude cheaper.
 
+### Iterating the update: `inner_steps` (D139)
+
+With `inner_steps` $=J>1$ the update is the **iterated EKF**: $J$ Gauss–Newton steps
+on the negative log-posterior $\tfrac12\lVert\boldsymbol m-\boldsymbol m^-\rVert^2_{(\boldsymbol P^-)^{-1}}-\log p(\boldsymbol y\mid\boldsymbol m)$,
+each one Woodbury solve against the *prior* (`ekf.iterated_update`). From
+$\boldsymbol m_0=\boldsymbol m^-$,
+
+$$\boldsymbol P_i=\bigl((\boldsymbol P^-)^{-1}+\bar{\boldsymbol B}_i\bar{\boldsymbol B}_i^{\top}\bigr)^{-1},\qquad
+\boldsymbol m_{i+1}=\boldsymbol m^-+\boldsymbol P_i\bigl[\boldsymbol H_i^{\top}\boldsymbol s(\boldsymbol m_i)+\bar{\boldsymbol B}_i\bar{\boldsymbol B}_i^{\top}(\boldsymbol m_i-\boldsymbol m^-)\bigr]$$
+
+with $\bar{\boldsymbol B}_i$ and $\boldsymbol s$ relinearised at $\boldsymbol m_i$. At $i=0$ the
+correction vanishes, so $J=1$ is the plain update operation for operation (a test
+asserts equality, not closeness). Decided 2026-10-06:
+
+- **The covariance is the last linearisation's**, $\boldsymbol P_{J-1}$: $J$ Jacobians per
+  step, the same $J$ passes the gradient baselines get with `inner_steps`, not the
+  textbook's $J+1$.
+- **No damping.** $\boldsymbol P^-$ is the trust region (§5.2) and the divergence
+  guards catch an iterate that leaves it.
+
+This is the deliberate counterpart of the batching rule above: sequential per-sample
+updates would hand the filter extra linearisations *for free*; `inner_steps` hands
+them to every learner alike. Measured on a small categorical network, the
+posterior gradient falls from 7.7 to 0.91, $3.3\times10^{-3}$ and $6.6\times10^{-13}$
+after 1, 4 and 16 iterations at $\sigma_0^2=0.01$, but needs 64 at $0.05$: Gauss–Newton
+drops the network's own curvature, and a wider prior lets a step travel further from
+where that is negligible. A linear-Gaussian model converges in one iteration, as it
+must. Under a one-hop adapt only the `receiver` point can iterate — a `sender`
+block arrives already linearised at the neighbour's mean — and the complete-graph
+identity holds at every $J$ (tested at $J=3$, through the runner).
+
 ## 5. Numerical care
 
 The recursion loses positive definiteness easily, and three defences are used

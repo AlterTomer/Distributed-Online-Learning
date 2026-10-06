@@ -69,6 +69,7 @@ def make(name: str, model: MLP, likelihood: Categorical, **optimizer):
     settings.update(optimizer)
     mix = settings.pop("mix_policy", "none")
     freeze_after = settings.pop("freeze_after", None)
+    inner_steps = settings.pop("inner_steps", 1)
     learner = BUILDERS[name](
         name=name,
         model=model,
@@ -77,6 +78,7 @@ def make(name: str, model: MLP, likelihood: Categorical, **optimizer):
         n_nodes=N_NODES,
         mix_policy=mix,
         freeze_after=freeze_after,
+        inner_steps=inner_steps,
     )
     learner.init(model.flatten(model.init_params(torch.Generator().manual_seed(0))))
     return learner
@@ -1186,3 +1188,137 @@ def test_the_diffusion_filter_refuses_a_forgetting_factor(
     object.__setattr__(config, "lambda_forget", 0.99)
     with pytest.raises(LearnerError, match="D76"):
         build_learner(config, model, likelihood, N_NODES)
+
+
+# =========================================================================== #
+# K inner steps and the iterated EKF (D139)
+# =========================================================================== #
+
+
+@pytest.mark.parametrize(
+    "optimizer",
+    [
+        {"kind": "sgd"},
+        {"kind": "sgd_momentum", "momentum": 0.9, "mix_policy": "momentum"},
+        {"kind": "adamw", "lr": 1e-2, "momentum": 0.9, "mix_policy": "all"},
+    ],
+)
+@pytest.mark.parametrize("name", ["diffusion_sgd_atc", "local_only"])
+def test_k_inner_steps_are_k_genuine_optimiser_steps(
+    model: MLP, likelihood: Categorical, name: str, optimizer: dict
+) -> None:
+    """K steps re-take the gradient at every iterate and advance the moments K
+    times -- the hand-written loop, not one step at K times the rate."""
+    learner = make(name, model, likelihood, inner_steps=3, **optimizer)
+    reference = make(name, model, likelihood, **optimizer)
+    obs = observation(model, node=1, n=3)
+
+    state = reference.state(1)
+    theta, extras = state.theta.clone(), {k: v.clone() for k, v in state.extras.items()}
+    for _ in range(3):
+        gradient = loss_gradient(model, theta, obs.x, obs.y, likelihood)
+        theta = reference.optimizer.step(theta, gradient, extras)
+
+    psi = learner.adapt(1, obs).psi
+    assert torch.equal(psi, theta)
+    for key, value in extras.items():
+        assert torch.equal(learner.state(1).extras[key], value)
+    single = make(name, model, likelihood, **optimizer).adapt(1, obs).psi
+    assert not torch.allclose(psi, single), "three steps landed where one did"
+
+
+def test_k_steps_on_the_pooled_batch(model: MLP, likelihood: Categorical) -> None:
+    learner = make("centralized_sgd", model, likelihood, inner_steps=4)
+    x = torch.cat([observation(model, node=v, n=2).x for v in range(N_NODES)])
+    y = torch.cat([observation(model, node=v, n=2).y for v in range(N_NODES)])
+    theta = learner.flat_params(0).clone()
+    for _ in range(4):
+        theta = theta - 0.05 * loss_gradient(model, theta, x, y, likelihood)
+    learner.adapt_pooled(x, y)
+    for node in range(N_NODES):
+        assert torch.equal(learner.flat_params(node), theta)
+
+
+def test_an_idle_agent_takes_no_steps_at_any_k(model: MLP, likelihood: Categorical) -> None:
+    learner = make("diffusion_sgd_atc", model, likelihood, inner_steps=5)
+    before = learner.flat_params(2).clone()
+    assert torch.equal(learner.adapt(2, observation(model, node=2, labelled=False)).psi, before)
+
+
+def test_cta_refuses_more_than_one_inner_step(model: MLP, likelihood: Categorical) -> None:
+    with pytest.raises(LearnerError, match="inner_steps=1 only"):
+        make("diffusion_sgd_cta", model, likelihood, inner_steps=2)
+
+
+def test_inner_steps_reaches_every_learner_through_the_registry(
+    model: MLP, likelihood: Categorical
+) -> None:
+    config = load_config(
+        "x1_stationary",
+        overrides={"learners": [
+            {"name": "diffusion_sgd_atc", "inner_steps": 5},
+            {"name": "centralized_ekf_walk", "transition": "scalar", "inner_steps": 5},
+            {"name": "diffusion_ekf_onehop_mean_receiver", "transition": "scalar",
+             "inner_steps": 5},
+        ]},
+    )
+    learners = build_learners(config, model, likelihood)
+    assert {name: learner.inner_steps for name, learner in learners.items()} == {
+        "diffusion_sgd_atc": 5,
+        "centralized_ekf_walk": 5,
+        "diffusion_ekf_onehop_mean_receiver": 5,
+    }
+
+
+def test_a_sender_point_filter_refuses_to_iterate(model: MLP, likelihood: Categorical) -> None:
+    """Under 'sender' a neighbour's block arrives already linearised at its own
+    mean, so there is nothing to relinearise."""
+    from dekf_bench.learners.ekf import FilterError
+
+    with pytest.raises(FilterError, match="receiver"):
+        _diffusion_ekf(model, likelihood, "diffusion_ekf_onehop_mean", inner_steps=2)
+    # Local adapt and receiver one-hop relinearise their own batches, so both build.
+    _diffusion_ekf(model, likelihood, "diffusion_ekf", inner_steps=2)
+    _diffusion_ekf(model, likelihood, "diffusion_ekf_onehop_mean_receiver", inner_steps=2)
+
+
+@pytest.mark.parametrize("name", ["diffusion_ekf_onehop_receiver",
+                                  "diffusion_ekf_onehop_mean_receiver"])
+def test_the_complete_graph_identity_survives_iteration(
+    model: MLP, likelihood: Categorical, name: str
+) -> None:
+    """prop:complete_graph at K = 3: one-hop on K_n iterates on the pooled batch
+    at a common mean, which is the centralised iterated filter exactly."""
+    from dekf_bench.learners.ekf import CentralizedEKF
+
+    theta0 = _theta0(model)
+    diffusion = _diffusion_ekf(model, likelihood, name, inner_steps=3)
+    diffusion.init(theta0)
+    centralized = CentralizedEKF(
+        name="centralized_ekf_walk", model=model, likelihood=likelihood, n_nodes=N_NODES,
+        transition="scalar", gamma=1.0, prior_scale=0.01, inner_steps=3,
+    )
+    centralized.init(theta0)
+    plain = CentralizedEKF(
+        name="centralized_ekf_walk", model=model, likelihood=likelihood, n_nodes=N_NODES,
+        transition="scalar", gamma=1.0, prior_scale=0.01,
+    )
+    plain.init(theta0)
+
+    for step in range(3):
+        observations = [observation(model, node=node, n=2) for node in range(N_NODES)]
+        diffusion.combine(
+            {node: diffusion.adapt(node, obs) for node, obs in enumerate(observations)},
+            _uniform_weights(N_NODES),
+        )
+        x = torch.cat([obs.x for obs in observations])
+        y = torch.cat([obs.y for obs in observations])
+        centralized.adapt_pooled(x, y)
+        plain.adapt_pooled(x, y)
+        for node in range(N_NODES):
+            assert torch.allclose(diffusion.flat_params(node), centralized.flat_params(0),
+                                  atol=1e-10), f"agent {node} left the mean at step {step}"
+            assert torch.allclose(diffusion.covariance(node), centralized.covariance,
+                                  atol=1e-10)
+    # And iterating did something, or the identity above would hold vacuously.
+    assert not torch.allclose(centralized.flat_params(0), plain.flat_params(0), atol=1e-8)
