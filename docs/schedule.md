@@ -291,6 +291,20 @@ About **two and a half to three weeks**, plus C5.
 
 ---
 
+## Track D — before the writing (added 2026-10-06, [[D139]])
+
+The supervisor asked that writing start alongside the experiments, with four
+extensions added first. All are options on the existing learners and modes of the
+existing runners, not new modules. Built in this order:
+
+| | work | cost |
+|---|---|---|
+| D1 | **$K$ inner steps and the iterated EKF**: $K\in\{1,2,5,10\}$, LR re-tuned per $K$, every method; MNIST stationary / skew 0.1 / abrupt, MG stationary / linear $\beta$ / $\tau$ spread; five seeds | build ~2 days; GPU to be estimated from the smoke |
+| D2 | **Subtractive dither** in the codec, judged on the frontier against queue 4's deterministic one | build ~1 day; runs after queue 4 |
+| D3 | **Block-diagonal covariance** (per-neuron main; per-layer and full ablations) **together with a coupled-MG GNN** larger than the MLP and the Transformer: two layers, truncated Jacobian with an exact depth-2 ablation, forward messages counted apart from the codec | build ~1–2 weeks; coupling smoke first |
+
+---
+
 ## After A and B — one codebase
 
 Decided 2026-09-19, and **gated: this starts only once both MNIST and

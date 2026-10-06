@@ -4106,6 +4106,76 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ❓ D139. Four extensions before the writing: K steps and the iterated EKF, subtractive dither, a block-diagonal covariance, a coupled-MG GNN
+
+Decided 2026-10-06, before any code. The supervisor, after the results so far, asked
+that writing start alongside the experiments, and that four things be added first.
+Every question below was asked and answered (the user: every undecided algorithmic or
+implementation question is asked first).
+
+**Codebase rule.** No new modules or runners where an option will do: K steps, the
+iterated EKF and the block covariance are options on the existing learners
+(`learners/sgd.py`, `learners/ekf.py`, `learners/diffusion_ekf.py`), and the experiments
+are modes of the closest existing runners. Every default reproduces today's runs
+exactly ($K=1$, `covariance: full`), gated by the existing equivalence tests.
+
+**1. K inner steps, and the iterated EKF as the filters' counterpart.** The gradient
+methods take $K$ optimiser steps on the step's batch inside adapt; the filters take $K$
+Gauss–Newton relinearisations of the measurement update (the iterated EKF), through the
+same `woodbury_update`. One combine per time step, so communication does not change.
+The prediction (the user and the supervisor): it helps the centralised learners and
+over-fits the distributed ones, which see four samples a step — local SGD's *client
+drift* under non-IID data.
+
+| | decided |
+|---|---|
+| filters | the iterated EKF, so the baselines' extra passes are matched (asked; chosen over "baselines only") |
+| tasks | MNIST **and** Mackey–Glass; every method in every figure |
+| $K$ | $\{1, 2, 5, 10\}$ for both; $K=1$ is the reproduction gate |
+| learning rate | re-tuned at every $K$ (D77), so more steps is not confounded with a larger effective step |
+| cells, MNIST | stationary IID, label skew $\beta_{\mathrm{dir}}=0.1$, **abrupt** rotation (the user chose abrupt over linear: it was MNIST's harder drift, D67) |
+| cells, MG | stationary, **linear** $\beta$ drift, $\tau$ spread (`m8_tau_spread`). Linear because it is MG's harder drift: M6 measured $+0.0044$–$0.0108$ RMSE under linear and a spread of ~0.005 under abrupt, whose reflecting walk keeps returning (D106) |
+| seeds | five |
+
+**2. Subtractive dither in the codec** (the supervisor's suggestion; subtractive chosen
+over stochastic rounding). $q=\mathrm{round}((d+u)/\Delta)$, the receiver reconstructs
+$\Delta q-u$, with $u\sim\mathcal U(-\Delta/2,\Delta/2)$ from a seed shared per sender —
+no bits, since sender and receivers already keep synchronised public copies. The error
+is the same $\Delta^2/12$ but independent of the signal and of other agents, so near
+consensus it cancels in the combine instead of adding coherently. The cost is entropy:
+dither turns zeros into $\pm1$, so it is judged on the rate–distortion frontier, with
+its own calibrated tables, against queue 4's deterministic frontier.
+
+**3. Block-diagonal covariance, optional.** `covariance: full | block` on the filters,
+with general parameter groups (neuron / layer / tensor); **per-neuron blocks are the
+main variant** (the decoupled EKF, Puskorius & Feldkamp 1991: a neuron's incoming
+weights and bias). The innovation matrix $\boldsymbol I+\sum_b\bar{\boldsymbol B}_b^{\mathsf T}\boldsymbol P_b\bar{\boldsymbol B}_b$
+still couples every block, so one gain is shared; each block updates as
+$\boldsymbol P_b-(\boldsymbol P_b\bar{\boldsymbol B}_b)\boldsymbol S^{-1}(\boldsymbol P_b\bar{\boldsymbol B}_b)^{\mathsf T}$
+and the cross-block terms are never formed. Block-diagonal is closed under both
+combine rules, so the diffusion step is exact and only the measurement update is
+approximate (diagonal is closed too; low-rank-plus-diagonal is not). Ablations: per-layer
+and full covariance on the current models, where they fit (MNIST $p=2\,908$, MG
+$p=2\,273$). Why it is needed: a dense $\boldsymbol P$ is $p^2\cdot8$ bytes per agent
+(68 MB today), so the 8 GB GPU caps a full-covariance run near $p\approx5$–$6$k.
+
+**4. A GNN, on a coupled Mackey–Glass network, together with the block covariance**
+(the user: the point is a GNN *larger* than the MLP and the Transformer). One
+delay-coupled MG oscillator per agent; each agent predicts its own node from its own
+window and its neighbours' embeddings, MANET-GNN-style (the neighbour sends its node
+embedding; the receiver applies the message transform with its own $\boldsymbol\theta_v$).
+
+| | decided |
+|---|---|
+| task | coupled MG, chosen over MANET-GNN: its throughput objective is not a likelihood, so filtering it is a research question of its own, better as the next paper |
+| Jacobian | received embeddings are inputs (stop-gradient): a truncated Jacobian, exact at one layer. **Ablation**: recompute the receptive field at $\boldsymbol\theta_v$ from $L$-hop raw inputs on a small depth-2 model, to measure what truncation costs |
+| depth | two layers to start, configurable, never hard-coded; more only if the results call for it |
+| forward messages | not through the codec; their bits are counted and reported separately |
+| coupling | open: a predictability smoke will propose a form and strength where neighbours are informative but the network does not synchronise; per-agent $\tau$ spread is a candidate |
+
+**Order** (the user): K and the iterated EKF, then dither, then the GNN and the block
+covariance together.
+
 ### 🔄 D138. The codec build: every implementation question, answered before the code
 
 Asked and answered 2026-10-03, before any of D137's codec was written (the user: every
