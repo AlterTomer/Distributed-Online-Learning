@@ -4316,6 +4316,22 @@ from synchrony), knowing it is close to the limit (0.484) and that neighbour pai
 correlate at 0.77. ⚠ The gain is a *linear* model's; a nonlinear GNN may extract more,
 possibly at lower $\kappa$.
 
+**D3c decided, 2026-10-07: the GNN and its learners.** Every question asked first.
+
+| | decided |
+|---|---|
+| size | ~20k parameters (about 8× the Transformer), so neuron blocks are necessary |
+| precision | **FP32 for the ~20k GNN** — an exception to the FP64 rule, the user's ("we saw it's basically the same as FP64"); FP64 for the small depth-2 twin's ablations (exact vs truncated Jacobian, full vs block), which compare within the twin |
+| layout | per node, the **causal Transformer decoder block** (masked self-attention, $d_{\text{model}}\approx40$) as the encoder in MANET-GNN's sense — the per-node stage before message passing — then **2 aggregate-then-transform graph layers** mixing nodes at each position ($\mathrm{agg}_v=\sum_u a_{vu}\boldsymbol h_u$ with the Metropolis weights the physics uses; $\boldsymbol h_v'=\mathrm{act}(\boldsymbol W_{\text{self}}\boldsymbol h_v+\boldsymbol W_{\text{nbr}}\mathrm{agg}_v+\boldsymbol b)$, residual, LayerNorm), then the per-position head |
+| readout | per position, causal: each node predicts its next value at all 31 positions, as today's MG task; position $t$ sees only positions $\le t$, its own and its neighbours' |
+| messages | aggregate-then-transform, chosen over MANET's gated per-edge messages (the task has no edge features for its FiLM to condition on): linear in what is received, so one aggregate per layer per position travels |
+| Jacobian | truncated — received aggregates are inputs (stop-gradient) — for the filters and the ATC/local gradient learners alike; the centralised learners (one $\boldsymbol\theta$) exact. The exact multi-hop ablation on the twin, as decided in D139 |
+| one-hop | **defined for the GNN**: neighbour $u$ sends $\boldsymbol x_u$, $\boldsymbol y_u$ and the aggregates it received at every layer; $v$ rebuilds $u$'s prediction at $\boldsymbol\theta_v$ with those aggregates held fixed — the receiver point exactly, so the iterated EKF runs. Both variants (mean-only and full sharing, the latter affordable on blocks) |
+| exactness | one-hop on $K_n$ is tested against a **test-only truncated centralised fixture**, an identity to 1e-10; the results' centralised filter stays exact, and its gap to the truncated one is reported |
+| cells | the coupled network stationary and under linear $\beta$ drift, five seeds, $T=1500$, $N=10$ on the runs' ER graphs |
+| tuning | M4/M5-style: a crossed grid of prior scale × $q$ (× $\gamma\in\{1,0.9995\}$) on the stationary cell, 2 seeds, centralised and diffusion filters separately, carried to the drift cell; the gradient learners' rates per cell |
+| codec | forward-pass messages and one-hop's shipped aggregates bypass the codec and are counted on their own lines (D139) |
+
 ### 🔄 D138. The codec build: every implementation question, answered before the code
 
 Asked and answered 2026-10-03, before any of D137's codec was written (the user: every
