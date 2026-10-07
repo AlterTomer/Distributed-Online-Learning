@@ -388,3 +388,57 @@ def test_the_filter_variants_are_not_dispatched_as_pooled() -> None:
     from dekf_bench.learners.registry import DIFFUSION_EKF_VARIANTS, POOLING
 
     assert not (set(DIFFUSION_EKF_VARIANTS) & POOLING)
+
+
+# =========================================================================== #
+# 4. K inner steps (D139): the filter's identity survives, SGD's does not
+# =========================================================================== #
+
+
+def test_the_iterated_filters_keep_the_identity_through_the_runner() -> None:
+    """One-hop on K_n iterates on the pooled batch at a common mean, so the
+    complete-graph identity holds at K = 3 exactly as at K = 1."""
+    from dekf_bench.runner import simulate
+
+    config = load_config(
+        "x0_exactness",
+        overrides={
+            "run": {"horizon": 6, "dtype": "float64"},
+            "learners": [
+                {"name": "centralized_ekf_walk", **FILTER, "inner_steps": 3},
+                {"name": "diffusion_ekf_onehop_mean_receiver", **FILTER, "inner_steps": 3},
+            ],
+        },
+    )
+    environment = build_environment(config, 0, split())
+    model = build_model_from_config(config)
+    learners = build_learners(config, model, Categorical(config.model.output_dim))
+    theta0 = model.flatten(model.init_params(environment.seeds.torch_generator("init")))
+    for learner in learners.values():
+        learner.init(theta0)
+    nodes = list(range(environment.n_nodes))
+    worst = 0.0
+    for step in range(environment.horizon):
+        observations = environment.step(step)
+        pooled_x, pooled_y = pool(observations)
+        for name, learner in learners.items():
+            simulate._advance(learner, name, observations, nodes, environment.graph.weights,
+                              pooled_x, pooled_y)
+        reference = learners["centralized_ekf_walk"].flat_params(0)
+        diffusion = learners["diffusion_ekf_onehop_mean_receiver"]
+        worst = max(worst, max(float((diffusion.flat_params(v) - reference).abs().max())
+                               for v in nodes))
+    assert worst < TOLERANCE
+
+
+def test_k_local_sgd_steps_break_the_atc_identity() -> None:
+    """The prediction behind D139, measured where it is purest: on a complete
+    graph with plain SGD, averaging after K local steps is not K steps on the
+    averaged gradient, because each agent's second gradient is taken at a point
+    only its own batch moved it to. This is client drift with nothing else in it."""
+    plain = {"optimizer": "sgd", "lr": 0.05, "momentum": 0.0,
+             "mix_optimizer_state": "none", "inner_steps": 2}
+    assert run_pair(learners=[
+        {"name": "centralized_sgd", **plain},
+        {"name": "diffusion_sgd_atc", **plain},
+    ]) > 1e-9

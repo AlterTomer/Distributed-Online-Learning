@@ -571,6 +571,12 @@ class LearnerConfig:
     #: stopped, so the comparison isolates continued adaptation from initial
     #: learning. `None` means never freeze.
     freeze_after: int | None = None
+    #: K passes over each step's batch before the combine (D139). For the gradient
+    #: learners K optimiser steps; for the filters K Gauss--Newton relinearisations
+    #: of the measurement update -- the iterated EKF. One combine per step either
+    #: way, so communication does not change. 1 is every run before D139, exactly.
+    #: Not to be confused with `adapt_rounds`, which counts *hops* of information.
+    inner_steps: int = 1
 
     # --- phase 5 state model; inert for the SGD learners ------------------- #
     #: F_t. "identity" is a driftless random walk; "scalar" makes F_t = gamma*I,
@@ -655,6 +661,11 @@ class LearnerConfig:
                     "could not be honoured. Freeze a diffusion or local learner instead -- "
                     "'frozen_atc' is the intended baseline."
                 )
+        if self.inner_steps < 1:
+            raise ConfigError(
+                f"learner[{self.name}].inner_steps must be >= 1, got {self.inner_steps}. "
+                "Zero passes over the batch is a frozen learner; use freeze_after."
+            )
         _one_of(self.optimizer, OPTIMIZERS, f"learner[{self.name}].optimizer")
         _one_of(self.mix_optimizer_state, MIX_POLICIES, f"learner[{self.name}].mix_optimizer_state")
         _one_of(self.adapt_scope, ADAPT_SCOPES, f"learner[{self.name}].adapt_scope")

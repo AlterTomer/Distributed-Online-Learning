@@ -131,6 +131,49 @@ def woodbury_update(
     return mean + updated @ score, updated
 
 
+def iterated_update(
+    linearise: Any,
+    mean: torch.Tensor,
+    covariance: torch.Tensor,
+    iterations: int,
+    context: str = "",
+) -> tuple[torch.Tensor, torch.Tensor]:
+    r"""The iterated EKF: ``iterations`` Gauss--Newton steps on the posterior (D139).
+
+    ``linearise(theta)`` returns the information pair $(\bar{\bm B},\bm H^{\mathsf T}\bm s)$
+    at ``theta`` -- whatever rescaling the caller applies included -- so the
+    centralised and the diffusion filters share this loop as they share
+    `woodbury_update`. From the prior $(\bm m^-,\bm P^-)$, with $\bm m_0=\bm m^-$:
+
+    .. math::
+        \bm P_i=\bigl((\bm P^-)^{-1}+\bar{\bm B}_i\bar{\bm B}_i^{\mathsf T}\bigr)^{-1},\qquad
+        \bm m_{i+1}=\bm m^-+\bm P_i\bigl[\bm H_i^{\mathsf T}\bm s(\bm m_i)
+        +\bar{\bm B}_i\bar{\bm B}_i^{\mathsf T}(\bm m_i-\bm m^-)\bigr]
+
+    which is the Gauss--Newton step on $\tfrac12\lVert\bm m-\bm m^-\rVert^2_{(\bm P^-)^{-1}}
+    -\log p(\bm y\mid\bm m)$, written so each iteration is one Woodbury solve
+    against the *prior*. At $i=0$ the correction term vanishes and this is the
+    plain update, operation for operation, so one iteration reproduces every run
+    before D139 exactly.
+
+    **The covariance is the last linearisation's** (decided 2026-10-06): $K$
+    iterations cost $K$ Jacobians, the same $K$ passes the gradient learners get,
+    rather than the textbook's $K+1$. **Plain Gauss--Newton, no damping**: the
+    prior covariance is the trust region (D61), and the callers' divergence guards
+    catch an iterate that leaves it.
+    """
+    if iterations < 1:
+        raise FilterError(f"iterations must be >= 1, got {iterations}")
+    prior_mean, iterate = mean, mean
+    updated = covariance
+    for index in range(iterations):
+        stacked, score = linearise(iterate)
+        if index:
+            score = score + stacked @ (stacked.transpose(0, 1) @ (iterate - prior_mean))
+        iterate, updated = woodbury_update(prior_mean, covariance, stacked, score, context)
+    return iterate, updated
+
+
 class CentralizedEKF:
     r"""One Gaussian belief $(\bm m,\bm P)$ over the pooled batch.
 
@@ -156,12 +199,18 @@ class CentralizedEKF:
         process_noise_q: float = 0.0,
         prior_scale: float = 1.0,
         trust_region_ratio: float = TRUST_REGION_RATIO,
+        inner_steps: int = 1,
         **_ignored: Any,
     ) -> None:
+        if inner_steps < 1:
+            raise FilterError(f"inner_steps must be >= 1, got {inner_steps}")
         self._name = name
         self.model = model
         self.likelihood = likelihood
         self._n_nodes = n_nodes
+        #: Gauss--Newton relinearisations per measurement update: the iterated EKF
+        #: (`iterated_update`, D139). 1 is the plain filter.
+        self.inner_steps = inner_steps
         self.transition = transition
         self.gamma = gamma
         self.lambda_forget = lambda_forget
@@ -370,10 +419,13 @@ class CentralizedEKF:
         assert self._mean is not None and self._covariance is not None
         mean, covariance = self._mean, self._covariance
 
-        stacked, score = information_pair(self.model, self.likelihood, mean, x, y)
         try:
-            self._mean, self._covariance = woodbury_update(
-                mean, covariance, stacked, score, context=self._divergence_context(covariance)
+            self._mean, self._covariance = iterated_update(
+                lambda theta: information_pair(self.model, self.likelihood, theta, x, y),
+                mean,
+                covariance,
+                self.inner_steps,
+                context=self._divergence_context(covariance),
             )
         except FilterError as failure:
             raise FilterError(f"{self._name} diverged at step {self._steps}: {failure}") from failure
@@ -445,6 +497,7 @@ class CentralizedEKF:
             "lambda_forget": self.lambda_forget,
             "process_noise_q": self.process_noise_q,
             "prior_scale": self.prior_scale,
+            "inner_steps": self.inner_steps,
             "trace_over_p": float(diagonal.mean()),
             "min_diagonal": float(diagonal.min()),
         }

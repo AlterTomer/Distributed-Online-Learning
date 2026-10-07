@@ -165,6 +165,7 @@ def build_learner(learner_config: Any, model: Model, likelihood: Any, n_nodes: i
         n_nodes=n_nodes,
         mix_policy=getattr(learner_config, "mix_optimizer_state", "none"),
         freeze_after=getattr(learner_config, "freeze_after", None),
+        inner_steps=getattr(learner_config, "inner_steps", 1),
     )
 
 
@@ -236,6 +237,7 @@ def _build_diffusion_ekf(
         adapt_rounds=getattr(learner_config, "adapt_rounds", 1),
         combine_exponent=getattr(learner_config, "combine_exponent", 1.0),
         information_exponent=getattr(learner_config, "information_exponent", 0.0),
+        inner_steps=getattr(learner_config, "inner_steps", 1),
     )
 
 def _build_centralized_ekf(
@@ -315,6 +317,7 @@ def _build_centralized_ekf(
         trust_region_ratio=getattr(
             learner_config, "trust_region_ratio", TRUST_REGION_RATIO
         ),
+        inner_steps=getattr(learner_config, "inner_steps", 1),
     )
 
 
