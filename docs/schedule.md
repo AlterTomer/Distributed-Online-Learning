@@ -305,7 +305,7 @@ existing runners, not new modules. Built in this order:
 | D2b | Dither's C* carried to drift and skew / the $\tau$ spread, **only if dither wins** the frontier | as queue 4's report transfer, if run |
 | D3 | **Block-diagonal covariance** (per-neuron main; per-layer and full ablations) **together with a coupled-MG GNN** larger than the MLP and the Transformer: two layers, truncated Jacobian with an exact depth-2 ablation, forward messages counted apart from the codec | build ~1–2 weeks; coupling smoke first |
 | D3a | **The block covariance** (`covariance_blocks`) and its ablation against the full one: neuron and layer blocks, every filter, MNIST stationary + abrupt and MG stationary + linear, full reused. `scripts/run_covariance_blocks.py` on each branch | **built and smoked** 2026-10-07 ([[D139]]); ~3 GPU-h MNIST, ~6 MG |
-| D3b | The coupled Mackey–Glass network: a joint integrator, and a smoke choosing the coupling (neighbours informative, network not synchronised) | next |
+| D3b | The coupled Mackey–Glass network: a joint integrator (mixed delayed input over the communication graph, M8's delays), and a smoke choosing the coupling | **done** 2026-10-07: $kappa=0.6$ ([[D139]]) |
 | D3c | The GNN model on it, its forward-pass messages, and the learners | after D3b |
 
 ---

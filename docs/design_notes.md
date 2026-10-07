@@ -4288,6 +4288,34 @@ selection** under every structure.
   filter cell runs about six times faster than the full one; layer blocks barely
   faster, since one layer holds most of the parameters.
 
+**D3b built, 2026-10-07: the coupled Mackey–Glass network, $\kappa=0.6$.** Four
+questions, asked and answered: **mixed delayed input** — node $v$'s production reads
+$y_v=(1-\kappa)x_v(t-\tau_v)+\kappa\sum_u a_{vu}x_u(t-\tau_v)$, a convex mix, so the
+law stays bounded (chosen over diffusive coupling, which synchronises identical chaotic
+oscillators, and an additive delayed term with its own delay); the coupling graph is
+**the communication graph** with its Metropolis weights; each node keeps **M8's
+delay** (16.4–20.0), so the nodes resist synchrony; and $\kappa$ is chosen as **the
+largest neighbour gain with mean pairwise correlation at most 0.5**, the table shown
+before fixing it. `mackey_glass.integrate` takes the coupling as an option — $\kappa=0$
+is the old code path, asserted equal — and is tested for self-coupling (unchanged at
+any $\kappa$), symmetry (identical nodes stay identical) and boundedness.
+
+The smoke (`scripts/run_coupling_smoke.py`, seeds 0–2, the runs' own graphs): gain is
+an offline ridge AR's relative RMSE reduction from adding neighbours' 31-sample windows.
+
+| $\kappa$ | 0–0.2 | 0.3 | 0.5 | **0.6** | 0.7 | 0.8–1.0 |
+|---|---|---|---|---|---|---|
+| gain (mean) | ≈ −0.01 | +0.030 | +0.141 | **+0.188** | +0.185 | +0.183–0.185 |
+| sync, all pairs | ≈ 0.0–0.06 | 0.084 | 0.330 | **0.484** | 0.570 | 0.64–0.69 |
+| sync, neighbours | 0.0–0.18 | 0.31 | 0.62 | 0.77 | 0.82 | 0.86–0.90 |
+
+The first grid stopped at 0.5, where the rule's pick sat on the edge with the gain
+still rising; extended to 1.0, the gain plateaus from 0.6 while synchrony keeps
+climbing. The user chose **$\kappa=0.6$** over 0.5 (three quarters of the gain, far
+from synchrony), knowing it is close to the limit (0.484) and that neighbour pairs
+correlate at 0.77. ⚠ The gain is a *linear* model's; a nonlinear GNN may extract more,
+possibly at lower $\kappa$.
+
 ### 🔄 D138. The codec build: every implementation question, answered before the code
 
 Asked and answered 2026-10-03, before any of D137's codec was written (the user: every
