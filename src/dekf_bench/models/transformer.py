@@ -55,7 +55,8 @@ def sinusoidal_positions(length: int, width: int, dtype: torch.dtype) -> torch.T
 
 class _CausalBlock(nn.Module):
     def __init__(self, context: int, d_model: int, n_heads: int, d_ff: int, dtype: torch.dtype,
-                 device: str | torch.device = "cpu", readout_last: bool = False):
+                 device: str | torch.device = "cpu", readout_last: bool = False,
+                 with_head: bool = True):
         super().__init__()
         self.d_model, self.n_heads = d_model, n_heads
         #: Many-to-one (D126): return the last position alone. Selected inside the
@@ -69,7 +70,10 @@ class _CausalBlock(nn.Module):
         self.norm2 = nn.LayerNorm(d_model, dtype=dtype)
         self.ff1 = nn.Linear(d_model, d_ff, dtype=dtype)
         self.ff2 = nn.Linear(d_ff, d_model, dtype=dtype)
-        self.head = nn.Linear(d_model, 1, dtype=dtype)
+        # Without a head the block is the GNN's per-node encoder (D3c): a head it never
+        # used would sit in p with a zero Jacobian, its variance never shrinking.
+        if with_head:
+            self.head = nn.Linear(d_model, 1, dtype=dtype)
         # Buffers, not parameters: positions are fixed (decision 9) and the mask is
         # structure. Neither enters p, and functional_call leaves them in place.
         self.register_buffer(
@@ -87,6 +91,12 @@ class _CausalBlock(nn.Module):
         self.to(device)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:  # (batch, context) -> (batch, context)
+        out = self.head(self.features(x)).squeeze(-1)
+        return out[..., -1:] if self.readout_last else out
+
+    def features(self, x: torch.Tensor) -> torch.Tensor:
+        """``(batch, context)`` to the per-position embeddings before the head,
+        ``(batch, context, d_model)``: what the GNN's graph layers mix (D3c)."""
         batch, context = x.shape
         head_width = self.d_model // self.n_heads
         h = self.embed(x.unsqueeze(-1)) + self.positions
@@ -100,9 +110,7 @@ class _CausalBlock(nn.Module):
         attended = (torch.softmax(scores, dim=-1) @ v).transpose(1, 2).reshape(batch, context, -1)
         h = h + self.proj(attended)
 
-        h = h + self.ff2(nn.functional.gelu(self.ff1(self.norm2(h))))
-        out = self.head(h).squeeze(-1)
-        return out[..., -1:] if self.readout_last else out
+        return h + self.ff2(nn.functional.gelu(self.ff1(self.norm2(h))))
 
 
 @dataclass(frozen=True)
