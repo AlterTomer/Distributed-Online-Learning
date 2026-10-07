@@ -885,6 +885,10 @@ class CommConfig:
     codec_mode: str = "count"
     codec_tables: str | None = None
     codec_scales: str | None = None
+    #: Subtractive dither in the codec's quantiser (D2, D139): each learner draws from
+    #: its own seed stream, which its receivers share, so it costs no bits. Count and
+    #: code modes only; tables trained on dithered counts belong to dithered runs.
+    codec_dither: bool = False
 
     def __post_init__(self) -> None:
         from dekf_bench.compression import (  # noqa: PLC0415
@@ -899,9 +903,13 @@ class CommConfig:
             raise ConfigError(
                 f"comm.precision must lie in [{low}, {high}] bits for stochastic rounding, "
                 f"got {self.precision}")
+        if self.codec_dither and self.compressor != "codec":
+            raise ConfigError("comm.codec_dither applies to the codec only")
         if self.compressor != "codec":
             return
         _one_of(self.codec_mode, CODEC_MODES, "comm.codec_mode")
+        if self.codec_dither and self.codec_mode == "scale":
+            raise ConfigError("comm.codec_dither: the scale pass is exact, nothing to dither")
         if self.codec_mode != "scale" and not self.codec_c > 0:
             raise ConfigError(f"comm.codec_c must be positive, got {self.codec_c}")
         if self.codec_mode == "code" and not self.codec_tables:

@@ -278,3 +278,119 @@ def test_a_diverged_message_is_mixed_exactly_and_never_counted():
     assert torch.isnan(mixed).any()
     assert ch.totals["diverged_messages"] == 1
     assert "psi" not in ch.counts
+
+
+# ---- subtractive dither (D2, D139) ------------------------------------------------
+
+def dithered(seed: int = 7, **kwargs) -> CodecChannel:
+    return channel(dither=True, generator=torch.Generator().manual_seed(seed), **kwargs)
+
+
+def _offset_messages(ch: CodecChannel, n: int, offset: float) -> torch.Tensor:
+    """Every agent sends theta_0 + offset * Delta: identical, mid-step differences --
+    the near-consensus case rounding handles worst."""
+    delta = ch._delta("psi", theta0().expand(n, P))
+    return theta0().expand(n, P) + offset * delta
+
+
+def test_dither_leaves_a_uniform_signal_free_error():
+    """Rounding a constant 0.3-step difference errs by 0.3 steps every time; the
+    dithered error is mean zero with the uniform's spread, Delta / sqrt(12)."""
+    plain, dith = channel(), dithered()
+    x = _offset_messages(plain, 4, 0.3)
+    plain.mix(ring(), x)
+    dith.mix(ring(), x)
+    delta = plain._delta("psi", x)
+    e_plain = (x - plain.copies["psi"]) / delta
+    e_dith = (x - dith.copies["psi"]) / delta
+    assert torch.allclose(e_plain, torch.full_like(e_plain, 0.3))
+    assert float(e_dith.abs().max()) <= 0.5 + 1e-12
+    assert abs(float(e_dith.mean())) < 0.06
+    assert abs(float(e_dith.std()) - 12 ** -0.5) < 0.03
+
+
+def test_dithered_errors_do_not_add_coherently_across_senders():
+    """The point of D2: near consensus the senders' rounding errors coincide, so the
+    combine cannot average them away; dithered ones are independent and it can."""
+    n = 64
+    mixing = torch.full((n, n), 1.0 / n, dtype=torch.float64)
+    plain, dith = channel(), dithered()
+    x = _offset_messages(plain, n, 0.3)
+    delta = plain._delta("psi", x)
+    plain.mix(mixing, x)
+    dith.mix(mixing, x)
+    mean_plain = ((x - plain.copies["psi"]) / delta).mean(dim=0)
+    mean_dith = ((x - dith.copies["psi"]) / delta).mean(dim=0)
+    assert torch.allclose(mean_plain, torch.full_like(mean_plain, 0.3))
+    # Averaging n independent uniforms leaves sd (1/sqrt 12)/sqrt n.
+    assert float(mean_dith.std()) < 2 * (12 ** -0.5) / n ** 0.5
+    assert float(mean_dith.abs().mean()) < 0.1
+
+
+def test_the_dither_is_the_shared_stream_and_costs_no_bits():
+    """Same seed, same symbols and copies: the receivers regenerate what the sender drew.
+    The ledger charges the symbols alone -- the same scalars as the undithered run."""
+    a, b, other, plain = dithered(seed=3), dithered(seed=3), dithered(seed=4), channel()
+    for x in walk(5):
+        for ch in (a, b, other, plain):
+            ch.mix(ring(), x)
+    assert torch.equal(a.copies["psi"], b.copies["psi"])
+    assert a.bits == b.bits and a.scalars == plain.scalars
+    assert not torch.equal(a.copies["psi"], other.copies["psi"])
+    assert not torch.equal(a.copies["psi"], plain.copies["psi"])
+
+
+def test_dither_turns_zeros_into_symbols():
+    """Its price: a difference well inside half a step is sent as zero by rounding,
+    but as a +-1 often enough to be unbiased under dither."""
+    plain, dith = channel(), dithered()
+    x = _offset_messages(plain, 4, 0.2)
+    plain.mix(ring(), x)
+    dith.mix(ring(), x)
+    assert plain.totals["zeros"] == plain.totals["entries"]
+    assert dith.totals["zeros"] < 0.85 * dith.totals["entries"]
+
+
+def test_dither_is_refused_where_it_cannot_mean_anything():
+    with pytest.raises(ChannelError, match="receivers share"):
+        channel(dither=True)
+    with pytest.raises(ChannelError, match="scale pass"):
+        dithered(mode="scale", c=0.0)
+    with pytest.raises(ConfigError, match="codec only"):
+        load_config("x1_stationary", overrides={"comm": {"compressor": "float16",
+                                                         "codec_dither": True}})
+    with pytest.raises(ConfigError, match="scale pass"):
+        load_config("x1_stationary", overrides={"comm": {"compressor": "codec",
+                                                         "codec_mode": "scale",
+                                                         "codec_dither": True}})
+
+
+def test_dither_through_the_simulator(tmp_path):
+    """The run path: each learner gets its own stream, the summary says dithered, and
+    the dithered count pass sees fewer zeros than the deterministic one at the same c."""
+    _exact, summaries = _run({"compressor": "codec", "codec_mode": "scale"}, tmp_path / "scale")
+    scales = {"learners": {name: {kind: dict(zip(s["layers"], rms, strict=True))
+                                  for kind, rms in s.get("moment_rms", {}).items()}
+                           for name, s in summaries.items()}}
+    scales_path = tmp_path / "scales.json"
+    scales_path.write_text(json.dumps(scales))
+    comm = {"compressor": "codec", "codec_c": 1e-2, "codec_mode": "count",
+            "codec_scales": str(scales_path)}
+    plain_ledger, plain = _run(comm, tmp_path / "plain")
+    dith_ledger, dith = _run({**comm, "codec_dither": True}, tmp_path / "dith")
+    for name in LEARNERS:
+        assert dith[name]["dither"] is True and plain[name]["dither"] is False
+        assert dith_ledger[name][0] == plain_ledger[name][0]          # same scalars
+        zeros = lambda s: s["totals"]["zeros"] / s["totals"]["entries"]  # noqa: E731
+        assert zeros(dith[name]) < zeros(plain[name])
+
+
+def test_stochastic_rounding_runs_through_the_simulator(tmp_path):
+    """C1's stochastic compressor asked the seeds for a 'channel' stream that did not
+    exist until 2026-10-07, so it would have raised on its first step; no run and no
+    test had taken that path. This one does."""
+    exact, _ = _run({"compressor": "none"}, tmp_path / "none")
+    rounded, _ = _run({"compressor": "stochastic", "precision": 8}, tmp_path / "stoch")
+    for name in LEARNERS:
+        assert rounded[name][0] == exact[name][0]
+        assert 0 < rounded[name][1] < exact[name][1]

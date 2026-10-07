@@ -43,6 +43,22 @@ Learners are grouped into cells by their $\mathcal C^\star$, since c is a run se
 
 ⚠ Bits are the tables' code lengths summed per message, not bitstreams produced each
 step; `codec.encode` and `tests/test_codec*.py` tie the two together bit for bit.
+
+## `--dither`: the subtractively dithered arm (D2, D139)
+
+    python scripts/run_codec.py --dither --calibrate --device cuda   # after the plain arm
+    python scripts/run_codec.py --dither --validate --device cuda
+    python scripts/run_codec.py --dither --report-runs --device cuda
+    python scripts/run_codec.py --dither --report-only
+
+The same protocol with the quantiser dithered (`comm.codec_dither`), **frontier only**
+(decided 2026-10-07): calibrate at every c (dithered counts, so dithered tables, and
+the rates re-tuned), validate (its own C*), and the stationary frontier on the report
+seeds. Dither changes nothing that runs exact, so the plain arm's uncompressed point,
+its moment scales and every uncompressed twin are **reused**, not re-run -- the
+dithered and deterministic frontiers are then paired against the very same twins.
+C* is not carried to drift or skew unless dither wins (a later item). The report
+sets the two arms side by side at every c.
 """
 
 from __future__ import annotations
@@ -135,14 +151,22 @@ CALIBRATION, VALIDATION, REPORT = [100, 101, 102, 103, 104], [200, 201, 202, 203
 EPSILON = 0.002
 SMOKE_HORIZON = 20
 DATA_ROOT = ROOT / "data"
+#: The arm: False is the plain codec (queue 4), True the dithered one (D2). Set once,
+#: in main, before any name or path is formed.
+DITHER = False
 
 
 # --------------------------------------------------------------------------- #
 # names and files
 # --------------------------------------------------------------------------- #
 
-def tag(point) -> str:
-    return NONE if point == NONE else f"c{point:g}".replace(".", "p").replace("-", "m")
+def tag(point, dither: bool | None = None) -> str:
+    """A point's name. The uncompressed point is shared by both arms; a dithered c is
+    'dc...' so its cells and tables never collide with the plain arm's."""
+    if point == NONE:
+        return NONE
+    arm = "d" if (DITHER if dither is None else dither) else ""
+    return arm + f"c{point:g}".replace(".", "p").replace("-", "m")
 
 
 def lr_name(point, family: str, rate: float, suffix: str) -> str:
@@ -165,16 +189,21 @@ def out_dir(suffix: str) -> Path:
     return ROOT / "results" / "codec" / f"{TASK}{suffix}"
 
 
+def arm_dir(suffix: str) -> Path:
+    return out_dir(suffix) / "dither" if DITHER else out_dir(suffix)
+
+
 def scales_path(suffix: str) -> Path:
+    """The plain arm's: the scale pass is exact, so both arms share it."""
     return out_dir(suffix) / "scales.json"
 
 
 def tables_path(point, suffix: str) -> Path:
-    return out_dir(suffix) / f"tables_{tag(point)}.json"
+    return arm_dir(suffix) / f"tables_{tag(point)}.json"
 
 
 def cstar_path(suffix: str) -> Path:
-    return out_dir(suffix) / "cstar.json"
+    return arm_dir(suffix) / "cstar.json"
 
 
 def grid_points(suffix: str) -> list:
@@ -208,7 +237,7 @@ def comm_for(point, mode: str, suffix: str) -> dict:
         return ({"compressor": "codec", "codec_mode": "scale"} if mode == "scale"
                 else {"compressor": "none"})
     comm = {"compressor": "codec", "codec_c": point, "codec_mode": mode,
-            "codec_scales": str(scales_path(suffix))}
+            "codec_scales": str(scales_path(suffix)), "codec_dither": DITHER}
     if mode == "code":
         comm["codec_tables"] = str(tables_path(point, suffix))
     return comm
@@ -376,10 +405,21 @@ def edges(point, rates: dict) -> list[str]:
 
 def calibrate(args, train, test, suffix: str) -> int:
     seeds = args.seeds if suffix else CALIBRATION
-    print(f"codec calibrate{' SMOKE' if suffix else ''}: seeds {seeds}, T={args.horizon}\n")
-    print("  the uncompressed point (scale mode: exact, measuring the moments)")
-    tune_point(args, train, test, NONE, suffix, seeds)
-    scales = write_scales(suffix)
+    print(f"codec calibrate{' DITHERED' if DITHER else ''}{' SMOKE' if suffix else ''}: "
+          f"seeds {seeds}, T={args.horizon}\n")
+    if DITHER:
+        # Exact arithmetic is the same with or without dither: the plain arm's
+        # uncompressed point and scales are this arm's too.
+        if selected(NONE, suffix) is None or not scales_path(suffix).exists():
+            print("  REFUSED: the plain arm's uncompressed point and scales are not on disk -- "
+                  "run --calibrate without --dither first")
+            return 1
+        scales = json.loads(scales_path(suffix).read_text(encoding="utf-8"))
+        print(f"  reusing the plain arm's uncompressed point: rates {scales['rates']}")
+    else:
+        print("  the uncompressed point (scale mode: exact, measuring the moments)")
+        tune_point(args, train, test, NONE, suffix, seeds)
+        scales = write_scales(suffix)
     print(f"  uncompressed rates {scales['rates']}"
           + (f"   ⚠ grid edge: {', '.join(edges(NONE, scales['rates']))}"
              if edges(NONE, scales["rates"]) else ""))
@@ -468,13 +508,18 @@ def report_runs(args, train, test, suffix: str) -> int:
     rates_none = selected(NONE, suffix)
     rates_at = {point: json.loads(tables_path(point, suffix).read_text(encoding="utf-8"))["rates"]
                 for point in grid_points(suffix)}
-    print(f"codec report runs{' SMOKE' if suffix else ''}: seeds {seeds}\n")
+    print(f"codec report runs{' DITHERED' if DITHER else ''}{' SMOKE' if suffix else ''}: "
+          f"seeds {seeds}\n")
     run(args, train, test, rep_cell("stationary", NONE, suffix),
         filter_entries() + baseline_entries(rates_none), seeds, comm_for(NONE, "none", suffix))
     for point in grid_points(suffix):
         run(args, train, test, rep_cell("stationary", point, suffix),
             filter_entries() + baseline_entries(rates_at[point]), seeds,
             comm_for(point, "code", suffix))
+    if DITHER:
+        # Frontier only (decided 2026-10-07): C* travels to drift and skew only if
+        # dither wins, as a later item.
+        return 0
     for condition in TRANSFER:
         run(args, train, test, rep_cell(condition, NONE, suffix),
             filter_entries() + baseline_entries(rates_none), seeds,
@@ -551,6 +596,9 @@ def report(suffix: str) -> None:
         print_frontier("REPORT (seeds 0-4), stationary: the frontier",
                        lambda p: rep_cell("stationary", p, suffix),
                        rep_cell("stationary", NONE, suffix), suffix)
+        if DITHER:
+            compare_arms(suffix)
+            return
         for condition in TRANSFER:
             twin = rep_cell(condition, NONE, suffix)
             if complete(twin):
@@ -558,7 +606,31 @@ def report(suffix: str) -> None:
                                lambda p, c=condition: rep_cell(c, p, suffix), twin, suffix)
 
 
+def compare_arms(suffix: str) -> None:
+    """Dithered against plain at every c, on the report seeds, against the same twin."""
+    twin = rep_cell("stationary", NONE, suffix)
+    print("\n  DITHERED vs PLAIN (report seeds, stationary): R and paired cost, per c")
+    print(f"    {'learner':<36}{'c':>8}{'R plain':>9}{'R dith':>9}{'cost plain':>12}"
+          f"{'cost dith':>11}")
+
+    def shown(row, key, spec):
+        return format(row[key], spec) if row else "-"
+
+    for learner in ROSTER:
+        for point in grid_points(suffix):
+            rows = {}
+            for arm in (False, True):
+                cell = f"cdc_rep_stationary_{tag(point, arm)}{suffix}"
+                rows[arm] = frontier_rows(cell, twin, learner) if complete(cell) else None
+            if rows[False] is None and rows[True] is None:
+                continue
+            print(f"    {learner:<36}{point:>8g}{shown(rows[False], 'R', '.2f'):>9}"
+                  f"{shown(rows[True], 'R', '.2f'):>9}{shown(rows[False], 'cost', '+.4f'):>12}"
+                  f"{shown(rows[True], 'cost', '+.4f'):>11}")
+
+
 def main(argv: list[str] | None = None) -> int:
+    global DITHER
     parser = sweep_parser(__doc__.split("\n")[0], horizon=1500, seeds=REPORT)
     stage = parser.add_mutually_exclusive_group(required=True)
     stage.add_argument("--calibrate", action="store_true")
@@ -566,7 +638,11 @@ def main(argv: list[str] | None = None) -> int:
     stage.add_argument("--report-runs", action="store_true")
     stage.add_argument("--report-only", action="store_true")
     parser.add_argument("--smoke", action="store_true", help="20 steps, one seed, on CPU")
+    parser.add_argument("--dither", action="store_true",
+                        help="the subtractively dithered arm (D2): frontier only, reusing "
+                             "the plain arm's exact passes")
     args = parser.parse_args(argv)
+    DITHER = args.dither
     suffix = "_smoke" if args.smoke else ""
     if args.smoke:
         args.horizon, args.device = SMOKE_HORIZON, "cpu"
@@ -581,7 +657,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
             return 1
         train, test = load_dataset(args.dataset, DATA_ROOT, download=False)
-    out_dir(suffix).mkdir(parents=True, exist_ok=True)
+    arm_dir(suffix).mkdir(parents=True, exist_ok=True)
     if args.calibrate:
         args.seeds = [CALIBRATION[0]] if suffix else CALIBRATION
         code = calibrate(args, train, test, suffix)

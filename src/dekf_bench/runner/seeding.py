@@ -35,7 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover - imported for type checking only
 #: The streams, in documentation order. Adding to this tuple is safe:
 #: derivation is by name, so existing streams keep their values -- which is why
 #: `priors` could be appended without changing any run that predates it.
-STREAM_NAMES = ("init", "partition", "stream", "graph", "priors")
+STREAM_NAMES = ("init", "partition", "stream", "graph", "priors", "channel")
 
 #: Derived seeds are truncated to this width. 63 bits keeps them positive and
 #: inside the range every backend here accepts.
@@ -77,6 +77,11 @@ class Seeds:
     #: versa -- the two are otherwise easy to confound, since under prior drift
     #: the plan is what sizes the shards.
     priors: int
+    #: A compressor's own randomness, one sub-stream per learner: stochastic rounding
+    #: (C1) and the codec's subtractive dither (D2). Missing until 2026-10-07 although
+    #: the simulator already asked for it, so a stochastic run would have raised on its
+    #: first step; none had. Appended, so every other stream keeps its value.
+    channel: int
 
     @classmethod
     def from_master(cls, master: int) -> Seeds:
