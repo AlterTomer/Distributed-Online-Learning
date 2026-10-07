@@ -274,7 +274,9 @@ def _attach_channels(config: Any, learners: dict[str, Any], seeds: Any,
         if not hasattr(learner, "channel"):
             continue
         if config.comm.compressor == "codec":
-            learner.channel = _codec_channel(config, name, learner, theta0)
+            learner.channel = _codec_channel(
+                config, name, learner, theta0,
+                seeds.torch_generator("channel", name) if config.comm.codec_dither else None)
             continue
         stochastic = config.comm.compressor == "stochastic"
         learner.channel = Channel(
@@ -284,8 +286,10 @@ def _attach_channels(config: Any, learners: dict[str, Any], seeds: Any,
         )
 
 
-def _codec_channel(config: Any, name: str, learner: Any, theta0: torch.Tensor | None) -> Any:
-    """A learner's codec channel: its layers, theta_0, its tables and moment scales."""
+def _codec_channel(config: Any, name: str, learner: Any, theta0: torch.Tensor | None,
+                   generator: torch.Generator | None = None) -> Any:
+    """A learner's codec channel: its layers, theta_0, its tables and moment scales, and
+    under dither the stream its receivers share."""
     import json  # noqa: PLC0415
     from pathlib import Path  # noqa: PLC0415
 
@@ -316,7 +320,8 @@ def _codec_channel(config: Any, name: str, learner: Any, theta0: torch.Tensor | 
         for kind, entry in table.get("learners", {}).get(name, {}).items():
             codes[kind] = per_layer(entry, f"the tables for {kind!r}", LayerCode.from_json)
     return CodecChannel(c=comm.codec_c, mode=comm.codec_mode, layers=layers,
-                        theta0=theta0.detach().clone(), moment_scales=scales, codes=codes)
+                        theta0=theta0.detach().clone(), moment_scales=scales, codes=codes,
+                        dither=comm.codec_dither, generator=generator)
 
 
 def _bit_prices(config: Any) -> dict[str, int]:

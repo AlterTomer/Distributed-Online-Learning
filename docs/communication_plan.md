@@ -184,6 +184,21 @@ report, paired with the existing cells. Seeds 5–9 are not clean (top-ups used 
 entropy bound and the cross-entropy gap are reported beside the actual coded length. The
 whole training protocol, one global step multiplier and the frontier first, is D137.
 
+### 4.3b Subtractive dither on the public copy (D2, added 2026-10-07)
+
+The supervisor's suggestion (D139): with $\boldsymbol u\sim\mathcal U(-\tfrac12,\tfrac12)^p$
+drawn from a seed the sender and its receivers share,
+$\boldsymbol q=\operatorname{round}(\boldsymbol e/\boldsymbol\Delta+\boldsymbol u)$ and the copy
+advances by $(\boldsymbol q-\boldsymbol u)\boldsymbol\Delta$. The copy's error is then uniform
+on $\pm\Delta/2$ and independent of the signal and of every other sender's, where
+rounding's is a deterministic function of the difference. So near consensus, when
+neighbours send near-identical differences, rounding's errors coincide and the combine
+cannot average them away, while dithered ones cancel as $1/|\mathcal M_v|$. The seed
+costs no bits; the price is entropy, since a difference inside half a step becomes
+$\pm1$ often enough to be unbiased instead of zero. Hence the comparison is the
+frontier, with dithered tables trained on dithered counts, against the plain arm's
+twins (`run_codec.py --dither`, frontier only). Every mixed kind is dithered.
+
 ### 4.4 Event-triggered communication (C3)
 
 Transmit only when the public copy has fallen too far behind:

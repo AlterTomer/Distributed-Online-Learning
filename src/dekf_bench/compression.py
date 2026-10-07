@@ -201,6 +201,17 @@ class CodecChannel(Channel):
     ``code`` charges the trained tables' code lengths. Bits are charged per sender, times
     the links its broadcast crosses. ⚠ Counted code lengths, not bitstreams produced each
     step (D138); `codec.encode` and the tests tie the two together.
+
+    ``dither`` (D2, D139) makes the quantiser **subtractively dithered**: with
+    $\boldsymbol u\sim\mathcal U(-\tfrac12,\tfrac12)^p$ drawn from a seed the sender and its
+    receivers share, $\boldsymbol q=\operatorname{round}((\boldsymbol x-\tilde{\boldsymbol x})/\boldsymbol\Delta+\boldsymbol u)$
+    and both sides advance the copy by $(\boldsymbol q-\boldsymbol u)\boldsymbol\Delta$. The error
+    left in the copy is then uniform on $\pm\Delta/2$ and independent of the signal and of
+    every other sender's -- the same $\Delta^2/12$ as rounding, but it no longer adds
+    coherently in the combine when neighbours send near-identical differences. The draw
+    costs no bits; it costs entropy, since it turns zeros into $\pm1$, which is why it is
+    judged on the frontier with its own tables. Every kind is dithered (the user,
+    2026-10-07), each learner from its own stream.
     """
 
     compressor: str = "codec"
@@ -212,6 +223,8 @@ class CodecChannel(Channel):
     moment_scales: dict = field(default_factory=dict)
     #: kind -> per-layer LayerCode, in code mode.
     codes: dict = field(default_factory=dict)
+    #: Subtractive dither from ``generator`` (shared by the sender and its receivers).
+    dither: bool = False
     copies: dict = field(default_factory=dict, repr=False)
     deltas: dict = field(default_factory=dict, repr=False)
     counts: dict = field(default_factory=dict, repr=False)
@@ -228,6 +241,10 @@ class CodecChannel(Channel):
             raise ChannelError("the codec needs the model's layers (codec.module_layers)")
         if self.theta0 is None:
             raise ChannelError("the codec's psi copies start at theta_0, which it needs")
+        if self.dither and self.mode == "scale":
+            raise ChannelError("the scale pass is exact: there is nothing to dither")
+        if self.dither and self.generator is None:
+            raise ChannelError("subtractive dither needs the stream its receivers share")
         self.totals = Counter()
 
     @property
@@ -283,8 +300,17 @@ class CodecChannel(Channel):
             return mixing @ stack
         copy = self._copy(kind, stack)
         delta = self._delta(kind, stack)
-        q = torch.round((stack - copy) / delta)
-        copy.add_(q * delta)
+        if self.dither:
+            # Drawn on the CPU in float64 from the channel's own stream, then moved: the
+            # draw must not depend on the device, or a CPU smoke and a GPU run would
+            # disagree (as the stochastic compressor's).
+            u = (torch.rand(stack.shape, generator=self.generator, dtype=torch.float64) - 0.5)
+            u = u.to(device=stack.device, dtype=stack.dtype)
+            q = torch.round((stack - copy) / delta + u)
+            copy.add_((q - u) * delta)
+        else:
+            q = torch.round((stack - copy) / delta)
+            copy.add_(q * delta)
         q = q.to(torch.int64)
         decoded = copy
         if kind == "second_moment":
@@ -348,6 +374,7 @@ class CodecChannel(Channel):
     def finish(self, out_dir: Path, seed: int, learner: str) -> None:
         names = [name for name, _part in self.layers]
         summary = {"learner": learner, "seed": seed, "mode": self.mode, "c": self.c,
+                   "dither": self.dither,
                    "layers": names, "totals": dict(self.totals),
                    "scalars": self.scalars, "bits": self.bits}
         if self.mode == "scale":

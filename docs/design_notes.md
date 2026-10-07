@@ -4228,6 +4228,37 @@ contrasts become $K=8$ minus $K=1$. A report against the real results reads the
 reused cells as designed: P5.4's merge gate reproduces at 0.0e+00, and M6's
 centralised filter shows its 0.1391.
 
+**D2 built, 2026-10-07: subtractive dither in the codec.** Two more questions, asked
+and answered: **every mixed kind is dithered** (psi and the optimiser moments, so the
+two frontiers differ in the quantiser alone; the AdamW second moment keeps its
+receiver-side clamp), and the dithered arm runs **the frontier only** — calibrate at
+every c with the rates re-tuned on dithered counts, validate for its own C*, and the
+stationary frontier on the report seeds; C* goes to drift and skew only if dither wins.
+
+- *Mechanism* (`CodecChannel`, `comm.codec_dither`): $\boldsymbol q=\operatorname{round}(\boldsymbol e/\boldsymbol\Delta+\boldsymbol u)$,
+  copy advanced by $(\boldsymbol q-\boldsymbol u)\boldsymbol\Delta$, $\boldsymbol u$ drawn on the
+  CPU in float64 from the learner's own `channel` seed stream (device-independent, as
+  stochastic rounding's). The plain path is untouched line for line.
+- *Reuse:* exact arithmetic is the same with or without dither, so `run_codec.py
+  --dither` reuses the plain arm's uncompressed point, moment scales and every
+  uncompressed twin; dithered cells are named `dc…` and their tables and C* live in
+  `results/codec/<task>/dither/`. The report adds a dithered-against-plain table of
+  $R$ and paired cost at every c.
+- *Tests* pin what dither promises: a constant 0.3-step difference that rounding gets
+  wrong by 0.3 every time comes out with mean ~0 and sd $1/\sqrt{12}$; across 64 senders
+  sending the same difference the dithered errors average down as $1/\sqrt n$ while
+  rounding's stay at 0.3; the same seed reproduces the symbols bit for bit; a
+  sub-half-step difference costs symbols (the entropy price); and the dithered count
+  pass through the simulator sees fewer zeros at the same scalar ledger.
+- *Found on the way, a latent C1 bug:* the simulator seeded the stochastic compressor
+  from a `channel` stream that `Seeds` never declared, so any `stochastic` run would
+  have raised on its first step — none had, and no test had taken the path. The stream
+  is appended (every other stream keeps its value) and a simulator test now runs it.
+- *And a test-environment trap:* the two worktrees share one virtualenv with main
+  installed editable, so pytest in the mg worktree tests main's package unless
+  `PYTHONPATH=src` is set (mg's conftest does not insert it). Every D1 and D2 test was
+  re-run against mg's own package: 317 pass. Scripts were never affected.
+
 ### 🔄 D138. The codec build: every implementation question, answered before the code
 
 Asked and answered 2026-10-03, before any of D137's codec was written (the user: every

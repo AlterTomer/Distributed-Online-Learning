@@ -310,6 +310,7 @@ run, filter and gradient baselines alike.
 | `codec_mode` | str | `count` | `scale`, `count`, `code` | `scale`: exact, measures the moments' per-layer rms; `count`: quantises and pools symbol counts; `code`: the trained tables |
 | `codec_tables` | str \| null | `null` | a JSON path | Required for `code`; trained at the same `codec_c` or the run refuses |
 | `codec_scales` | str \| null | `null` | a JSON path | The moments' scales from the `scale` pass; needed by any learner that mixes moments |
+| `codec_dither` | bool | `false` | `count`, `code` only | Subtractive dither in the codec's quantiser (D2, D139): each learner draws from its own `channel` seed stream, which its receivers share, so it costs no bits; tables trained on dithered counts belong to dithered runs. `scripts/run_codec.py --dither` |
 
 Compression acts inside each learner's mix: every **received** vector is decoded
 from its compressed form, while an agent's own term stays exact. Full sharing's

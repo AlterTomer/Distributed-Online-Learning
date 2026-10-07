@@ -301,7 +301,8 @@ existing runners, not new modules. Built in this order:
 |---|---|---|
 | D1 | **$K$ inner steps and the iterated EKF**: $K\in\{2,5,8\}$ against $K=1$ (decided 2026-10-07), LR re-tuned per $K$, every method; MNIST stationary / skew 0.1 / abrupt, MG stationary / linear $\beta$ / $\tau$ spread; five seeds. $K=1$ reused where it exists exactly (P5.4's stationary cell, M6's stationary and linear), run only for MNIST skew and abrupt and MG's $\tau$ spread. `scripts/run_inner_steps.py` on each branch | **built and smoked** 2026-10-06/07 ([[D139]]); ~75 GPU-h MNIST, ~120 MG (from CPU cost ratios, ±50%) |
 | D1b | **$K=10$** (added 2026-10-07, the user: "we'll look into K=10 again later"): the fourth point of D1's curve, decided once $K\in\{2,5,8\}$ is read. Adding `10` to `KS` in both runners is the whole change; every other cell is cached | ~+80 GPU-h if run on both tasks |
-| D2 | **Subtractive dither** in the codec, judged on the frontier against queue 4's deterministic one | build ~1 day; runs after queue 4 |
+| D2 | **Subtractive dither** in the codec, judged on the frontier against queue 4's deterministic one: every mixed kind dithered, frontier only (calibrate, validate, stationary report frontier), reusing the plain arm's uncompressed point, scales and twins. `scripts/run_codec.py --dither` | **built and smoked** 2026-10-07 ([[D139]]); ~30 GPU-h per task, after queue 4 |
+| D2b | Dither's C* carried to drift and skew / the $\tau$ spread, **only if dither wins** the frontier | as queue 4's report transfer, if run |
 | D3 | **Block-diagonal covariance** (per-neuron main; per-layer and full ablations) **together with a coupled-MG GNN** larger than the MLP and the Transformer: two layers, truncated Jacobian with an exact depth-2 ablation, forward messages counted apart from the codec | build ~1–2 weeks; coupling smoke first |
 
 ---
