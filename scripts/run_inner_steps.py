@@ -18,18 +18,18 @@ centralised learners and over-fit the distributed ones (local SGD's client drift
 
 ## Named before the run (confirmatory under D118)
 
-1. **Do the centralised learners gain from extra passes?** Settled RMSE at $K=10$
+1. **Do the centralised learners gain from extra passes?** Settled RMSE at $K=8$
    minus $K=1$, per seed, for centralised SGD, AdamW and the centralised filter, in
    each cell; Holm across the nine. **Predicted negative.**
 2. **Does decentralisation cost more as $K$ grows?** ATC and ATC AdamW against
    their centralised counterparts, local adapt and one-hop against the centralised
-   filter, at $K=10$ minus at $K=1$, in each cell; Holm across the twelve.
+   filter, at $K=8$ minus at $K=1$, in each cell; Holm across the twelve.
    **Predicted positive**, largest under the $\tau$ spread, where the agents' laws
    differ.
 
 ## The design
 
-$K\in\{1,2,5,10\}$ crossed with three cells (D139): stationary, **linear** $\beta$
+$K\in\{2,5,8\}$, against $K=1$, crossed with three cells (D139): stationary, **linear** $\beta$
 drift (MG's harder drift: +0.0044--0.0108 RMSE in M6 against ~0.005 under the
 reflecting abrupt walk, D106) and M8's per-agent $\tau$ spread (`m_tau_spread`) --
 at M6's scale: ER 0.3, $N=10$, $T=1500$, five seeds, evaluations every 25 steps,
@@ -38,7 +38,11 @@ selections at every $K$** (the X14 discipline, decided 2026-10-06). **The gradie
 learners are re-tuned at every (cell, $K$)** on M3's paired grids, each extended
 one step down -- $K$ steps at rate $\eta$ move about as far as one at $K\eta$.
 M6's $\gamma=0.9995$ reference arms are left out: they are reference lines, not
-methods, and every learner here costs up to ten times its M6 price.
+methods, and every learner here costs up to eight times its M6 price.
+
+**K = 1 is reused where it already exists** (the user, 2026-10-07): M6's
+stationary and linear cells; the $	au$ spread's is run here, since M8 carried six
+of the twelve learners. $K=10$ is a later item (schedule.md, D1b).
 """
 
 from __future__ import annotations
@@ -67,13 +71,25 @@ from dekf_bench.metrics.paired import differences, holm  # noqa: E402
 from dekf_bench.metrics.paired import paired as compare  # noqa: E402
 from dekf_bench.utils.config import load_config  # noqa: E402
 
-KS = [1, 2, 5, 10]
-K_LOW, K_HIGH = 1, 10
+#: K = 1 is the reference every contrast is taken against; K = 10 was cut on
+#: 2026-10-07 (the user: K in {2, 5, 8} now, K = 10 later -- schedule.md, D1b).
+KS = [1, 2, 5, 8]
+K_LOW, K_HIGH = 1, 8
 #: label -> experiment config. Linear, not abrupt: MG's harder drift (D106, D139).
 CELLS = {"stationary": "m_stationary", "linear": "m_linear", "tau_spread": "m_tau_spread"}
 #: M3 selected rates per condition; the tau spread is stationary, so it tunes on
 #: its own cells here exactly as the others do.
 CONDITIONS: list[tuple[str, int]] = [(cell, k) for cell in CELLS for k in KS]
+
+#: K = 1 cells that already exist as exactly this experiment, reused rather than re-run
+#: (the user, 2026-10-07): M6's stationary and linear cells -- the same roster plus
+#: M6's two gamma = 0.9995 reference arms, which share nothing with the other learners
+#: but the data -- at T = 1500, five seeds, M3's rates and M4/M5's filters. M8's tau
+#: spread cell carries six of the twelve learners, so the tau spread's K = 1 runs here.
+REUSED: dict[tuple[str, int], dict[str, str]] = {
+    ("stationary", 1): {"a": "m6_stationary_a", "b": "m6_stationary_b"},
+    ("linear", 1): {"a": "m6_linear_a", "b": "m6_linear_b"},
+}
 
 CENTRAL = "centralized_ekf_walk"
 LOCAL, ONEHOP = "diffusion_ekf", "diffusion_ekf_onehop_mean_receiver"
@@ -100,7 +116,16 @@ def lr_run_name(cond: str, index: int, suffix: str = "") -> str:
 
 
 def cell_name(cond: str, group: str, suffix: str = "") -> str:
+    """The run that holds this (cell, K, group): a reused one at K = 1 where it exists.
+    Smokes never reuse -- they prove this runner's own path."""
+    cell, k = cond.rsplit("_k", 1)
+    if not suffix and (cell, int(k)) in REUSED:
+        return REUSED[(cell, int(k))][group]
     return f"ins_{cond}_{group}{suffix}"
+
+
+def is_reused(cell: str, k: int, suffix: str = "") -> bool:
+    return not suffix and (cell, k) in REUSED
 
 
 def rate_of(learner: str, index: int) -> float:
@@ -158,7 +183,8 @@ def save_status(status: dict) -> None:
 def tune(args, model_override: dict, suffix: str) -> int:
     status = load_status()
     seeds = args.seeds if suffix else LR_SEEDS
-    runs = [(cell, k, i) for cell, k in CONDITIONS for i in range(len(SGD_RATES))]
+    runs = [(cell, k, i) for cell, k in CONDITIONS if not is_reused(cell, k, suffix)
+            for i in range(len(SGD_RATES))]
     print(f"D1 lr{' SMOKE' if suffix else ''}: {len(CONDITIONS)} (cell, K) x "
           f"{len(SGD_RATES)} paired rates at {len(seeds)} seed(s)\n", flush=True)
     started = time.time()
@@ -178,7 +204,7 @@ def tune(args, model_override: dict, suffix: str) -> int:
     names = [*SGD_FAMILY, *ADAMW_FAMILY]
     print(f"  {'cell':>16}" + "".join(f"{n:>24}" for n in names))
     for cell, k in CONDITIONS:
-        rates = selected_rates(label(cell, k), suffix)
+        rates = None if is_reused(cell, k, suffix) else selected_rates(label(cell, k), suffix)
         if rates:
             edge = [n for n in names if rates[n] in (rate_of(n, 0), rate_of(n, len(SGD_RATES) - 1))]
             print(f"  {label(cell, k):>16}" + "".join(f"{rates[n]:>24g}" for n in names)
@@ -205,19 +231,25 @@ def main(argv: list[str] | None = None) -> int:
         return tune(args, model_override, suffix)
 
     unswept = [lr_run_name(label(c, k), i, suffix) for c, k in CONDITIONS
-               for i in range(len(SGD_RATES))
+               if not is_reused(c, k, suffix) for i in range(len(SGD_RATES))
                if not any((ROOT / "results" / lr_run_name(label(c, k), i, suffix) / m).exists()
                           for m in ("_complete", "_diverged"))]
     if unswept:
         print(f"  REFUSED: {len(unswept)} lr cell(s) never ran, e.g. {unswept[0]}.")
         print(f"  Run --lr{' --smoke' if suffix else ''} first; completed cells are cached.")
         return 1
+    missing = [name for groups in REUSED.values() if not suffix for name in groups.values()
+               if not (ROOT / "results" / name / "_complete").exists()]
+    if missing:
+        print(f"  REFUSED: the reused K = 1 run(s) {missing} are not complete on disk.")
+        return 1
     centralised, diffusion, _m3 = load_settings(args.smoke)
     if args.smoke:
         centralised = diffusion = SMOKE_FILTER
 
     # Cheapest first, so a stopped queue leaves the most comparable cells on disk.
-    cells = [(c, k, g) for k in KS for c in CELLS for g in GROUPS]
+    cells = [(c, k, g) for k in KS for c in CELLS for g in GROUPS
+             if not is_reused(c, k, suffix)]
     print(f"D1{' SMOKE' if suffix else ''}: {len(cells)} cells at {len(args.seeds)} seeds, "
           f"T={args.horizon}, device {args.device}\n", flush=True)
     status = load_status()
@@ -329,12 +361,12 @@ def report(suffix: str = "") -> None:
         return result if result is not None and result.n >= 2 else None
 
     centralised = [CENTRAL, "centralized_sgd", "centralized_adamw"]
-    _table("Q1 [confirmatory]: centralised learners, K=10 minus K=1",
+    _table("Q1 [confirmatory]: centralised learners, K=8 minus K=1",
            ["negative = extra passes help. Predicted negative."],
            [(f"{c} {cell}", gain(c, cell)) for c in centralised for cell in CELLS])
     pairs = [("diffusion_sgd_atc", "centralized_sgd"),
              ("diffusion_atc_adamw", "centralized_adamw"), (LOCAL, CENTRAL), (ONEHOP, CENTRAL)]
-    _table("Q2 [confirmatory]: gap to the family's centralised learner, K=10 minus K=1",
+    _table("Q2 [confirmatory]: gap to the family's centralised learner, K=8 minus K=1",
            ["positive = decentralisation costs more with more passes. Predicted positive,",
             "largest under the tau spread."],
            [(f"{d} {cell}", gap_change(d, c, cell)) for d, c in pairs for cell in CELLS])
@@ -344,7 +376,7 @@ def report(suffix: str = "") -> None:
         _table(f"exploratory: gap to the family's centralised learner, K={k} minus K=1",
                ["the intermediate K: where the curve bends."],
                [(f"{d} {cell}", gap_change(d, c, cell, k)) for d, c in pairs for cell in CELLS])
-    _table("exploratory: local learners and full sharing, K=10 minus K=1",
+    _table("exploratory: local learners and full sharing, K=8 minus K=1",
            ["no combine at all, and the covariance-sharing filters."],
            [(f"{d} {cell}", gain(d, cell))
             for d in ["local_only", "local_adamw", *GROUP_B_FILTERS] for cell in CELLS])
