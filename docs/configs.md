@@ -549,6 +549,7 @@ Shared fields:
 | `combine_exponent` | float | `1.0` | `[1, 2]` | `P <- sum a^beta P`. `1` is the conservative bound, `2` what independent errors give. Costs no communication |
 | `freeze_after` | int \| null | `null` | ≥ 1 | Stop adapting *and* transmitting at this step |
 | `inner_steps` | int | `1` | ≥ 1 | $K$ passes over each step's batch before the combine (D139): $K$ optimiser steps for the gradient learners, $K$ Gauss–Newton relinearisations for the filters (the iterated EKF, covariance from the last linearisation, undamped). One combine per step, so no extra communication. Refused by CTA and by a `sender`-point one-hop filter, which have nothing to take a second pass from. Not `adapt_rounds`, which counts hops |
+| `covariance_blocks` | str | `full` | `full`, `neuron`, `layer`, `tensor` | The filters' covariance structure (D3, D139): `full` is dense; the rest are block-diagonal, `neuron` the decoupled EKF (each output unit's incoming weights and bias; other tensors one block each). Gain shared, mean exact for the block prior, cross-block covariance dropped. Inert for the gradient learners |
 | `transition` | str | `identity` | `identity`, `scalar` | Phase 5; $\boldsymbol F_t$ |
 | `gamma` | float | `1.0` | $(0,1]$ | Phase 5; $\boldsymbol F_t = \gamma\boldsymbol I$ under `scalar` |
 | `forgetting` | str | `lambda` | `lambda`, `process_noise` | Phase 5; how $\boldsymbol P$ is loosened |
@@ -729,6 +730,7 @@ learner.mix_optimizer_state   none | momentum | all
 learner.adapt_scope       local | one_hop
 learner.adapt_rounds      >= 1 (one_hop only)
 learner.inner_steps       >= 1 (K passes per step; not CTA, not a sender one-hop)
+learner.covariance_blocks full | neuron | layer | tensor (filters)
 learner.covariance_sharing  full | local
 learner.linearization_point  sender | receiver (one_hop only)
 learner.combine_exponent  1.0 .. 2.0

@@ -45,11 +45,17 @@ def scoreable(learner: Any) -> bool:
 def predictive(model: Any, theta: torch.Tensor, covariance: torch.Tensor,
                x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     r"""$\bm h(\bm\theta)$ and $\bm H\bm P\bm H^{\mathsf T}$ on ``x``, Jacobians in chunks."""
+    from dekf_bench.learners.ekf import BlockCovariance  # noqa: PLC0415
+
     params = model.unflatten(theta)
     logits = model.forward(params, x)
     blocks = []
     for start in range(0, x.shape[0], JACOBIAN_CHUNK):
         jacobians = model.per_sample_jacobian(params, x[start:start + JACOBIAN_CHUNK])
+        if isinstance(covariance, BlockCovariance):
+            # Block by block (D3): never the p x p it stands in for.
+            blocks.append(covariance.quadratic(jacobians))
+            continue
         # (n, q, p) @ (p, p) first, then against H again: one p x p product per chunk.
         projected = torch.einsum("nqp,pr->nqr", jacobians, covariance)
         blocks.append(torch.einsum("nqr,nsr->nqs", projected, jacobians))

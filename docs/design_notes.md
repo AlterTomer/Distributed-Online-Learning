@@ -4259,6 +4259,35 @@ stationary frontier on the report seeds; C* goes to drift and skew only if dithe
   `PYTHONPATH=src` is set (mg's conftest does not insert it). Every D1 and D2 test was
   re-run against mg's own package: 317 pass. Scripts were never affected.
 
+**D3a built, 2026-10-07: the block-diagonal covariance.** D3 is split in three: D3a
+the covariance structure (testable now, where the full covariance still fits), D3b the
+coupled-MG data and a coupling smoke, D3c the GNN and its learners. Three questions
+were asked and answered first: **a tensor that is not a neuron is one block** (the
+Transformer's LayerNorm gains and biases; it has no learned positional table); the
+ablation runs **stationary plus each task's harder drift** (MNIST abrupt, MG linear),
+every filter variant, five seeds; and the filters **carry the full covariance's
+selection** under every structure.
+
+- *Mechanism* (`learner.covariance_blocks`, `ekf.BlockCovariance`): the decoupled EKF
+  — one shared gain, the mean exact for a block prior (low rank, never $p\times p$),
+  each block's posterior kept and the cross-block terms dropped. `woodbury_update`
+  dispatches on the type, so the iterated EKF and both filters use it unchanged; the
+  full-sharing combine mixes block by block, which is exact; full sharing is priced
+  at the blocks' upper triangles. A neuron is an output unit of a 2-D weight with its
+  bias entry: the MLP has 14 blocks of 197 and 10 of 15, the Transformer 133 of 2–33.
+- *Tests:* a single all-covering block equals the dense update; under a block prior
+  the mean equals the dense update's and the covariance equals the dense posterior on
+  the blocks and zero off them (which are not zero in the dense one); the products,
+  the closure of the combine, a checkpoint round trip, the iterated update on blocks,
+  and the complete-graph identity with neuron blocks for both receiver one-hop
+  variants. Every pre-existing test passes, so `full` is untouched.
+- *Runner:* `scripts/run_covariance_blocks.py` on each branch, D1's cells at $K=1$
+  with the full covariance **reused** (P5.4 and D1's abrupt $K=1$ cell on MNIST, M6
+  on MG). Named before the run: neuron minus full per filter and cell, Holm across
+  ten, no direction predicted, the size read against 0.002. On CPU a neuron-block
+  filter cell runs about six times faster than the full one; layer blocks barely
+  faster, since one layer holds most of the parameters.
+
 ### 🔄 D138. The codec build: every implementation question, answered before the code
 
 Asked and answered 2026-10-03, before any of D137's codec was written (the user: every

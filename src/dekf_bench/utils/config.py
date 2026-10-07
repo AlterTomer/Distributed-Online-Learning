@@ -380,6 +380,10 @@ class LearnerConfig:
     #: way, so communication does not change. 1 is every run before D139, exactly.
     #: Not to be confused with `adapt_rounds`, which counts *hops* of information.
     inner_steps: int = 1
+    #: The filters' covariance structure (D3, D139): "full" is the dense p x p of every
+    #: run before D3; "neuron" (the decoupled EKF, the main variant), "layer" and
+    #: "tensor" are block-diagonal. Inert for the gradient learners.
+    covariance_blocks: str = "full"
 
     # --- phase 5 state model; inert for the SGD learners ------------------- #
     #: F_t. "identity" is a driftless random walk; "scalar" makes F_t = gamma*I,
@@ -464,6 +468,10 @@ class LearnerConfig:
                     "could not be honoured. Freeze a diffusion or local learner instead -- "
                     "'frozen_atc' is the intended baseline."
                 )
+        if self.covariance_blocks not in ("full", "neuron", "layer", "tensor"):
+            raise ConfigError(
+                f"learner[{self.name}].covariance_blocks must be full, neuron, layer or tensor, "
+                f"got {self.covariance_blocks!r}")
         if self.inner_steps < 1:
             raise ConfigError(
                 f"learner[{self.name}].inner_steps must be >= 1, got {self.inner_steps}. "

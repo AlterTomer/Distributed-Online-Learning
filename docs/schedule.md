@@ -304,6 +304,9 @@ existing runners, not new modules. Built in this order:
 | D2 | **Subtractive dither** in the codec, judged on the frontier against queue 4's deterministic one: every mixed kind dithered, frontier only (calibrate, validate, stationary report frontier), reusing the plain arm's uncompressed point, scales and twins. `scripts/run_codec.py --dither` | **built and smoked** 2026-10-07 ([[D139]]); ~30 GPU-h per task, after queue 4 |
 | D2b | Dither's C* carried to drift and skew / the $\tau$ spread, **only if dither wins** the frontier | as queue 4's report transfer, if run |
 | D3 | **Block-diagonal covariance** (per-neuron main; per-layer and full ablations) **together with a coupled-MG GNN** larger than the MLP and the Transformer: two layers, truncated Jacobian with an exact depth-2 ablation, forward messages counted apart from the codec | build ~1–2 weeks; coupling smoke first |
+| D3a | **The block covariance** (`covariance_blocks`) and its ablation against the full one: neuron and layer blocks, every filter, MNIST stationary + abrupt and MG stationary + linear, full reused. `scripts/run_covariance_blocks.py` on each branch | **built and smoked** 2026-10-07 ([[D139]]); ~3 GPU-h MNIST, ~6 MG |
+| D3b | The coupled Mackey–Glass network: a joint integrator, and a smoke choosing the coupling (neighbours informative, network not synchronised) | next |
+| D3c | The GNN model on it, its forward-pass messages, and the learners | after D3b |
 
 ---
 

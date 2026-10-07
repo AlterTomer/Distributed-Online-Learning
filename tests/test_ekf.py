@@ -545,3 +545,151 @@ def test_the_centralised_filter_iterates_through_its_own_update() -> None:
 def test_zero_iterations_are_refused() -> None:
     with pytest.raises(FilterError, match="inner_steps"):
         _filter(MLP(**SMALL), Categorical(output_dim=4), inner_steps=0)
+
+
+# -- the block-diagonal covariance (D3) ---------------------------------------- #
+
+
+def _blocks(model: MLP, structure: str):
+    from dekf_bench.learners.ekf import parameter_blocks
+
+    return parameter_blocks(model, structure)
+
+
+@pytest.mark.parametrize("structure", ["neuron", "layer", "tensor"])
+def test_every_parameter_is_in_exactly_one_block(structure: str) -> None:
+    model = MLP(**SMALL)
+    covered = torch.cat(_blocks(model, structure)).sort().values
+    assert torch.equal(covered, torch.arange(model.num_params))
+
+
+def test_the_mlps_neurons_are_its_output_units() -> None:
+    """6x6 inputs, 5 hidden, 4 out: five blocks of 36 + 1 and four of 5 + 1."""
+    model = MLP(**SMALL)
+    sizes = sorted(int(b.numel()) for b in _blocks(model, "neuron"))
+    assert sizes == [6] * 4 + [37] * 5
+    assert len(_blocks(model, "layer")) == 2 and len(_blocks(model, "tensor")) == 4
+    # A neuron block is one row of the weight matrix and that unit's bias.
+    first = _blocks(model, "neuron")[0]
+    assert torch.equal(first, torch.cat([torch.arange(36), torch.tensor([5 * 36])]))
+
+
+def _prior(model: MLP, structure: str, seed: int = 0):
+    """A random SPD block-diagonal prior, as a BlockCovariance and as its dense twin."""
+    from dekf_bench.learners.ekf import BlockCovariance
+
+    cov = BlockCovariance.identity(_blocks(model, structure), 0.02, torch.float64, "cpu")
+    generator = torch.Generator().manual_seed(seed)
+    for _index, blocks in cov.groups:
+        noise = torch.randn(blocks.shape, generator=generator, dtype=torch.float64) * 0.01
+        blocks += noise @ noise.transpose(-1, -2)
+    return cov, cov.dense()
+
+
+def test_one_block_is_the_full_update() -> None:
+    """A single block covering every parameter must be the dense Woodbury update."""
+    from dekf_bench.learners.ekf import BlockCovariance, information_pair, woodbury_update
+
+    model = MLP(**SMALL)
+    likelihood = Categorical(output_dim=4)
+    x, y = _batch(model)
+    mean = model.flatten(model.init_params(torch.Generator().manual_seed(0)))
+    whole = BlockCovariance.identity([torch.arange(model.num_params)], 0.01, torch.float64, "cpu")
+    stacked, score = information_pair(model, likelihood, mean, x, y)
+    dense = woodbury_update(mean, whole.dense(), stacked, score)
+    block = woodbury_update(mean, whole, stacked, score)
+    assert torch.allclose(block[0], dense[0], atol=1e-12)
+    assert torch.allclose(block[1].dense(), dense[1], atol=1e-12)
+
+
+@pytest.mark.parametrize("structure", ["neuron", "layer"])
+def test_the_block_update_is_the_decoupled_ekf(structure: str) -> None:
+    """Under a block-diagonal prior the mean is the full filter's exactly, and the
+    covariance is the full posterior with its cross-block terms dropped."""
+    from dekf_bench.learners.ekf import information_pair, woodbury_update
+
+    model = MLP(**SMALL)
+    likelihood = Categorical(output_dim=4)
+    x, y = _batch(model)
+    mean = model.flatten(model.init_params(torch.Generator().manual_seed(0)))
+    cov, dense = _prior(model, structure)
+    stacked, score = information_pair(model, likelihood, mean, x, y)
+    full_mean, full_cov = woodbury_update(mean, dense, stacked, score)
+    block_mean, block_cov = woodbury_update(mean, cov, stacked, score)
+    assert torch.allclose(block_mean, full_mean, atol=1e-12)
+    mask = cov.dense() != 0
+    assert torch.allclose(block_cov.dense()[mask], full_cov[mask], atol=1e-12)
+    assert bool((block_cov.dense()[~mask] == 0).all())
+    assert not torch.allclose(full_cov[~mask], torch.zeros_like(full_cov[~mask]))
+
+
+def test_the_products_match_the_dense_matrix() -> None:
+    model = MLP(**SMALL)
+    cov, dense = _prior(model, "neuron")
+    generator = torch.Generator().manual_seed(5)
+    vector = torch.randn(model.num_params, generator=generator, dtype=torch.float64)
+    matrix = torch.randn(model.num_params, 7, generator=generator, dtype=torch.float64)
+    jac = torch.randn(3, 4, model.num_params, generator=generator, dtype=torch.float64)
+    assert torch.allclose(cov.matmul(vector), dense @ vector, atol=1e-12)
+    assert torch.allclose(cov.matmul(matrix), dense @ matrix, atol=1e-12)
+    assert torch.allclose(cov.quadratic(jac), torch.einsum("nqp,pr,nsr->nqs", jac, dense, jac),
+                          atol=1e-12)
+    assert torch.equal(cov.diagonal(), dense.diagonal())
+    assert cov.upper_entries == sum(int(b.numel()) * (int(b.numel()) + 1) // 2
+                                    for b in _blocks(model, "neuron"))
+
+
+def test_the_combine_is_closed_on_blocks() -> None:
+    """A weighted sum of block-diagonal matrices is the same sum, block by block."""
+    from dekf_bench.learners.ekf import BlockCovariance
+
+    model = MLP(**SMALL)
+    (a, da), (b, db) = _prior(model, "neuron", 0), _prior(model, "neuron", 1)
+    mixed = BlockCovariance.weighted_sum([(0.25, a), (0.75, b)]).symmetrised()
+    assert torch.allclose(mixed.dense(), 0.25 * da + 0.75 * db, atol=1e-14)
+
+
+def test_a_block_filter_runs_and_is_smaller() -> None:
+    model = MLP(**SMALL)
+    likelihood = Categorical(output_dim=4)
+    x, y = _batch(model)
+    filt = _filter(model, likelihood, transition="scalar", gamma=0.999, process_noise_q=1e-5,
+                   covariance_blocks="neuron")
+    for step in range(3):
+        filt.adapt_pooled(*_batch(model, seed=step))
+    stored = sum(int(blocks.numel()) for _i, blocks in filt.covariance.groups)
+    assert stored < model.num_params ** 2 / 4
+    assert filt.summary()["covariance_blocks"] == "neuron"
+    assert bool(torch.isfinite(filt.flat_params(0)).all())
+    spread = filt.logit_covariance(0, x)
+    assert spread.shape == (x.shape[0], 4, 4)
+
+
+def test_the_iterated_filter_iterates_on_blocks() -> None:
+    from dekf_bench.learners.ekf import iterated_update, woodbury_update
+
+    model = MLP(**SMALL)
+    likelihood = Categorical(output_dim=4)
+    x, y = _batch(model)
+    mean = model.flatten(model.init_params(torch.Generator().manual_seed(0)))
+    cov, _dense = _prior(model, "neuron")
+    once = iterated_update(_pair(model, likelihood, x, y), mean, cov, 1)
+    stacked, score = _pair(model, likelihood, x, y)(mean)
+    plain = woodbury_update(mean, cov, stacked, score)
+    assert torch.equal(once[0], plain[0])
+    three = iterated_update(_pair(model, likelihood, x, y), mean, cov, 3)
+    assert not torch.allclose(three[0], once[0], atol=1e-8)
+
+
+def test_a_block_covariance_survives_a_checkpoint(tmp_path) -> None:
+    model = MLP(**SMALL)
+    cov, dense = _prior(model, "neuron")
+    path = tmp_path / "cov.pt"
+    torch.save({"P": cov.clone()}, path)
+    restored = torch.load(path, map_location="cpu", weights_only=False)["P"]
+    assert torch.equal(restored.dense(), dense)
+
+
+def test_an_unknown_structure_is_refused() -> None:
+    with pytest.raises(FilterError, match="covariance_blocks"):
+        _filter(MLP(**SMALL), Categorical(output_dim=4), covariance_blocks="diagonal")

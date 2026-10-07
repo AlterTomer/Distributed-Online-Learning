@@ -165,6 +165,27 @@ step, about an hour of pure inversion per seed. Woodbury inverts a
 $360\times360$ instead and leaves $O(p^2q')$ as the dominant term. Same answer,
 three orders of magnitude cheaper.
 
+### A block-diagonal covariance: `covariance_blocks` (D3, D139)
+
+`full` is the dense $p\times p$ of every run before D3. `neuron` (the main variant,
+the decoupled EKF of Puskorius & Feldkamp 1991), `layer` and `tensor` hold a
+`BlockCovariance`: $\boldsymbol P=\operatorname{blockdiag}(\boldsymbol P_1,\dots,\boldsymbol P_B)$,
+stacked by block size. A neuron is an output unit of a 2-D weight with its bias
+entry; every other tensor (a LayerNorm's gain or bias) is one block. The MLP has 14
+blocks of 197 and 10 of 15; the Transformer 133 blocks of 2 to 33.
+
+The update keeps the full filter's gain — $\boldsymbol S=\boldsymbol I+\bar{\boldsymbol B}^{\top}\boldsymbol P\bar{\boldsymbol B}$
+couples every block — and its **mean is exact for a block-diagonal prior**,
+$\boldsymbol m+\boldsymbol P\boldsymbol s-\boldsymbol P\bar{\boldsymbol B}\boldsymbol S^{-1}(\boldsymbol P\bar{\boldsymbol B})^{\top}\boldsymbol s$,
+low rank and never $p\times p$. What it drops is each posterior covariance's
+cross-block terms: $\boldsymbol P_b\leftarrow\boldsymbol P_b-(\boldsymbol P_b\bar{\boldsymbol B}_b)\boldsymbol S^{-1}(\boldsymbol P_b\bar{\boldsymbol B}_b)^{\top}$.
+That truncation is the whole approximation; tests assert the mean equals the dense
+update under a block prior and the covariance equals the dense posterior on the
+blocks and zero off them. **Block-diagonal is closed under both combines** (a convex
+combination, by $a$ or $a^\beta$, of matrices with the same blocks), so the diffusion
+step stays exact, full sharing sends $\sum_b s_b(s_b+1)/2$ scalars, and the
+complete-graph identity holds with blocks. The iterated update works unchanged.
+
 ### Iterating the update: `inner_steps` (D139)
 
 With `inner_steps` $=J>1$ the update is the **iterated EKF**: $J$ Gauss–Newton steps

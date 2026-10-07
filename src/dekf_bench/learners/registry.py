@@ -229,6 +229,7 @@ def _build_diffusion_ekf(
         combine_exponent=getattr(learner_config, "combine_exponent", 1.0),
         information_exponent=getattr(learner_config, "information_exponent", 0.0),
         inner_steps=getattr(learner_config, "inner_steps", 1),
+        covariance_blocks=getattr(learner_config, "covariance_blocks", "full"),
     )
 
 def _build_centralized_ekf(
@@ -309,6 +310,7 @@ def _build_centralized_ekf(
             learner_config, "trust_region_ratio", TRUST_REGION_RATIO
         ),
         inner_steps=getattr(learner_config, "inner_steps", 1),
+        covariance_blocks=getattr(learner_config, "covariance_blocks", "full"),
     )
 
 
