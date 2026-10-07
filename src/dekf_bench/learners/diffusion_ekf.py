@@ -91,10 +91,16 @@ import torch
 from dekf_bench.compression import Channel, exact_channel
 from dekf_bench.learners.base import Intermediate, LearnerState
 from dekf_bench.learners.ekf import (
+    COVARIANCE_BLOCKS,
     TRUST_REGION_RATIO,
+    BlockCovariance,
     FilterError,
+    add_diagonal,
     information_pair,
+    initial_covariance,
     iterated_update,
+    parameter_blocks,
+    quadratic,
 )
 from dekf_bench.models.base import Model
 
@@ -133,10 +139,14 @@ class DiffusionEKF:
         information_exponent: float = 0.0,
         linearization_point: str = "sender",
         inner_steps: int = 1,
+        covariance_blocks: str = "full",
         **_ignored: Any,
     ) -> None:
         if inner_steps < 1:
             raise FilterError(f"inner_steps must be >= 1, got {inner_steps}")
+        if covariance_blocks not in COVARIANCE_BLOCKS:
+            raise FilterError(
+                f"covariance_blocks must be one of {COVARIANCE_BLOCKS}, got {covariance_blocks!r}")
         if inner_steps > 1 and adapt_scope == "one_hop" and linearization_point == "sender":
             raise FilterError(
                 "inner_steps > 1 needs linearization_point='receiver' under a one-hop adapt. "
@@ -188,6 +198,14 @@ class DiffusionEKF:
         #: (`iterated_update`, D139). Inside adapt, so the combine -- and with it
         #: every message -- is unchanged. Not `adapt_rounds`, which counts hops.
         self.inner_steps = inner_steps
+        #: The covariance's structure (D3), as the centralised filter's.
+        self.covariance_blocks = covariance_blocks
+        #: Scalars in one covariance message under full sharing: the upper triangle,
+        #: of the whole matrix or of every block.
+        self._covariance_entries = (
+            model.num_params * (model.num_params + 1) // 2 if covariance_blocks == "full"
+            else sum(int(b.numel()) * (int(b.numel()) + 1) // 2
+                     for b in parameter_blocks(model, covariance_blocks)))
         self.combine_exponent = combine_exponent
         self.information_exponent = information_exponent
         self._reach: torch.Tensor | None = None
@@ -267,7 +285,7 @@ class DiffusionEKF:
         p = self.model.num_params
         per_direction = p
         if self.covariance_sharing == "full":
-            per_direction += p * (p + 1) // 2
+            per_direction += self._covariance_entries
         if self.adapt_scope == "one_hop":
             first = self._batch_scalars + (p if self.linearization_point == "sender" else 0)
             per_direction += self.adapt_rounds * first
@@ -280,7 +298,7 @@ class DiffusionEKF:
         p, links = self.model.num_params, 2 * n_edges
         payload = {"vectors": p * links}
         if self.covariance_sharing == "full":
-            payload["covariance"] = p * (p + 1) // 2 * links
+            payload["covariance"] = self._covariance_entries * links
         if self.adapt_scope == "one_hop":
             payload["data"] = self.adapt_rounds * self._batch_scalars * links
             if self.linearization_point == "sender":
@@ -314,10 +332,8 @@ class DiffusionEKF:
         self._states = {
             node: LearnerState(
                 theta=theta0.clone(),
-                extras={
-                    "P": torch.eye(theta0.numel(), dtype=theta0.dtype, device=theta0.device)
-                    * self.prior_scale
-                },
+                extras={"P": initial_covariance(self.model, self.covariance_blocks,
+                                                self.prior_scale, theta0)},
             )
             for node in range(self._n_nodes)
         }
@@ -440,7 +456,14 @@ class DiffusionEKF:
         combined_mean = self.channel.mix(mixing, stacked_psi, kind="psi")
 
         combined_cov: dict[int, torch.Tensor] = {}
-        if self.covariance_sharing == "full":
+        if self.covariance_sharing == "full" and self.covariance_blocks != "full":
+            # Block-diagonal is closed under the combine: the same blocks, mixed one by
+            # one with a^beta (D3) -- exact, where the measurement update is not.
+            for row, node in enumerate(order):
+                terms = [(float(mixing[row, column]) ** self.combine_exponent, cov_psi[other])
+                         for column, other in enumerate(order) if float(mixing[row, column]) != 0.0]
+                combined_cov[node] = BlockCovariance.weighted_sum(terms).symmetrised()
+        elif self.covariance_sharing == "full":
             for row, node in enumerate(order):
                 total = torch.zeros_like(cov_psi[node])
                 for column, other in enumerate(order):
@@ -636,7 +659,7 @@ class DiffusionEKF:
         if self.lambda_forget < 1.0:
             state.extras["P"] = state.extras["P"] / self.lambda_forget
         if self.process_noise_q > 0.0:
-            state.extras["P"].diagonal().add_(self.process_noise_q)
+            add_diagonal(state.extras["P"], self.process_noise_q)
 
     # -- guards ------------------------------------------------------------- #
 
@@ -723,7 +746,7 @@ class DiffusionEKF:
         r"""$\bm H_v\bm P_v\bm H_v^{\mathsf T}$ per sample, at agent ``node``."""
         params = self.model.unflatten(self.flat_params(node))
         jacobians = self.model.per_sample_jacobian(params, x)
-        return torch.einsum("nqp,pr,nsr->nqs", jacobians, self.covariance(node), jacobians)
+        return quadratic(jacobians, self.covariance(node))
 
     def summary(self) -> dict[str, Any]:
         self._check_initialised()
@@ -734,6 +757,7 @@ class DiffusionEKF:
             "linearization_point": self.linearization_point,
             "adapt_rounds": self.adapt_rounds,
             "inner_steps": self.inner_steps,
+            "covariance_blocks": self.covariance_blocks,
             "combine_exponent": self.combine_exponent,
             "information_exponent": self.information_exponent,
             "transition": self.transition,

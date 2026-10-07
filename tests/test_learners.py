@@ -1322,3 +1322,76 @@ def test_the_complete_graph_identity_survives_iteration(
                                   atol=1e-10)
     # And iterating did something, or the identity above would hold vacuously.
     assert not torch.allclose(centralized.flat_params(0), plain.flat_params(0), atol=1e-8)
+
+
+# =========================================================================== #
+# the block-diagonal covariance (D3)
+# =========================================================================== #
+
+
+@pytest.mark.parametrize("name", ["diffusion_ekf_onehop_receiver",
+                                  "diffusion_ekf_onehop_mean_receiver"])
+def test_the_complete_graph_identity_holds_with_blocks(
+    model: MLP, likelihood: Categorical, name: str
+) -> None:
+    """prop:complete_graph with neuron blocks: on K_n every agent applies the same
+    block update to the same pooled batch from the same block prior, and the
+    block-wise combine of identical blocks changes nothing -- so the identity is exact."""
+    from dekf_bench.learners.ekf import CentralizedEKF
+
+    theta0 = _theta0(model)
+    diffusion = _diffusion_ekf(model, likelihood, name, covariance_blocks="neuron")
+    diffusion.init(theta0)
+    centralized = CentralizedEKF(
+        name="centralized_ekf_walk", model=model, likelihood=likelihood, n_nodes=N_NODES,
+        transition="scalar", gamma=1.0, prior_scale=0.01, covariance_blocks="neuron",
+    )
+    centralized.init(theta0)
+    for step in range(3):
+        observations = [observation(model, node=node, n=2) for node in range(N_NODES)]
+        diffusion.combine(
+            {node: diffusion.adapt(node, obs) for node, obs in enumerate(observations)},
+            _uniform_weights(N_NODES),
+        )
+        centralized.adapt_pooled(torch.cat([obs.x for obs in observations]),
+                                 torch.cat([obs.y for obs in observations]))
+        for node in range(N_NODES):
+            assert torch.allclose(diffusion.flat_params(node), centralized.flat_params(0),
+                                  atol=1e-10), f"agent {node} left the mean at step {step}"
+            assert torch.allclose(diffusion.covariance(node).dense(),
+                                  centralized.covariance.dense(), atol=1e-10)
+
+
+def test_full_sharing_with_blocks_mixes_and_prices_the_blocks(
+    model: MLP, likelihood: Categorical
+) -> None:
+    """On a ring the block-wise combine must equal the dense combine of the dense
+    blocks, and a covariance message costs the blocks' upper triangles, not p(p+1)/2."""
+    from dekf_bench.learners.ekf import parameter_blocks
+
+    learner = _diffusion_ekf(model, likelihood, "diffusion_ekf_full", covariance_blocks="neuron")
+    learner.init(_theta0(model))
+    weights = _ring_weights(N_NODES)
+    intermediates = {node: learner.adapt(node, observation(model, node=node, n=2))
+                     for node in range(N_NODES)}
+    before = {node: learner.state(node).extras["P"].dense() for node in range(N_NODES)}
+    learner.combine(intermediates, weights)
+    for row in range(N_NODES):
+        expected = sum(float(weights[row, col]) * before[col] for col in range(N_NODES)
+                       if float(weights[row, col]) != 0.0)
+        assert torch.allclose(learner.covariance(row).dense(), expected, atol=1e-12)
+    entries = sum(int(b.numel()) * (int(b.numel()) + 1) // 2
+                  for b in parameter_blocks(model, "neuron"))
+    p = model.num_params
+    assert learner.comm_payload(5)["covariance"] == entries * 10
+    assert entries < p * (p + 1) // 2
+
+
+def test_the_registry_carries_the_structure(model: MLP, likelihood: Categorical) -> None:
+    config = load_config("x1_stationary", overrides={"learners": [
+        {"name": "centralized_ekf_walk", "transition": "scalar", "covariance_blocks": "layer"},
+        {"name": "diffusion_ekf", "transition": "scalar", "covariance_blocks": "neuron"},
+    ]})
+    learners = build_learners(config, model, likelihood)
+    assert learners["centralized_ekf_walk"].covariance_blocks == "layer"
+    assert learners["diffusion_ekf"].covariance_blocks == "neuron"

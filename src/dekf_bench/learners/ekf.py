@@ -88,6 +88,249 @@ def information_pair(
     return stacked, score
 
 
+# --------------------------------------------------------------------------- #
+# the block-diagonal covariance (D3, D139)
+# --------------------------------------------------------------------------- #
+
+#: `covariance_blocks`: "full" is the dense p x p of every run before D3; the rest are
+#: block-diagonal, grouped by neuron (the decoupled EKF of Puskorius & Feldkamp 1991),
+#: by layer (a module: weight and bias together) or by tensor.
+COVARIANCE_BLOCKS = ("full", "neuron", "layer", "tensor")
+
+
+def parameter_blocks(model: Model, structure: str) -> list[torch.Tensor]:
+    r"""The flat indices of every block, in parameter order.
+
+    ``neuron``: a 2-D ``<m>.weight`` of shape (out, in) gives ``out`` blocks, row $i$
+    with ``<m>.bias[i]`` when the bias exists -- one output unit's incoming weights and
+    its bias. Every other tensor (a LayerNorm's gain or bias, a lone vector) is one block
+    (decided 2026-10-07). ``layer``: one block per module, weight and bias together.
+    ``tensor``: one block per tensor. Every index appears in exactly one block.
+    """
+    if structure not in COVARIANCE_BLOCKS[1:]:
+        raise FilterError(f"block structure must be one of {COVARIANCE_BLOCKS[1:]}, got {structure!r}")
+    offsets, start = {}, 0
+    for name, shape in zip(model.names, model.shapes, strict=True):
+        size = int(torch.Size(shape).numel())
+        offsets[name] = (start, tuple(shape))
+        start += size
+    blocks: list[torch.Tensor] = []
+    if structure == "tensor":
+        return [torch.arange(o, o + int(torch.Size(s).numel())) for o, s in offsets.values()]
+    if structure == "layer":
+        modules: dict[str, list[torch.Tensor]] = {}
+        for name, (o, s) in offsets.items():
+            modules.setdefault(name.rsplit(".", 1)[0], []).append(
+                torch.arange(o, o + int(torch.Size(s).numel())))
+        return [torch.cat(parts) for parts in modules.values()]
+    used: set[str] = set()
+    for name, (o, s) in offsets.items():
+        if name in used:
+            continue
+        module, leaf = name.rsplit(".", 1) if "." in name else ("", name)
+        bias = f"{module}.bias" if module else "bias"
+        if leaf == "weight" and len(s) == 2:
+            out, fan_in = s
+            rows = o + torch.arange(out)[:, None] * fan_in + torch.arange(fan_in)[None, :]
+            if bias in offsets and offsets[bias][1] == (out,):
+                rows = torch.cat([rows, (offsets[bias][0] + torch.arange(out))[:, None]], dim=1)
+                used.add(bias)
+            blocks.extend(rows)
+        else:
+            blocks.append(torch.arange(o, o + int(torch.Size(s).numel())))
+        used.add(name)
+    return blocks
+
+
+class BlockCovariance:
+    r"""$\bm P=\operatorname{blockdiag}(\bm P_1,\dots,\bm P_B)$, the blocks stacked by size.
+
+    Stands in for the dense $\bm P$ wherever a filter holds one: it knows the products
+    the filters take ($\bm P\bm M$, $\bm J\bm P\bm J^{\mathsf T}$, the diagonal), the
+    prediction's inflation, and its own Woodbury update. Memory is $\sum_b s_b^2$ rather
+    than $p^2$, which is what lets a larger model carry a covariance at all.
+
+    **Closed under both combines.** A convex combination of block-diagonal matrices,
+    weighted by $a$ or by $a^\beta$, is block-diagonal with the same blocks, so the
+    diffusion step is exact; only the measurement update is approximate (see
+    :meth:`woodbury`).
+    """
+
+    def __init__(self, groups: list[tuple[torch.Tensor, torch.Tensor]], p: int) -> None:
+        #: (index (count, size) long, blocks (count, size, size)), ascending size.
+        self.groups = groups
+        self.p = p
+
+    @classmethod
+    def identity(cls, blocks: list[torch.Tensor], scale: float, dtype: torch.dtype,
+                 device: torch.device | str) -> BlockCovariance:
+        p = int(sum(b.numel() for b in blocks))
+        covered = torch.cat(blocks).sort().values
+        if not torch.equal(covered, torch.arange(p)):
+            raise FilterError("the blocks must cover every parameter exactly once")
+        by_size: dict[int, list[torch.Tensor]] = {}
+        for index in blocks:
+            by_size.setdefault(int(index.numel()), []).append(index)
+        groups = []
+        for size in sorted(by_size):
+            index = torch.stack(by_size[size]).to(device)
+            eye = torch.eye(size, dtype=dtype, device=device)
+            groups.append((index, (eye * scale).expand(index.shape[0], size, size).clone()))
+        return cls(groups, p)
+
+    # -- shape and copies ------------------------------------------------------ #
+
+    @property
+    def dtype(self) -> torch.dtype:
+        return self.groups[0][1].dtype
+
+    @property
+    def device(self) -> torch.device:
+        return self.groups[0][1].device
+
+    @property
+    def sizes(self) -> list[tuple[int, int]]:
+        """(count, size) per group."""
+        return [(int(i.shape[0]), int(i.shape[1])) for i, _b in self.groups]
+
+    @property
+    def upper_entries(self) -> int:
+        """Scalars in the upper triangles: what full sharing sends per message."""
+        return sum(c * s * (s + 1) // 2 for c, s in self.sizes)
+
+    def _like(self, blocks: list[torch.Tensor]) -> BlockCovariance:
+        return BlockCovariance([(i, b) for (i, _o), b in zip(self.groups, blocks, strict=True)],
+                               self.p)
+
+    def clone(self) -> BlockCovariance:
+        return self._like([b.clone() for _i, b in self.groups])
+
+    def to(self, *args: Any, **kwargs: Any) -> BlockCovariance:
+        """Blocks to a dtype or device; the integer indices follow the device only."""
+        groups = []
+        for index, blocks in self.groups:
+            moved = blocks.to(*args, **kwargs)
+            groups.append((index.to(moved.device), moved))
+        return BlockCovariance(groups, self.p)
+
+    def __mul__(self, scalar: float) -> BlockCovariance:
+        return self._like([b * scalar for _i, b in self.groups])
+
+    __rmul__ = __mul__
+
+    def __truediv__(self, scalar: float) -> BlockCovariance:
+        return self._like([b / scalar for _i, b in self.groups])
+
+    def add_diagonal_(self, value: float) -> BlockCovariance:
+        for _i, blocks in self.groups:
+            blocks.diagonal(dim1=-2, dim2=-1).add_(value)
+        return self
+
+    def symmetrised(self) -> BlockCovariance:
+        return self._like([0.5 * (b + b.transpose(-1, -2)) for _i, b in self.groups])
+
+    @staticmethod
+    def weighted_sum(terms: list[tuple[float, BlockCovariance]]) -> BlockCovariance:
+        """$\\sum_u w_u\\bm P_u$ for matching structures: the full-sharing combine."""
+        first = terms[0][1]
+        blocks = [torch.zeros_like(b) for _i, b in first.groups]
+        for weight, cov in terms:
+            for total, (_i, b) in zip(blocks, cov.groups, strict=True):
+                total.add_(b, alpha=weight)
+        return first._like(blocks)
+
+    # -- products ------------------------------------------------------------- #
+
+    def diagonal(self) -> torch.Tensor:
+        out = torch.empty(self.p, dtype=self.dtype, device=self.device)
+        for index, blocks in self.groups:
+            out[index] = blocks.diagonal(dim1=-2, dim2=-1)
+        return out
+
+    def matmul(self, matrix: torch.Tensor) -> torch.Tensor:
+        """$\\bm P\\bm M$ for $\\bm M$ of shape (p,) or (p, r)."""
+        out = torch.empty_like(matrix)
+        for index, blocks in self.groups:
+            if matrix.ndim == 1:
+                out[index] = torch.einsum("cst,ct->cs", blocks, matrix[index])
+            else:
+                out[index] = torch.einsum("cst,ctr->csr", blocks, matrix[index])
+        return out
+
+    def quadratic(self, jacobians: torch.Tensor) -> torch.Tensor:
+        """$\\bm J\\bm P\\bm J^{\\mathsf T}$ per sample, ``jacobians`` (n, q, p) -> (n, q, q)."""
+        n, q, _p = jacobians.shape
+        out = torch.zeros(n, q, q, dtype=jacobians.dtype, device=jacobians.device)
+        for index, blocks in self.groups:
+            part = jacobians[:, :, index]                    # (n, q, count, size)
+            out += torch.einsum("nqcs,cst,nrct->nqr", part, blocks, part)
+        return out
+
+    def dense(self) -> torch.Tensor:
+        """The full matrix, for tests."""
+        out = torch.zeros(self.p, self.p, dtype=self.dtype, device=self.device)
+        for index, blocks in self.groups:
+            for row, block in zip(index, blocks, strict=True):
+                out[row[:, None], row[None, :]] = block
+        return out
+
+    # -- the update ------------------------------------------------------------- #
+
+    def woodbury(self, mean: torch.Tensor, stacked: torch.Tensor, score: torch.Tensor,
+                 context: str = "") -> tuple[torch.Tensor, BlockCovariance]:
+        r"""The decoupled EKF's update: one shared gain, block-diagonal covariance.
+
+        $\bm S=\bm I+\bar{\bm B}^{\mathsf T}\bm P\bar{\bm B}$ couples every block, so
+        the gain is the full filter's. The **mean is exact for a block-diagonal prior**,
+        $\bm m+\bm P\bm s-\bm P\bar{\bm B}\bm S^{-1}(\bm P\bar{\bm B})^{\mathsf T}\bm s$,
+        low rank and never $p\times p$; the covariance keeps only each block of
+        $\bm P-\bm P\bar{\bm B}\bm S^{-1}\bar{\bm B}^{\mathsf T}\bm P$, dropping the
+        cross-block terms. That truncation is the whole approximation.
+        """
+        product = self.matmul(stacked)                       # P B, (p, r)
+        gram = stacked.transpose(0, 1) @ product
+        gram.diagonal().add_(1.0)
+        try:
+            factor = torch.linalg.cholesky(gram)
+        except torch.linalg.LinAlgError as failure:
+            raise FilterError(
+                "the innovation covariance is singular, so P has grown until the identity "
+                f"is negligible beside it. {context}"
+            ) from failure
+        solved = torch.cholesky_solve(product.transpose(0, 1), factor)    # S^-1 (PB)^T, (r, p)
+        new_mean = mean + self.matmul(score) - product @ (solved @ score)
+        blocks = []
+        for index, block in self.groups:
+            left = product[index]                            # (count, size, r)
+            right = solved[:, index].permute(1, 0, 2)        # (count, r, size)
+            updated = block - left @ right
+            blocks.append(0.5 * (updated + updated.transpose(-1, -2)))
+        return new_mean, self._like(blocks)
+
+
+def add_diagonal(covariance: Any, value: float) -> Any:
+    """$\\bm P+q\\bm I$ in place, dense or block."""
+    if isinstance(covariance, BlockCovariance):
+        return covariance.add_diagonal_(value)
+    covariance.diagonal().add_(value)
+    return covariance
+
+
+def quadratic(jacobians: torch.Tensor, covariance: Any) -> torch.Tensor:
+    """$\\bm J\\bm P\\bm J^{\\mathsf T}$ per sample, dense or block."""
+    if isinstance(covariance, BlockCovariance):
+        return covariance.quadratic(jacobians)
+    return torch.einsum("nqp,pr,nsr->nqs", jacobians, covariance, jacobians)
+
+
+def initial_covariance(model: Model, structure: str, scale: float, like: torch.Tensor) -> Any:
+    """$\\sigma_0^2\\bm I$ in the requested structure."""
+    if structure == "full":
+        return torch.eye(like.numel(), dtype=like.dtype, device=like.device) * scale
+    return BlockCovariance.identity(parameter_blocks(model, structure), scale, like.dtype,
+                                    like.device)
+
+
 def woodbury_update(
     mean: torch.Tensor,
     covariance: torch.Tensor,
@@ -105,7 +348,11 @@ def woodbury_update(
 
     ``context`` is appended to the divergence message: the caller knows which
     hyperparameter is the likely culprit and this function does not.
+
+    A :class:`BlockCovariance` takes its own, block-wise update (D3).
     """
+    if isinstance(covariance, BlockCovariance):
+        return covariance.woodbury(mean, stacked, score, context)
     product = covariance @ stacked  # (p, n*q)
     gram = stacked.transpose(0, 1) @ product  # (n*q, n*q)
     gram.diagonal().add_(1.0)
@@ -200,10 +447,14 @@ class CentralizedEKF:
         prior_scale: float = 1.0,
         trust_region_ratio: float = TRUST_REGION_RATIO,
         inner_steps: int = 1,
+        covariance_blocks: str = "full",
         **_ignored: Any,
     ) -> None:
         if inner_steps < 1:
             raise FilterError(f"inner_steps must be >= 1, got {inner_steps}")
+        if covariance_blocks not in COVARIANCE_BLOCKS:
+            raise FilterError(
+                f"covariance_blocks must be one of {COVARIANCE_BLOCKS}, got {covariance_blocks!r}")
         self._name = name
         self.model = model
         self.likelihood = likelihood
@@ -211,6 +462,9 @@ class CentralizedEKF:
         #: Gauss--Newton relinearisations per measurement update: the iterated EKF
         #: (`iterated_update`, D139). 1 is the plain filter.
         self.inner_steps = inner_steps
+        #: The covariance's structure (D3): "full" is the dense P of every run before;
+        #: "neuron", "layer" and "tensor" hold a `BlockCovariance`.
+        self.covariance_blocks = covariance_blocks
         self.transition = transition
         self.gamma = gamma
         self.lambda_forget = lambda_forget
@@ -287,10 +541,8 @@ class CentralizedEKF:
 
         self._state = LearnerState(
             theta=theta0.clone(),
-            extras={
-                "P": torch.eye(theta0.numel(), dtype=theta0.dtype, device=theta0.device)
-                * self.prior_scale
-            },
+            extras={"P": initial_covariance(self.model, self.covariance_blocks,
+                                            self.prior_scale, theta0)},
         )
         # The scale the trust-region test in `_check_belief` is measured against.
         # Kept from theta0 rather than from a constant because "how far the mean
@@ -405,7 +657,7 @@ class CentralizedEKF:
         if self.lambda_forget < 1.0:
             self._covariance = self._covariance / self.lambda_forget
         if self.process_noise_q > 0.0:
-            self._covariance.diagonal().add_(self.process_noise_q)
+            add_diagonal(self._covariance, self.process_noise_q)
 
     def _update(self, x: torch.Tensor, y: torch.Tensor) -> None:
         r"""One stacked measurement update, via Woodbury.
@@ -483,7 +735,7 @@ class CentralizedEKF:
         assert self._covariance is not None
         params = self.model.unflatten(self.flat_params(node))
         jacobians = self.model.per_sample_jacobian(params, x)
-        return torch.einsum("nqp,pr,nsr->nqs", jacobians, self._covariance, jacobians)
+        return quadratic(jacobians, self._covariance)
 
     # -- diagnostics -------------------------------------------------------- #
 
@@ -498,6 +750,7 @@ class CentralizedEKF:
             "process_noise_q": self.process_noise_q,
             "prior_scale": self.prior_scale,
             "inner_steps": self.inner_steps,
+            "covariance_blocks": self.covariance_blocks,
             "trace_over_p": float(diagonal.mean()),
             "min_diagonal": float(diagonal.min()),
         }
