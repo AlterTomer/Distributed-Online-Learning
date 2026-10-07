@@ -4212,6 +4212,22 @@ re-tuned per (cell, $K$) — an asymmetry the paper must state.
 - *Found on the way:* D137's text carried a vertical tab where `\varepsilon` should
   be (commit `ab33150`), failing the documentation test; repaired.
 
+**The grid, revised 2026-10-07, after the smokes priced it.** The CPU smokes put a
+filter cell's cost at 1.7×, 4.2× and 8× its $K=1$ price at $K=2,5,10$ on MNIST
+(1.5×, 3.3×, 6× on MG), about 235 GPU-hours for the four-point grid on both tasks.
+The user cut it to **$K\in\{2,5,8\}$ at five seeds**, $K=10$ to be looked at later
+(schedule D1b), and ruled $K=1$ redundant: it is what every run so far did. It is
+**reused where an existing run is exactly the experiment** — P5.4's dense $n=4$ cell
+(MNIST stationary) and M6's stationary and linear cells — and **run only where none
+is**: MNIST skew and abrupt (X25 is $T=1500$ with an older roster, N>10's abrupt is
+$T=500$) and MG's $\tau$ spread (M8 carried six of the twelve learners). The paired
+contrasts cross runs by seed, so a mismatched reference would mix $K$ with a horizon
+or a roster; the user chose running the three missing cells (~8–10 GPU-h, the
+cheapest $K$) over matching the old horizons or dropping the cells. The named
+contrasts become $K=8$ minus $K=1$. A report against the real results reads the
+reused cells as designed: P5.4's merge gate reproduces at 0.0e+00, and M6's
+centralised filter shows its 0.1391.
+
 ### 🔄 D138. The codec build: every implementation question, answered before the code
 
 Asked and answered 2026-10-03, before any of D137's codec was written (the user: every

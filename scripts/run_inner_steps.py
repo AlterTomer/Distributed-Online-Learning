@@ -27,12 +27,12 @@ form -- even on a complete graph with plain SGD, two local steps break X0.
 ## Named before the run (confirmatory under D118)
 
 1. **Do the centralised learners gain from extra passes?** Settled error at
-   $K=10$ minus $K=1$, per seed, for centralised SGD, AdamW and the centralised
+   $K=8$ minus $K=1$, per seed, for centralised SGD, AdamW and the centralised
    filter, in each of the three cells; Holm across the nine. **Predicted negative.**
 2. **Does decentralisation cost more as $K$ grows?** Each distributed learner's
    gap to its own family's centralised learner (ATC and ATC AdamW against
    centralised SGD and AdamW; local adapt and one-hop against the centralised
-   filter), at $K=10$ minus at $K=1$, in each cell; Holm across the twelve.
+   filter), at $K=8$ minus at $K=1$, in each cell; Holm across the twelve.
    **Predicted positive**, largest under skew.
 
 Everything else -- the intermediate $K$, `local_only`, full sharing, the filter
@@ -40,7 +40,7 @@ against the gradient methods at matched $K$ -- is exploratory.
 
 ## The design
 
-$K\in\{1,2,5,10\}$ (D139) crossed with three cells -- stationary IID, Dirichlet
+$K\in\{2,5,8\}$, against $K=1$, crossed with three cells -- stationary IID, Dirichlet
 label skew $\beta_{\mathrm{dir}}=0.1$, and abrupt rotation (X17's 15° every 25
 steps, MNIST's harder drift, D67) -- at P5.4's scale: ER 0.3, $N=10$, $n=4$,
 $T=750$, five seeds, evaluations every 10 steps, settled over the last 20%.
@@ -50,6 +50,11 @@ $5\times10^{-4}$ because $K$ steps at rate $\eta$ move about as far as one at
 $K\eta$. **The filters carry X20's selection at every $K$** (decided 2026-10-06,
 the X14 discipline), which the paper must state. Cells a / b / adamw with D119's
 merge gate, as P5.4's.
+
+**K = 1 is reused where it already exists** (the user, 2026-10-07): the stationary
+cell's is P5.4's `lab_n4_p100_*`, the same experiment exactly; skew and abrupt have
+no matching run, so theirs is run here. $K=10$, first planned, is a later item
+(schedule.md, D1b): the curve is read at 2, 5 and 8 first.
 """
 
 from __future__ import annotations
@@ -92,8 +97,10 @@ from dekf_bench.metrics.paired import differences, holm  # noqa: E402
 from dekf_bench.metrics.paired import paired as compare  # noqa: E402
 from dekf_bench.utils.config import load_config  # noqa: E402
 
-KS = [1, 2, 5, 10]
-K_LOW, K_HIGH = 1, 10
+#: K = 1 is the reference every contrast is taken against; K = 10 was cut on
+#: 2026-10-07 (the user: K in {2, 5, 8} now, K = 10 later -- schedule.md, D1b).
+KS = [1, 2, 5, 8]
+K_LOW, K_HIGH = 1, 8
 STATIONARY = {"schedule": "stationary", "total_degrees": 0.0}
 #: label -> (partition, drift). Skew at X25's severe end; abrupt is X17's, IID.
 CELLS: dict[str, tuple[dict, dict]] = {
@@ -102,6 +109,15 @@ CELLS: dict[str, tuple[dict, dict]] = {
     "abrupt": ({"kind": "iid"}, dict(DRIFTS["abrupt"])),
 }
 CONDITIONS: list[tuple[str, int]] = [(cell, k) for cell in CELLS for k in KS]
+
+#: K = 1 cells that already exist as exactly this experiment, reused rather than
+#: re-run (the user, 2026-10-07): P5.4's dense n = 4 cell is IID, stationary, ER 0.3,
+#: N = 10, T = 750, five seeds, the same three groups with the same roster, its rates
+#: tuned in that cell. Skew and abrupt have no such run (X25 is T = 1500 with an
+#: older roster; N>10's abrupt is T = 500), so their K = 1 is run here.
+REUSED: dict[tuple[str, int], dict[str, str]] = {
+    ("still", 1): {"a": "lab_n4_p100_a", "b": "lab_n4_p100_b", "adamw": "lab_n4_p100_adamw"},
+}
 
 CENTRAL = "centralized_ekf_gamma"
 LOCAL, ONEHOP = "diffusion_ekf", "diffusion_ekf_onehop_mean_receiver"
@@ -118,7 +134,7 @@ DATA_ROOT = ROOT / "data"
 STATUS = ROOT / "results" / "ins_status.json"
 
 #: Below the shared grid: K steps at rate eta travel about as far as one at K*eta,
-#: so the optimum at K = 10 should sit near a tenth of K = 1's.
+#: so the optimum at K = 8 should sit near an eighth of K = 1's.
 SGD_LOW = [5e-4]
 
 
@@ -139,7 +155,16 @@ def lr_run_name(cond: str, rate: float, suffix: str = "", family: str = "sgd") -
 
 
 def cell_name(cond: str, group: str, suffix: str = "") -> str:
+    """The run that holds this (cell, K, group): a reused one at K = 1 where it exists.
+    Smokes never reuse -- they prove this runner's own path."""
+    cell, k = cond.rsplit("_k", 1)
+    if not suffix and (cell, int(k)) in REUSED:
+        return REUSED[(cell, int(k))][group]
     return f"ins_{cond}_{group}{suffix}"
+
+
+def is_reused(cell: str, k: int, suffix: str = "") -> bool:
+    return not suffix and (cell, k) in REUSED
 
 
 def selected_rates(cond: str, suffix: str = "") -> dict[str, float] | None:
@@ -212,7 +237,8 @@ def tune(args, train, test, suffix: str = "") -> int:
     grids = {family: sorted({r for b in tuned_learners() if family_of(b) == family
                              for r in grid_for(b)}, reverse=True)
              for family in ("sgd", "adamw")}
-    runs = [(cell, k, f, r) for cell, k in CONDITIONS for f, grid in grids.items() for r in grid]
+    runs = [(cell, k, f, r) for cell, k in CONDITIONS if not is_reused(cell, k, suffix)
+            for f, grid in grids.items() for r in grid]
     print(f"D1 lr{' SMOKE' if suffix else ''}: {len(CONDITIONS)} (cell, K) x "
           f"({len(grids['sgd'])} SGD + {len(grids['adamw'])} AdamW) rates at "
           f"{len(seeds)} seed(s)\n", flush=True)
@@ -232,7 +258,7 @@ def tune(args, train, test, suffix: str = "") -> int:
     names = list(tuned_learners())
     print(f"  {'cell':>11}" + "".join(f"{b:>26}" for b in names))
     for cell, k in CONDITIONS:
-        rates = selected_rates(label(cell, k), suffix)
+        rates = None if is_reused(cell, k, suffix) else selected_rates(label(cell, k), suffix)
         if rates:
             edge = [b for b in names if rates[b] in (grid_for(b)[0], grid_for(b)[-1])]
             print(f"  {label(cell, k):>11}" + "".join(f"{rates[b]:>26g}" for b in names)
@@ -264,7 +290,8 @@ def main(argv: list[str] | None = None) -> int:
         return tune(args, train, test, suffix)
 
     unswept = sorted({lr_run_name(label(c, k), r, suffix, family_of(b))
-                      for c, k in CONDITIONS for b in tuned_learners() for r in grid_for(b)
+                      for c, k in CONDITIONS if not is_reused(c, k, suffix)
+                      for b in tuned_learners() for r in grid_for(b)
                       if not any((ROOT / "results" / lr_run_name(label(c, k), r, suffix,
                                                                  family_of(b)) / m).exists()
                                  for m in ("_complete", "_diverged"))})
@@ -272,7 +299,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  REFUSED: {len(unswept)} lr cell(s) never ran, e.g. {unswept[0]}.")
         print(f"  Run --lr{' --smoke' if suffix else ''} first; completed cells are cached.")
         return 1
+    missing = [name for (c, k), groups in REUSED.items() if not suffix
+               for name in groups.values() if not (ROOT / "results" / name / "_complete").exists()]
+    if missing:
+        print(f"  REFUSED: the reused K = 1 run(s) {missing} are not complete on disk.")
+        return 1
     edges = [f"{label(c, k)}: {b} at {r:g}" for c, k in CONDITIONS
+             if not is_reused(c, k, suffix)
              for b, r in selected_rates(label(c, k), suffix).items()
              if r in (grid_for(b)[0], grid_for(b)[-1])]
     if edges:
@@ -281,9 +314,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"    {edge}")
         print()
 
-    # Cheapest first: K = 1 everywhere before any K = 10, so a stopped queue leaves
+    # Cheapest first: K = 1 everywhere before any K = 8, so a stopped queue leaves
     # the most comparable cells on disk.
-    cells = [(c, k, g) for k in KS for c in CELLS for g in GROUPS]
+    cells = [(c, k, g) for k in KS for c in CELLS for g in GROUPS
+             if not is_reused(c, k, suffix)]
     print(f"D1{' SMOKE' if suffix else ''}: {len(cells)} cells at {len(args.seeds)} seeds, "
           f"T={args.horizon}\n", flush=True)
     status = load_status()
@@ -366,12 +400,12 @@ def report(suffix: str = "") -> None:
                 f"{mean(seeds_of(learner, label(cell, k))):>9.4f}" for k in KS))
 
     def gain(learner: str, cell: str) -> object:
-        """K = 10 minus K = 1, per seed."""
+        """K = 8 minus K = 1, per seed."""
         high, low = seeds_of(learner, label(cell, K_HIGH)), seeds_of(learner, label(cell, K_LOW))
         return compare(high, low) if high and low else None
 
     def gap_change(first: str, second: str, cell: str) -> object:
-        """(first - second) at K = 10 minus at K = 1, per seed."""
+        """(first - second) at K = 8 minus at K = 1, per seed."""
         high = differences(seeds_of(first, label(cell, K_HIGH)),
                            seeds_of(second, label(cell, K_HIGH)))
         low = differences(seeds_of(first, label(cell, K_LOW)),
@@ -379,12 +413,12 @@ def report(suffix: str = "") -> None:
         return compare(high, low) if high and low else None
 
     centralised = [CENTRAL, "centralized_sgd", "centralized_adamw"]
-    _table("Q1 [confirmatory]: centralised learners, K=10 minus K=1",
+    _table("Q1 [confirmatory]: centralised learners, K=8 minus K=1",
            ["negative = extra passes help. Predicted negative."],
            [(f"{c} {cell}", gain(c, cell)) for c in centralised for cell in CELLS])
     pairs = [(ATC, "centralized_sgd"), (ATC_ADAMW, "centralized_adamw"),
              (LOCAL, CENTRAL), (ONEHOP, CENTRAL)]
-    _table("Q2 [confirmatory]: gap to the family's centralised learner, K=10 minus K=1",
+    _table("Q2 [confirmatory]: gap to the family's centralised learner, K=8 minus K=1",
            ["positive = decentralisation costs more with more passes. Predicted positive,",
             "largest under skew."],
            [(f"{d} {cell}", gap_change(d, c, cell)) for d, c in pairs for cell in CELLS])
@@ -398,7 +432,7 @@ def report(suffix: str = "") -> None:
                    differences(seeds_of(d, label(cell, K_LOW)), seeds_of(c, label(cell, K_LOW))))
                    if seeds_of(d, label(cell, k)) and seeds_of(d, label(cell, K_LOW)) else None)())
                 for d, c in pairs for cell in CELLS])
-    _table("exploratory: local_only and full sharing, K=10 minus K=1",
+    _table("exploratory: local_only and full sharing, K=8 minus K=1",
            ["no combine at all, and the covariance-sharing filters."],
            [(f"{d} {cell}", gain(d, cell)) for d in ["local_only", *FULL_SHARING]
             for cell in CELLS])
