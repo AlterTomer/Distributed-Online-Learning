@@ -101,8 +101,25 @@ def integrate(
     dt: float = DT,
     delta: float = DELTA,
     burn_in: float = BURN_IN,
+    neighbours: np.ndarray | None = None,
+    weights: np.ndarray | None = None,
+    kappa: float = 0.0,
 ) -> np.ndarray:
     r"""Integrate one or more trajectories; return ``(n_trajectories, n_samples)``.
+
+    **Coupled** (D3b, decided 2026-10-07) when ``kappa > 0``: the trajectories are the
+    nodes of one network, and node $v$'s production is driven by a mix of its own and
+    its neighbours' pasts, read at $v$'s own delay,
+
+    .. math::
+        y_v = (1-\kappa)\,x_v(t-\tau_v) + \kappa\sum_u a_{vu}\,x_u(t-\tau_v),
+        \qquad \dot x_v = \beta\frac{y_v}{1+y_v^{n}} - \gamma x_v,
+
+    with ``neighbours`` ``(n, D)`` the closed neighbourhoods (padded with any index)
+    and ``weights`` ``(n, D)`` the $a_{vu}$ (rows summing to 1, padding weighted 0).
+    For $\kappa\in[0,1]$, $y_v$ is a convex mix of delayed states, so the right-hand
+    side stays as bounded as the uncoupled law's. Several networks integrate at once
+    as one block-diagonal network. ``kappa = 0`` is the uncoupled code path, unchanged.
 
     Args:
         n_samples: samples to return per trajectory, taken every ``delta`` after the
@@ -150,7 +167,21 @@ def integrate(
     buffer[:, : offset + 1] = initial[:, None]
 
     rows = np.arange(n)
-    uniform = bool(np.all(lag == lag[0]))
+    coupled = kappa != 0.0
+    if coupled:
+        if not 0.0 < kappa <= 1.0:
+            raise MackeyGlassError(f"kappa must lie in [0, 1], got {kappa}")
+        if neighbours is None or weights is None:
+            raise MackeyGlassError("a coupled network needs its neighbours and weights")
+        neighbours = np.asarray(neighbours, dtype=np.int64)
+        weights = np.asarray(weights, dtype=np.float64)
+        if neighbours.shape != weights.shape or neighbours.shape[0] != n:
+            raise MackeyGlassError(
+                f"neighbours and weights must both be (n, D) with n = {n}; got "
+                f"{neighbours.shape} and {weights.shape}")
+        if not np.allclose(weights.sum(axis=1), 1.0):
+            raise MackeyGlassError("each node's coupling weights must sum to 1")
+    uniform = bool(np.all(lag == lag[0])) and not coupled
     shift = int(lag[0])
 
     def rhs(x: np.ndarray, delayed: np.ndarray, rate: np.ndarray) -> np.ndarray:
@@ -171,6 +202,18 @@ def integrate(
                 buffer[:, j + 2],
                 buffer[:, j + 3],
             )
+        elif coupled:
+            # Node v reads every neighbour at v's own delay: the mix is linear, so mixing
+            # each stencil point first and interpolating after is the same as the reverse.
+            j = i - lag
+
+            def mixed(k: int) -> np.ndarray:
+                own = buffer[rows, j + k]
+                around = (buffer[neighbours, (j + k)[:, None]] * weights).sum(axis=1)
+                return (1.0 - kappa) * own + kappa * around
+
+            before, at, after, beyond, further = (mixed(-1), mixed(0), mixed(1), mixed(2),
+                                                  mixed(3))
         else:
             j = i - lag
             before, at, after, beyond, further = (

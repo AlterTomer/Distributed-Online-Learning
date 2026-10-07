@@ -177,3 +177,66 @@ def test_blocks_never_reuse_a_target() -> None:
     assert np.array_equal(targets[..., :-1], inputs[..., 1:])
     # ...and block b+1 starts fresh: its first input is not predicted by block b.
     assert inputs[0, 1, 0] == 32.0 and targets[0, 0, -1] == 31.0
+
+
+# ---- the coupled network (D3b) ------------------------------------------------------
+
+def _ring(n: int) -> tuple[np.ndarray, np.ndarray]:
+    """Closed neighbourhoods of a ring, uniform weights 1/3."""
+    nodes = np.arange(n)
+    neighbours = np.stack([nodes, (nodes - 1) % n, (nodes + 1) % n], axis=1)
+    return neighbours, np.full((n, 3), 1.0 / 3.0)
+
+
+SHORT = dict(burn_in=50.0)
+
+
+def test_kappa_zero_is_the_uncoupled_law_exactly():
+    histories = np.array([0.6, 0.9, 1.2, 1.4])
+    neighbours, weights = _ring(4)
+    plain = mg.integrate(200, histories, tau=[16.4, 17.2, 18.0, 20.0], **SHORT)
+    zero = mg.integrate(200, histories, tau=[16.4, 17.2, 18.0, 20.0], neighbours=neighbours,
+                        weights=weights, kappa=0.0, **SHORT)
+    assert np.array_equal(plain, zero)
+
+
+def test_a_node_coupled_only_to_itself_is_unchanged():
+    """y = (1 - kappa) x + kappa x: self-coupling at any kappa is the uncoupled law."""
+    histories = np.array([0.6, 1.3])
+    selves = np.array([[0], [1]])
+    plain = mg.integrate(200, histories, tau=[16.4, 19.0], **SHORT)
+    selfish = mg.integrate(200, histories, tau=[16.4, 19.0], neighbours=selves,
+                           weights=np.ones((2, 1)), kappa=0.7, **SHORT)
+    assert np.allclose(plain, selfish, atol=1e-12)
+
+
+def test_identical_coupled_nodes_stay_identical():
+    """A ring of identical nodes from identical histories is symmetric: coupling cannot
+    tell them apart, so every node follows the same trajectory."""
+    neighbours, weights = _ring(5)
+    out = mg.integrate(300, np.full(5, 0.9), neighbours=neighbours, weights=weights,
+                       kappa=0.5, **SHORT)
+    assert np.allclose(out, out[:1], atol=1e-12)
+
+
+def test_coupling_moves_a_node_towards_its_neighbours_past():
+    histories = np.array([0.6, 0.9, 1.2, 1.4])
+    neighbours, weights = _ring(4)
+    taus = [16.4, 17.2, 18.0, 20.0]
+    plain = mg.integrate(400, histories, tau=taus, **SHORT)
+    coupled = mg.integrate(400, histories, tau=taus, neighbours=neighbours, weights=weights,
+                           kappa=0.3, **SHORT)
+    assert not np.allclose(plain, coupled)
+    assert np.isfinite(coupled).all() and coupled.min() > 0.0 and coupled.max() < 2.0
+
+
+@pytest.mark.parametrize("kwargs, message", [
+    ({"kappa": 1.5}, "kappa"),
+    ({"kappa": 0.3, "neighbours": None}, "neighbours and weights"),
+    ({"kappa": 0.3, "weights": np.full((4, 3), 0.5)}, "sum to 1"),
+])
+def test_a_malformed_coupling_is_refused(kwargs, message):
+    neighbours, weights = _ring(4)
+    settings = {"neighbours": neighbours, "weights": weights, **kwargs}
+    with pytest.raises(mg.MackeyGlassError, match=message):
+        mg.integrate(10, np.full(4, 0.9), **settings, **SHORT)
