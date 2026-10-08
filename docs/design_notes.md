@@ -4332,6 +4332,18 @@ possibly at lower $\kappa$.
 | tuning | M4/M5-style: a crossed grid of prior scale × $q$ (× $\gamma\in\{1,0.9995\}$) on the stationary cell, 2 seeds, centralised and diffusion filters separately, carried to the drift cell; the gradient learners' rates per cell |
 | codec | forward-pass messages and one-hop's shipped aggregates bypass the codec and are counted on their own lines (D139) |
 
+**D3c step 5 decided, 2026-10-08/09: the runners.** Asked and answered before the code:
+
+| | decided |
+|---|---|
+| R | **measured from a GNN reference**, chosen over tuning an R scale on the Transformer's profile: M2's protocol — one run's budget (1 500 snapshots × 10 nodes = 15 000 node-blocks) from fresh coupled networks, AdamW 3e-3, batch 64, early stopping on validation — with R the per-position residual variance on held-out snapshots, **pooled over nodes** (the likelihood takes one 31-vector). It also gives the GNN's $e^\star$ line |
+| filter grids | M4's and M5's, **q one decade lower** (both selected q on their grid's bottom edge): centralised $\gamma\{1,0.9995\}\times q\{6\text{e-}4\dots6\text{e-}7\}\times\sigma_0^2\{0.01,0.001\}\times R\{1,2\}$; diffusion (one-hop, mean) $\gamma\times q\{6\text{e-}4\dots6\text{e-}8\}\times\sigma_0^2$; stationary cell, 2 seeds |
+| gradient grids | SGD $\{10^{-7},3\cdot10^{-7},\dots,10^{-4}\}$ (M3's, one decade lower: on the tiny GNN every SGD learner diverged at $10^{-4}$, centralised SGD at $3\cdot10^{-5}$), AdamW $\{3\cdot10^{-4},\dots,10^{-1}\}$; per cell, 2 seeds |
+| truncated arm | `centralized_ekf_truncated`, the test fixture, also **a results arm** beside the exact centralised filter |
+| exact variants | the multi-hop exact recomputation at $\boldsymbol\theta_v$ is an option for the filters **and ATC**; the default, and the first run, is **local adapt and one-hop** only |
+| twin | $d=12$, $d_{\text{ff}}=24$, two graph layers ($p\approx2\,000$, the Transformer's size), **FP64**, stationary, five seeds, its own reference-measured R and tuning pass; full vs neuron vs layer blocks, exact vs truncated |
+| confirmatory | all four, Holm within each: **truncation cost** (exact minus truncated centralised; predicted $\ge0$); **decentralisation gap** (one-hop and local adapt minus the exact centralised filter); **filter vs gradient** (one-hop minus ATC AdamW and ATC momentum; predicted negative, as M6); **blocks cost** on the twin (neuron minus full per filter; no direction, read against 0.002) |
+
 ### 🔄 D138. The codec build: every implementation question, answered before the code
 
 Asked and answered 2026-10-03, before any of D137's codec was written (the user: every
