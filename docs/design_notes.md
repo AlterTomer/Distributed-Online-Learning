@@ -4342,7 +4342,42 @@ possibly at lower $\kappa$.
 | truncated arm | `centralized_ekf_truncated`, the test fixture, also **a results arm** beside the exact centralised filter |
 | exact variants | the multi-hop exact recomputation at $\boldsymbol\theta_v$ is an option for the filters **and ATC**; the default, and the first run, is **local adapt and one-hop** only |
 | twin | $d=12$, $d_{\text{ff}}=24$, two graph layers ($p\approx2\,000$, the Transformer's size), **FP64**, stationary, five seeds, its own reference-measured R and tuning pass; full vs neuron vs layer blocks, exact vs truncated |
-| confirmatory | all four, Holm within each: **truncation cost** (exact minus truncated centralised; predicted $\ge0$); **decentralisation gap** (one-hop and local adapt minus the exact centralised filter); **filter vs gradient** (one-hop minus ATC AdamW and ATC momentum; predicted negative, as M6); **blocks cost** on the twin (neuron minus full per filter; no direction, read against 0.002) |
+
+**D3c built, 2026-10-07 to 10-09, all on mg.** Five steps, each tested and committed:
+
+1. *The model* (`models/gnn.py`, $p=20\,001$): the MG decoder block (now with
+   `features()` and an optional head) per node, two graph layers, a per-position head.
+   A node's input is *packed* — its window plus one aggregate per layer per position —
+   so its Jacobian is the truncated one with no special code; `network_forward` runs
+   each node on its own parameters, `network_jacobian` is the exact centralised one.
+   Tested: the distributed pass equals the centralised one under a shared θ, no node
+   sees any node's future, the exact Jacobian matches finite differences, truncated
+   equals exact exactly when there are no edges.
+2. *The environment*: `env.series.network_kappa` couples the training series
+   ($\kappa=0$ is the old environment byte for byte); held-out sets become network
+   snapshots from fresh networks on the run's graph, each node at its own delay.
+3. *The run* (`runner/network.py`): each learner's step is packed from its own forward
+   pass, so prequential scoring, adapt and the receiver one-hop run unchanged; the
+   pooled learners get `NetworkModel`, the exact Jacobian; held-out snapshots are
+   packed per learner and served per node. **The identity holds**: the GNN one-hop on
+   $K_n$ reproduces the truncated centralised filter to 1e-10, the exact one does not.
+4. *The ledger*: forward messages on their own columns
+   (`cum_forward_scalars_tx`, `cum_forward_bits_tx`), every distributed learner paying
+   layers × 2|E| × 31 × d per step — local-only included, since a GNN cannot predict
+   without its neighbours — and written only by GNN runs (the recorder's new
+   `OPTIONAL_COLUMNS`), so no other run's file changes shape.
+5. *The runner* (`scripts/run_gnn.py`): reference → filter tuning → rates → cells, and
+   the twin; `centralized_ekf_truncated` as an arm; `gnn_jacobian: exact`
+   (`ExactNodeModel`, node $v$'s row of the whole network at its own parameters) for
+   the filters and ATC. Smoked end to end on CPU, both the twin and the 20k model.
+
+Found on the way: at $10^{-4}$ every SGD learner diverges on the tiny GNN within six
+steps, centralised SGD with the exact gradient included — the step size, not the
+truncation (hence the lower SGD grid); and a float32 cast had let a diverged learner's
+RMSE of $10^{119}$ pass a finiteness check, so the run test now bounds the scores.
+On CPU a 20k-GNN step costs 0.23 s (exact centralised), 0.15 (truncated), 0.44 (local
+adapt), 0.56 (one-hop), 0.17 (ATC): neuron blocks keep every filter cheap.
+| confirmatory | all four, Holm within each: **truncation cost** (truncated minus exact centralised; predicted $\ge0$ — the question was first put as "exact minus truncated, predicted ≥ 0", a sign slip; the approved meaning, that truncation costs, is this contrast's); **decentralisation gap** (one-hop and local adapt minus the exact centralised filter); **filter vs gradient** (one-hop minus ATC AdamW and ATC momentum; predicted negative, as M6); **blocks cost** on the twin (neuron minus full per filter; no direction, read against 0.002) |
 
 ### 🔄 D138. The codec build: every implementation question, answered before the code
 
