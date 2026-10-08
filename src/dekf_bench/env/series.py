@@ -275,6 +275,62 @@ def _channel_resolver(series: Any, value, second):
     return resolve
 
 
+def closed_neighbourhoods(weights: Any) -> tuple[np.ndarray, np.ndarray]:
+    """A graph's combination weights as (neighbours, weights), both ``(N, D)``: each
+    node's closed neighbourhood, padded with its own index at weight 0 -- the form
+    the coupled integrator reads (D3b)."""
+    table = np.asarray(weights.double().cpu() if hasattr(weights, "cpu") else weights,
+                       dtype=np.float64)
+    n = table.shape[0]
+    width = int((table > 0).sum(axis=1).max())
+    neighbours = np.repeat(np.arange(n)[:, None], width, axis=1)
+    padded = np.zeros((n, width))
+    for v in range(n):
+        around = np.nonzero(table[v])[0]
+        neighbours[v, : around.size] = around
+        padded[v, : around.size] = table[v, around]
+    return neighbours, padded
+
+
+def network_blocks(
+    series: Any,
+    laws: Laws,
+    value: float,
+    neighbours: np.ndarray,
+    weights: np.ndarray,
+    n_networks: int,
+    blocks_each: int,
+    rng: np.random.Generator,
+    second: float | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Held-out snapshots of the coupled network (D3c): ``n_networks`` fresh networks on
+    the run's graph, each node at its own delay and noise, at one fixed channel value.
+
+    Integrated as one block-diagonal network, so the networks never interact. Returns
+    inputs and targets ``(n_networks * blocks_each, N, L - 1)``: a row is one moment of
+    one network, every node's window at the same time -- what a GNN is scored on.
+    """
+    n = neighbours.shape[0]
+    offsets = (np.arange(n_networks) * n)[:, None, None]
+    big_neighbours = (neighbours[None] + offsets).reshape(n_networks * n, -1)
+    big_weights = np.tile(weights, (n_networks, 1))
+    resolve = _channel_resolver(series, value, second)
+    histories = mg.initial_histories(n_networks * n, rng)
+    clean = mg.integrate(
+        blocks_each * series.length, histories,
+        beta=resolve("beta", np.tile(laws.beta, n_networks)), gamma=series.gamma,
+        exponent=series.exponent, tau=np.tile(laws.tau, n_networks), dt=series.dt,
+        delta=series.delta, burn_in=series.burn_in,
+        neighbours=big_neighbours, weights=big_weights, kappa=series.network_kappa,
+    )
+    z = mg.observe(mg.standardise(clean), np.tile(laws.sigma, n_networks), rng,
+                   gain=resolve("gain", 1.0), bias=resolve("bias", 0.0))
+    inputs, targets = mg.to_blocks(z, series.length)          # (R N, blocks, L - 1)
+    shape = (n_networks, n, blocks_each, series.length - 1)
+    return tuple(array.reshape(shape).transpose(0, 2, 1, 3).reshape(-1, n, series.length - 1)
+                 for array in (inputs, targets))  # type: ignore[return-value]
+
+
 def generate(
     series: Any,
     laws: Laws,
@@ -283,6 +339,7 @@ def generate(
     noise: np.random.Generator,
     second_values: np.ndarray | None = None,
     readout: str = "sequence",
+    coupling: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Integrate, standardise and observe; return blocks ``(N, T, n_blocks, L - 1)``.
 
@@ -319,6 +376,9 @@ def generate(
         dt=series.dt,
         delta=series.delta,
         burn_in=series.burn_in,
+        # The coupled network (D3b): the agents are its nodes, integrated together.
+        **({} if coupling is None else {"neighbours": coupling[0], "weights": coupling[1],
+                                        "kappa": series.network_kappa}),
     )
     z = mg.observe(mg.standardise(clean), laws.sigma, noise,
                    gain=resolve("gain", 1.0), bias=resolve("bias", 0.0))
@@ -503,10 +563,21 @@ def build_series_environment(config: Any, master_seed: int) -> SeriesEnvironment
         else secondary_value(series, second_displacement, laws.beta[:, None])
     )
 
+    coupling = None
+    if series.network_kappa > 0.0:
+        # The coupled network (D3b): every node must be observed every round and read
+        # as a whole window, because a GNN's forward pass needs every node's window at
+        # once -- a missing node would send nothing its neighbours could aggregate.
+        if config.env.label_availability != 1.0:
+            raise SeriesError("a coupled network needs every node observed every round "
+                              f"(label_availability 1), got {config.env.label_availability}")
+        if config.model.readout != "sequence":
+            raise SeriesError("a coupled network is read per position (readout 'sequence')")
+        coupling = closed_neighbourhoods(graphs.comm.weights)
     histories = mg.initial_histories(n_nodes, seeds.numpy_rng("stream", "histories"))
     inputs, targets = generate(
         series, laws, values, histories, seeds.numpy_rng("stream", "noise"),
-        second_values=second_values, readout=config.model.readout,
+        second_values=second_values, readout=config.model.readout, coupling=coupling,
     )
     available = _label_mask(
         n_nodes, horizon, config.env.label_availability, seeds.torch_generator("stream", "blocks")

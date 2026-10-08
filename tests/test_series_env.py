@@ -325,3 +325,64 @@ def test_the_model_context_must_match_the_block() -> None:
 
     with pytest.raises(ConfigError, match="context"):
         make_config(series={"length": 64})
+
+
+# ---- the coupled network (D3b, D3c) ------------------------------------------------
+
+COUPLED = {"network_kappa": 0.6, "tau": 18.2,
+           "tau_values": [16.4, 16.8, 17.2, 17.6, 18.0, 18.3, 18.9, 19.1, 19.8, 20.0]}
+
+
+def test_kappa_zero_is_the_uncoupled_environment_byte_for_byte() -> None:
+    plain = build_series_environment(make_config(series={"tau_values": COUPLED["tau_values"]}), 0)
+    zero = build_series_environment(
+        make_config(series={"tau_values": COUPLED["tau_values"], "network_kappa": 0.0}), 0)
+    assert torch.equal(plain.inputs, zero.inputs) and torch.equal(plain.targets, zero.targets)
+
+
+def test_the_coupled_network_changes_the_data_and_is_reproducible() -> None:
+    plain = build_series_environment(make_config(series={"tau_values": COUPLED["tau_values"]}), 0)
+    coupled = build_series_environment(make_config(series=COUPLED), 0)
+    again = build_series_environment(make_config(series=COUPLED), 0)
+    assert not torch.allclose(plain.inputs, coupled.inputs)
+    assert torch.equal(coupled.inputs, again.inputs)
+
+
+def test_the_coupled_held_out_set_is_network_snapshots() -> None:
+    config = make_config(series=COUPLED)
+    environment = build_series_environment(config, 0)
+    built = build_series_evalsets(config, environment).at("current", 3)
+    n = environment.n_nodes
+    assert built.inputs.shape == (config.env.series.eval_blocks, n, 31)
+    assert built.targets.shape == built.inputs.shape
+    # Targets are the next samples of the same node's window.
+    assert torch.equal(built.targets[..., :-1], built.inputs[..., 1:])
+
+
+def test_networks_integrated_together_do_not_interact() -> None:
+    """The held-out sets integrate several networks as one block-diagonal network;
+    each must come out exactly as it would alone."""
+    from dekf_bench.data import mackey_glass as mg
+    from dekf_bench.env.series import closed_neighbourhoods
+
+    weights = torch.tensor([[0.5, 0.5, 0.0], [0.5, 0.25, 0.25], [0.0, 0.25, 0.75]],
+                           dtype=torch.float64)
+    nbr, w = closed_neighbourhoods(weights)
+    taus = np.array([16.4, 18.0, 20.0])
+    first, second = np.array([0.6, 0.9, 1.2]), np.array([1.4, 0.7, 1.0])
+    settings = dict(beta=0.22, tau=np.tile(taus, 2), burn_in=50.0, kappa=0.6)
+    both = mg.integrate(100, np.concatenate([first, second]),
+                        neighbours=np.concatenate([nbr, nbr + 3]), weights=np.tile(w, (2, 1)),
+                        **settings)
+    alone = [mg.integrate(100, h, neighbours=nbr, weights=w, **{**settings, "tau": taus})
+             for h in (first, second)]
+    assert np.allclose(both, np.concatenate(alone), atol=1e-12)
+
+
+@pytest.mark.parametrize("override, message", [
+    ({"env": {"label_availability": 0.5}}, "observed every round"),
+])
+def test_a_coupled_network_refuses_missing_nodes(override, message) -> None:
+    config = make_config(series=COUPLED, **override["env"])
+    with pytest.raises(SeriesError, match=message):
+        build_series_environment(config, 0)

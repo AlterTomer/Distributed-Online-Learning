@@ -1,0 +1,14 @@
+# D3c: the GNN on the coupled network (mg_coupled). FP32 for the ~20k model (the user,
+# 2026-10-07: an exception to the FP64 rule). Learners are set by the runner.
+include:
+  env: mg_coupled
+  graph: erdos_renyi
+  model: mg_gnn
+learners: [centralized_sgd]
+run:
+  name: m_coupled
+  horizon: 1500
+  dtype: float32
+eval:
+  evalsets: [prequential, current]
+  batch_size: 64

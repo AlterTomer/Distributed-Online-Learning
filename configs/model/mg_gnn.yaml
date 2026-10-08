@@ -1,0 +1,19 @@
+# The coupled-network GNN (D3c, D139): the MG causal decoder block per node as the
+# encoder (d_model 40, MANET-GNN's sense of "encoder"), two aggregate-then-transform
+# graph layers over the Metropolis weights, a per-position head. p = 20 001.
+name: coupled_gnn
+likelihood: gaussian
+context: 31
+output_dim: 31
+d_model: 40
+n_heads: 2
+d_ff: 80
+graph_layers: 2
+# PROVISIONAL: the uncoupled Transformer's per-position R profile (mg_transformer.yaml),
+# carried until the coupled task's own is decided (an open question for D3c's tuning).
+observation_variance: 0.02199
+observation_variances: [0.05142, 0.04042, 0.03174, 0.02861, 0.02716, 0.02724, 0.02737,
+                        0.02762, 0.02578, 0.02606, 0.02622, 0.02533, 0.02411, 0.02257,
+                        0.02136, 0.01974, 0.01816, 0.01734, 0.01575, 0.01472, 0.01435,
+                        0.01394, 0.01473, 0.01510, 0.01465, 0.01444, 0.01436, 0.01430,
+                        0.01578, 0.01538, 0.01593]

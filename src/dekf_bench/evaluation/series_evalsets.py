@@ -32,7 +32,14 @@ import numpy as np
 import torch
 
 from dekf_bench.data.mackey_glass import window_positions
-from dekf_bench.env.series import SeriesError, channel_value, law_blocks, secondary_value
+from dekf_bench.env.series import (
+    SeriesError,
+    channel_value,
+    closed_neighbourhoods,
+    law_blocks,
+    network_blocks,
+    secondary_value,
+)
 
 
 @dataclass(frozen=True)
@@ -122,6 +129,10 @@ class SeriesEvalSets:
         per_trajectory = math.ceil(series.eval_blocks / series.eval_trajectories)
         stamp = f"{key[0]:.12f}" if second is None else f"{key[0]:.12f}|{key[1]:.12f}"
         rng = seeds.numpy_rng("stream", "eval", stamp)
+        if series.network_kappa > 0.0:
+            built = self._build_network(value, second, per_trajectory, rng)
+            self._cache[key] = built
+            return built
         readout = self._config.model.readout
         inputs, targets = law_blocks(series, value, series.eval_trajectories, per_trajectory,
                                      rng, second=second, prefix=series.history_prefix,
@@ -142,6 +153,22 @@ class SeriesEvalSets:
         )
         self._cache[key] = built  # type: ignore[assignment]
         return built  # type: ignore[return-value]
+
+    def _build_network(self, value: float, second: float | None, per_network: int,
+                       rng: np.random.Generator) -> tuple[torch.Tensor, torch.Tensor]:
+        """The coupled task's held-out set (D3c): ``eval_blocks`` snapshots, ``(S, N, L-1)``,
+        from ``eval_trajectories`` fresh networks on the run's graph. Unlike the uncoupled
+        sets these keep every node's own delay and noise: a node is scored on *its* place
+        in a network, and the GNN's messages need all of them at once."""
+        environment = self._environment
+        neighbours, weights = closed_neighbourhoods(environment.graphs.comm.weights)
+        inputs, targets = network_blocks(
+            self._series, environment.laws, value, neighbours, weights,
+            self._series.eval_trajectories, per_network, rng, second=second)
+        env_inputs = environment.inputs
+        return tuple(torch.tensor(array[: self._series.eval_blocks], dtype=env_inputs.dtype,
+                                  device=env_inputs.device)
+                     for array in (inputs, targets))  # type: ignore[return-value]
 
     def summary(self) -> dict[str, Any]:
         return {"cached_values": sorted(self._cache), "eval_blocks": self._series.eval_blocks}

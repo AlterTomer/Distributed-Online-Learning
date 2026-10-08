@@ -1,0 +1,13 @@
+# The coupled Mackey-Glass network (D3b, D139): node v's production reads
+# (1 - kappa) x_v(t - tau_v) + kappa * sum_u a_vu x_u(t - tau_v) over the communication
+# graph's Metropolis weights, each node at M8's delay. kappa = 0.6, chosen by the
+# smoke (scripts/run_coupling_smoke.py): the largest linear neighbour gain (+0.188)
+# with mean pairwise correlation <= 0.5 (0.484). Stationary.
+dataset: mackey_glass
+series:
+  tau: 18.2
+  tau_values: [16.4, 16.8, 17.2, 17.6, 18.0, 18.3, 18.9, 19.1, 19.8, 20.0]
+  network_kappa: 0.6
+drift:
+  schedule: stationary
+  total_degrees: 0.0

@@ -7,6 +7,7 @@ from typing import Any, Protocol
 import torch
 
 from dekf_bench.models.base import ModelError
+from dekf_bench.models.gnn import CoupledGNN
 from dekf_bench.models.linear_ar import LinearAR
 from dekf_bench.models.mlp import MLP
 from dekf_bench.models.transformer import CausalTransformer
@@ -55,6 +56,18 @@ def _causal_transformer(config: Any, dtype: torch.dtype, device: str) -> CausalT
     )
 
 
+def _coupled_gnn(config: Any, dtype: torch.dtype, device: str) -> CoupledGNN:
+    return CoupledGNN(
+        context=config.context,
+        d_model=config.d_model,
+        n_heads=config.n_heads,
+        d_ff=config.d_ff,
+        layers=config.graph_layers,
+        dtype=dtype,
+        device=device,
+    )
+
+
 def _linear_ar(config: Any, dtype: torch.dtype, device: str) -> LinearAR:
     return LinearAR(context=config.context, dtype=dtype)
 
@@ -68,6 +81,7 @@ BUILDERS: dict[str, ModelBuilder] = {
     "linear_probe": _linear_probe,
     # The series task (docs/mackey_glass_plan.md, WP3).
     "causal_transformer": _causal_transformer,
+    "coupled_gnn": _coupled_gnn,
     "linear_ar": _linear_ar,
 }
 

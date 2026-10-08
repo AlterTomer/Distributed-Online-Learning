@@ -289,7 +289,7 @@ SERIES_CHANNELS = ("beta", "gain", "bias")
 #: `independent` needs a stochastic schedule to mean anything -- see SeriesConfig.
 SERIES_COUPLINGS = ("correlated", "anti", "independent")
 #: Models that map a block of L-1 inputs to L-1 one-step predictions.
-SEQUENCE_MODELS = ("causal_transformer", "linear_ar")
+SEQUENCE_MODELS = ("causal_transformer", "linear_ar", "coupled_gnn")
 #: How a sequence model is read out: every position, or the last alone (D126).
 READOUTS = ("sequence", "last")
 
@@ -369,8 +369,17 @@ class SeriesConfig:
     #: `window_stride`-th, counting back from the last, which is always kept. 1 is
     #: M2O-b (all 31, supervision-matched); L - 1 is M2O-c (one per block).
     window_stride: int = 1
+    #: The coupled network (D3b, D139): node v's production reads
+    #: (1 - kappa) x_v(t - tau_v) + kappa * sum_u a_vu x_u(t - tau_v), over the
+    #: communication graph's Metropolis weights. 0 is the uncoupled task, byte for byte.
+    #: Coupled, the held-out sets are `eval_trajectories` fresh *networks* on the run's
+    #: graph, each node at its own delay, scored as network snapshots.
+    network_kappa: float = 0.0
 
     def __post_init__(self) -> None:
+        if not 0.0 <= self.network_kappa <= 1.0:
+            raise ConfigError(
+                f"env.series.network_kappa must lie in [0, 1], got {self.network_kappa}")
         if self.history_prefix < 0:
             raise ConfigError(
                 f"env.series.history_prefix must be >= 0, got {self.history_prefix}")
@@ -493,8 +502,13 @@ class ModelConfig:
     #: selection C = e_q^T of the Diff-EKF note -- so output_dim is 1 and R is one
     #: variance (many-to-one, M2O, D126).
     readout: str = "sequence"
+    #: The coupled-network GNN only (D3c): graph layers after the per-node decoder.
+    #: 2 to start (decided 2026-10-06), configurable rather than fixed.
+    graph_layers: int = 2
 
     def __post_init__(self) -> None:
+        if self.graph_layers < 1:
+            raise ConfigError(f"model.graph_layers must be >= 1, got {self.graph_layers}")
         # Imported here, not at module scope: config.py is imported by
         # everything and the likelihoods pull in torch.
         from dekf_bench.likelihoods.registry import likelihood_names  # noqa: PLC0415
