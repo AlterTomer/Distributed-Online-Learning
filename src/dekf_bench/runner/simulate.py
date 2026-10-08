@@ -33,11 +33,13 @@ from dekf_bench.compression import Channel, CodecChannel, data_bits, working_bit
 from dekf_bench.env.environment import Environment, pool  # noqa: F401
 from dekf_bench.evaluation import belief, protocol
 from dekf_bench.evaluation.evalsets import EvalSetBuilder
-from dekf_bench.learners.registry import POOLING
+from dekf_bench.learners.registry import POOLING, TRUNCATED_POOLED
 from dekf_bench.metrics import disagreement
 from dekf_bench.runner.network import (
+    ExactNodeModel,
     NetworkEvalSets,
     NetworkModel,
+    exact_observations,
     forward_scalars,
     is_network_model,
     pack_observations,
@@ -156,11 +158,24 @@ def run(
     # The coupled-network GNN (D3c): each learner's data is packed from its own
     # forward pass, and the pooled learners linearise the whole network exactly.
     network = is_network_model(next(iter(learners.values())).model)
+    exact = {entry.name for entry in config.learners
+             if getattr(entry, "gnn_jacobian", "truncated") == "exact"}
+    if exact and not network:
+        raise SimulationError(f"gnn_jacobian 'exact' is for the coupled-network GNN; {sorted(exact)}")
+    if exact & POOLING:
+        raise SimulationError(
+            f"{sorted(exact & POOLING)}: a pooled learner already linearises the whole network "
+            "exactly; gnn_jacobian 'exact' is for the distributed ones")
     if network:
         for name, learner in learners.items():
-            if name in POOLING:
+            if name in POOLING and name not in TRUNCATED_POOLED:
                 learner.network_model = NetworkModel(learner.model, environment.graph.weights,
                                                      environment.n_nodes)
+            elif name in exact:
+                # The multi-hop exact variant (D3c): node v's output from the whole
+                # network at the agent's own parameters.
+                learner.model = ExactNodeModel(learner.model, environment.graph.weights,
+                                               environment.n_nodes)
 
     # Resume where a previous run stopped, if it did. Exact rather than
     # approximate: the loop consumes no randomness, so there is no RNG state to
@@ -203,8 +218,12 @@ def run(
 
         for name, learner in learners.items():
             # A GNN learner sees the step through its own forward pass (D3c).
-            seen = (pack_observations(learner, observations, weights) if network
-                    else observations)
+            if not network:
+                seen = observations
+            elif name in exact:
+                seen = exact_observations(learner, observations)
+            else:
+                seen = pack_observations(learner, observations, weights)
             held_out = NetworkEvalSets(evalsets, learner, weights) if network else evalsets
             # Test-then-train: score first, on the batch about to be learned
             # from. `predict` cannot update anything.
@@ -218,7 +237,10 @@ def run(
                 learner.retain_pre_combine = True
             channel = getattr(learner, "channel", None)
             sent_before = (channel.bits, channel.scalars) if channel is not None else (0, 0)
-            _advance(learner, name, seen, nodes, weights, pooled_x, pooled_y)
+            # The truncated centralised arm pools every node's *packed* batch (D3c).
+            pooled = (environment.pool(seen) if network and name in TRUNCATED_POOLED
+                      else (pooled_x, pooled_y))
+            _advance(learner, name, seen, nodes, weights, *pooled)
             bits_this_step = _step_bits(learner, name, channel, sent_before, n_edges, pricing)
             if step == start_step and start_step:
                 # A resumed run starts its running sum where the scalar column would:

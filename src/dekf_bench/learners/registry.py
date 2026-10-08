@@ -97,6 +97,10 @@ BUILDERS = {
     # gamma span was 0.0012 against a 0.0013 threshold -- so both are carried
     # forward, and two entries in one run need two names (design note D71).
     "centralized_ekf_walk": CentralizedEKF,
+    # The GNN's truncated centralised filter (D3c): the centralised filter on every
+    # node's packed batch, what it received held fixed -- the one-hop identity's test
+    # fixture, and a results arm beside the exact one, whose gap is truncation's cost.
+    "centralized_ekf_truncated": CentralizedEKF,
     # The non-adapting baseline. Shares the ATC implementation and differs only
     # in carrying a `freeze_after`, so "what does continuing to adapt buy?" is
     # answered against the same algorithm rather than against a different one.
@@ -131,6 +135,7 @@ POOLING = {
     "centralized_ekf_gamma",
     "centralized_ekf_lambda",
     "centralized_ekf_walk",
+    "centralized_ekf_truncated",
 }
 
 #: Learners holding a covariance, so metrics may ask them for predictive spread.
@@ -139,12 +144,17 @@ BAYESIAN = {
     "centralized_ekf_gamma",
     "centralized_ekf_lambda",
     "centralized_ekf_walk",
+    "centralized_ekf_truncated",
     *DIFFUSION_EKF_VARIANTS,
 }
 
 #: Every name the centralized filter answers to. One class, three names, each
 #: asserting a different constraint on the state model.
-CENTRALIZED_EKF = {"centralized_ekf_gamma", "centralized_ekf_lambda", "centralized_ekf_walk"}
+CENTRALIZED_EKF = {"centralized_ekf_gamma", "centralized_ekf_lambda", "centralized_ekf_walk",
+                   "centralized_ekf_truncated"}
+#: Pooled learners that consume every node's *packed* batch on a GNN rather than the
+#: whole network (D3c).
+TRUNCATED_POOLED = {"centralized_ekf_truncated"}
 
 
 def build_learner(learner_config: Any, model: Model, likelihood: Any, n_nodes: int) -> Any:
@@ -279,7 +289,7 @@ def _build_centralized_ekf(
             "difference between them stays visible (design note D71)."
         )
 
-    if name in ("centralized_ekf_gamma", "centralized_ekf_walk"):
+    if name in ("centralized_ekf_gamma", "centralized_ekf_walk", "centralized_ekf_truncated"):
         if lambda_forget != 1.0:
             raise LearnerError(
                 f"{name} is the gamma family (F = gamma I, P <- gamma^2 P + Q) and has no "

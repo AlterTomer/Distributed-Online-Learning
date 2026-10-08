@@ -1,0 +1,16 @@
+# The GNN's truncated centralised filter (D3c, D139): the centralised filter on every
+# node's *packed* batch -- its window and the aggregates it received, held fixed -- so
+# its Jacobian is each node's own computation, as a distributed agent's is. On a
+# complete graph the GNN one-hop reproduces it exactly (the identity test), and beside
+# the exact centralised filter (centralized_ekf_walk with the whole network linearised)
+# their paired gap is what truncation costs a learner that sees all the data.
+#
+# The gamma family; the runner carries the same tuned settings as the exact filter.
+name: centralized_ekf_truncated
+
+transition: scalar
+gamma: 1.0
+forgetting: process_noise
+process_noise_q: 3.0e-5
+lambda_forget: 1.0
+prior_scale: 0.01

@@ -150,8 +150,9 @@ def coupled_config(topology: str = "complete", learners=None, horizon: int = 4):
     return load_config("m_coupled", overrides={
         "run": {"horizon": horizon, "dtype": "float64", "device": "cpu", "seeds": [0],
                 "eval_every": 2},
-        "graph": {"topology": topology, **({"params": {"p": 0.5}} if topology == "erdos_renyi"
-                                            else {})},
+        "graph": {"topology": topology,
+                  **({"params": {"p": 0.5}} if topology == "erdos_renyi" else
+                     {"params": {"n_components": 10}} if topology == "disconnected" else {})},
         "env": {"series": {"burn_in": 50.0, "eval_blocks": 4, "eval_trajectories": 2}},
         "model": TINY_GNN,
         "learners": learners or ["centralized_sgd"],
@@ -276,3 +277,99 @@ def test_every_learner_kind_runs_on_the_coupled_network():
     for name in ("diffusion_ekf", "diffusion_sgd_atc", "local_adamw"):
         assert last[name]["cum_forward_scalars_tx"] == per_step * config.run.horizon
         assert last[name]["cum_forward_bits_tx"] == 64 * per_step * config.run.horizon
+
+
+# ---- the truncated arm and the exact option (D3c step 5) ----------------------------
+
+def test_the_exact_node_model_is_one_row_of_the_network():
+    from dekf_bench.runner.network import ExactNodeModel
+
+    environment, model, _lik, _l = built(coupled_config(topology="ring"))
+    weights = environment.graph.weights
+    params = model.init_params(torch.Generator().manual_seed(2))
+    windows = torch.stack([environment.step(0)[v].x for v in range(environment.n_nodes)], dim=1)
+    exact = ExactNodeModel(model, weights, environment.n_nodes)
+    full = model.network_predict(params, windows, weights)                 # (1, N, 31)
+    jac = model.network_jacobian(params, windows, weights)[0].reshape(environment.n_nodes, 31, -1)
+    for node in (0, 3):
+        x = exact.encode(windows, node)
+        assert torch.allclose(exact.forward(params, x)[0], full[0, node], atol=1e-12)
+        assert torch.allclose(exact.per_sample_jacobian(params, x)[0], jac[node], atol=1e-10)
+
+
+@pytest.mark.parametrize("topology, equal", [("disconnected", True), ("ring", False)])
+def test_exact_equals_truncated_only_without_edges(topology, equal):
+    """Local adapt on the same data: with no edges nothing is received, so recomputing
+    the receptive field at theta_v changes nothing; on a ring it does. ("disconnected"
+    with one component per node is the edgeless graph.)"""
+    from dekf_bench.runner.network import ExactNodeModel, exact_observations, pack_observations
+
+    learners = [{"name": "diffusion_ekf", **FILTER}]
+    environment, model, likelihood, plain = built(coupled_config(topology=topology,
+                                                                 learners=learners))
+    _env2, _m2, _l2, other = built(coupled_config(topology=topology, learners=learners))
+    truncated, exact = plain["diffusion_ekf"], other["diffusion_ekf"]
+    exact.model = ExactNodeModel(model, environment.graph.weights, environment.n_nodes)
+    weights, nodes = environment.graph.weights, list(range(environment.n_nodes))
+    for step in range(2):
+        observations = environment.step(step)
+        a, b = pack_observations(truncated, observations, weights), exact_observations(
+            exact, observations)
+        truncated.combine({v: truncated.adapt(v, a[v]) for v in nodes}, weights)
+        exact.combine({v: exact.adapt(v, b[v]) for v in nodes}, weights)
+    same = torch.allclose(truncated.flat_params(0), exact.flat_params(0), atol=1e-10)
+    assert same == equal
+
+
+def test_the_truncated_arm_and_the_gnn_one_hop_agree_through_the_runner():
+    """The identity end to end: on K_n, the runner's truncated centralised arm and the
+    GNN one-hop hold the same mean at every step; the exact centralised arm does not."""
+    from dekf_bench.evaluation.series_evalsets import build_series_evalsets
+    from dekf_bench.runner import simulate
+
+    learners = [{"name": "centralized_ekf_truncated", **FILTER},
+                {"name": "centralized_ekf_walk", **FILTER},
+                {"name": "diffusion_ekf_onehop_mean_receiver", **FILTER}]
+    config = coupled_config(learners=learners)
+    environment, model, likelihood, built_learners = built(config)
+    theta0 = model.flatten(model.init_params(environment.seeds.torch_generator("init")))
+    simulate.run(config, environment, built_learners, build_series_evalsets(config, environment),
+                 likelihood, theta0)
+    truncated = built_learners["centralized_ekf_truncated"].flat_params(0)
+    onehop = built_learners["diffusion_ekf_onehop_mean_receiver"]
+    for node in range(environment.n_nodes):
+        assert torch.allclose(onehop.flat_params(node), truncated, atol=1e-10)
+    assert not torch.allclose(built_learners["centralized_ekf_walk"].flat_params(0), truncated,
+                              atol=1e-8)
+
+
+def test_an_exact_one_hop_and_exact_atc_run():
+    from dekf_bench.evaluation.series_evalsets import build_series_evalsets
+    from dekf_bench.runner import simulate
+
+    learners = [{"name": "diffusion_ekf_onehop_mean_receiver", **FILTER, "gnn_jacobian": "exact"},
+                {"name": "diffusion_sgd_atc", "optimizer": "sgd_momentum", "momentum": 0.9,
+                 "lr": 1e-6, "mix_optimizer_state": "momentum", "gnn_jacobian": "exact"}]
+    config = coupled_config(topology="ring", learners=learners, horizon=3)
+    environment, model, likelihood, built_learners = built(config)
+    theta0 = model.flatten(model.init_params(environment.seeds.torch_generator("init")))
+    records = simulate.run(config, environment, built_learners,
+                           build_series_evalsets(config, environment), likelihood, theta0)
+    import math
+    rmse = [row["value"] for r in records for row in r.rows
+            if row["metric"] == "rmse" and row["evalset"] == "current"]
+    assert rmse and all(math.isfinite(v) and v < 100.0 for v in rmse)
+
+
+def test_exact_is_refused_for_a_pooled_learner():
+    from dekf_bench.evaluation.series_evalsets import build_series_evalsets
+    from dekf_bench.runner import simulate
+    from dekf_bench.runner.simulate import SimulationError
+
+    config = coupled_config(learners=[{"name": "centralized_ekf_walk", **FILTER,
+                                       "gnn_jacobian": "exact"}])
+    environment, model, likelihood, built_learners = built(config)
+    theta0 = model.flatten(model.init_params(environment.seeds.torch_generator("init")))
+    with pytest.raises(SimulationError, match="pooled"):
+        simulate.run(config, environment, built_learners,
+                     build_series_evalsets(config, environment), likelihood, theta0)

@@ -100,6 +100,66 @@ class NetworkModel:
         return pullback(cotangent)[0]
 
 
+@dataclasses.dataclass(frozen=True)
+class ExactNodeModel:
+    """Node $v$'s prediction from the whole network evaluated at **one** $\\bm\\theta$ (D3c).
+
+    The multi-hop exact variant (decided 2026-10-08): an agent receives every node's
+    raw window -- tiny on this task -- and recomputes the receptive field at its own
+    parameters, so its Jacobian or gradient runs through every path. ``x`` is the
+    snapshot flattened with a one-hot of the node whose output is wanted,
+    ``(b, N context + N)``; a receiver-point one-hop neighbour's measurement then
+    carries *its* node's one-hot, and the receiver evaluates it exactly at
+    $\\bm\\theta_v$ without any other change.
+    """
+
+    gnn: Any
+    weights: torch.Tensor
+    n_nodes: int
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.gnn, name)
+
+    def encode(self, snapshots: torch.Tensor, node: int) -> torch.Tensor:
+        """``(b, N, context)`` and a node to ``(b, N context + N)``."""
+        b = snapshots.shape[0]
+        onehot = snapshots.new_zeros(b, self.n_nodes)
+        onehot[:, node] = 1.0
+        return torch.cat([snapshots.reshape(b, -1), onehot], dim=1)
+
+    def _one(self, params: Any, row: torch.Tensor) -> torch.Tensor:
+        from dekf_bench.models.gnn import _call_network, off_diagonal  # noqa: PLC0415
+
+        cut = self.n_nodes * self.gnn.context
+        snapshot = row[:cut].reshape(self.n_nodes, self.gnn.context)
+        off = off_diagonal(self.weights).to(dtype=row.dtype, device=row.device)
+        out = _call_network(self.gnn._module, params, snapshot, off)     # (N, context)
+        return (out * row[cut:, None]).sum(dim=0)                        # node's row
+
+    def forward(self, params: Any, x: torch.Tensor) -> torch.Tensor:
+        return torch.func.vmap(lambda row: self._one(params, row))(x)
+
+    def per_sample_jacobian(self, params: Any, x: torch.Tensor) -> torch.Tensor:
+        flat = self.gnn.flatten(params)
+        return torch.func.vmap(torch.func.jacrev(
+            lambda f, row: self._one(self.gnn.unflatten(f), row)), in_dims=(None, 0))(flat, x)
+
+    def vjp(self, params: Any, x: torch.Tensor, cotangent: torch.Tensor) -> torch.Tensor:
+        flat = self.gnn.flatten(params)
+        _out, pullback = func_vjp(lambda f: self.forward(self.gnn.unflatten(f), x), flat)
+        return pullback(cotangent)[0]
+
+
+def exact_observations(learner: Any, observations: dict[int, Any]) -> dict[int, Any]:
+    """The step for an exact learner: every node's measurement carries the whole raw
+    snapshot and its own node index -- no messages are computed, they are recomputed."""
+    model = learner.model
+    nodes = sorted(observations)
+    windows = torch.stack([observations[v].x for v in nodes], dim=1)
+    return {v: dataclasses.replace(observations[v], x=model.encode(windows, i))
+            for i, v in enumerate(nodes)}
+
+
 class NetworkEvalSets:
     """Held-out network snapshots, packed for one learner and served per node.
 
@@ -125,10 +185,16 @@ class NetworkEvalSets:
                 return None
             model = self._learner.model
             nodes = list(range(base.inputs.shape[1]))
-            with torch.no_grad():
-                _pred, packed = model.network_forward(
-                    _node_params(self._learner, model, nodes), base.inputs, self._weights)
-            self._packed[key] = (base, packed)
+            if isinstance(model, ExactNodeModel):
+                # An exact learner reads the raw snapshot itself (no messages to pack).
+                self._packed[key] = (base, None)
+            else:
+                with torch.no_grad():
+                    _pred, packed = model.network_forward(
+                        _node_params(self._learner, model, nodes), base.inputs, self._weights)
+                self._packed[key] = (base, packed)
         base, packed = self._packed[key]
-        return SeriesEvalSet(name=base.name, inputs=packed[:, node], targets=base.targets[:, node],
+        inputs = (self._learner.model.encode(base.inputs, node) if packed is None
+                  else packed[:, node])
+        return SeriesEvalSet(name=base.name, inputs=inputs, targets=base.targets[:, node],
                              rotation_degrees=base.rotation_degrees, step=base.step)

@@ -595,6 +595,13 @@ class LearnerConfig:
     #: run before D3; "neuron" (the decoupled EKF, the main variant), "layer" and
     #: "tensor" are block-diagonal. Inert for the gradient learners.
     covariance_blocks: str = "full"
+    #: The coupled-network GNN only (D3c): "truncated" differentiates a node's own
+    #: computation with what it received held fixed; "exact" recomputes the whole
+    #: receptive field at the agent's own parameters from every node's raw window, so
+    #: the Jacobian or gradient runs through every path. An option for the distributed
+    #: filters and ATC (decided 2026-10-08); the first run uses it on local adapt and
+    #: one-hop only.
+    gnn_jacobian: str = "truncated"
 
     # --- phase 5 state model; inert for the SGD learners ------------------- #
     #: F_t. "identity" is a driftless random walk; "scalar" makes F_t = gamma*I,
@@ -683,6 +690,10 @@ class LearnerConfig:
             raise ConfigError(
                 f"learner[{self.name}].covariance_blocks must be full, neuron, layer or tensor, "
                 f"got {self.covariance_blocks!r}")
+        if self.gnn_jacobian not in ("truncated", "exact"):
+            raise ConfigError(
+                f"learner[{self.name}].gnn_jacobian must be truncated or exact, got "
+                f"{self.gnn_jacobian!r}")
         if self.inner_steps < 1:
             raise ConfigError(
                 f"learner[{self.name}].inner_steps must be >= 1, got {self.inner_steps}. "
