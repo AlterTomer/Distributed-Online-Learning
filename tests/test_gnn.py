@@ -133,3 +133,146 @@ def test_off_diagonal_drops_the_self_weight():
     off = off_diagonal(w)
     assert torch.equal(off.diagonal(), torch.zeros(N, dtype=DTYPE))
     assert torch.equal(off + torch.diag(w.diagonal()), w)
+
+
+# ---- the GNN in a run (D3c step 3) -------------------------------------------------
+
+TINY_GNN = {"name": "coupled_gnn", "likelihood": "gaussian", "context": 31, "output_dim": 31,
+            "d_model": 6, "n_heads": 2, "d_ff": 8, "graph_layers": 2,
+            "observation_variance": 0.03, "observation_variances": []}
+FILTER = {"transition": "scalar", "gamma": 1.0, "process_noise_q": 0.0,
+          "lambda_forget": 1.0, "prior_scale": 0.01, "forgetting": "process_noise"}
+
+
+def coupled_config(topology: str = "complete", learners=None, horizon: int = 4):
+    from dekf_bench.utils.config import load_config
+
+    return load_config("m_coupled", overrides={
+        "run": {"horizon": horizon, "dtype": "float64", "device": "cpu", "seeds": [0],
+                "eval_every": 2},
+        "graph": {"topology": topology, **({"params": {"p": 0.5}} if topology == "erdos_renyi"
+                                            else {})},
+        "env": {"series": {"burn_in": 50.0, "eval_blocks": 4, "eval_trajectories": 2}},
+        "model": TINY_GNN,
+        "learners": learners or ["centralized_sgd"],
+    })
+
+
+def built(config):
+    from dekf_bench.env.series import build_series_environment
+    from dekf_bench.learners.registry import build_learners
+    from dekf_bench.likelihoods.registry import build_likelihood
+    from dekf_bench.models.registry import build_model_from_config
+
+    environment = build_series_environment(config, 0)
+    model = build_model_from_config(config)
+    likelihood = build_likelihood(config)
+    learners = build_learners(config, model, likelihood)
+    theta0 = model.flatten(model.init_params(environment.seeds.torch_generator("init")))
+    for learner in learners.values():
+        learner.init(theta0)
+    return environment, model, likelihood, learners
+
+
+def test_packing_never_touches_the_shared_observations():
+    from dekf_bench.runner.network import pack_observations
+
+    environment, _model, _lik, learners = built(coupled_config())
+    observations = environment.step(0)
+    before = {v: o.x.clone() for v, o in observations.items()}
+    seen = pack_observations(learners["centralized_sgd"], observations, environment.graph.weights)
+    assert all(torch.equal(observations[v].x, before[v]) for v in observations)
+    assert seen[0].x.shape[-1] == 1 + 2 * TINY_GNN["d_model"]
+
+
+@pytest.mark.parametrize("onehop", ["diffusion_ekf_onehop_mean_receiver",
+                                    "diffusion_ekf_onehop_receiver"])
+def test_the_gnn_one_hop_reproduces_the_truncated_centralised_fixture(onehop):
+    """The GNN one-hop's identity (decided 2026-10-07): on K_n every agent packs the same
+    inputs and pools every packed batch at a common mean, which is the centralised
+    filter linearising each node *truncated* -- the test-only fixture. The results'
+    centralised filter is exact and must NOT match (the positive control)."""
+    from dekf_bench.env.series import pool
+    from dekf_bench.runner.network import NetworkModel, pack_observations
+
+    learners = [{"name": "centralized_ekf_walk", **FILTER},
+                {"name": "centralized_ekf_gamma", **FILTER, "gamma": 1.0},
+                {"name": onehop, **FILTER}]
+    environment, model, _lik, built_learners = built(coupled_config(learners=learners))
+    fixture = built_learners["centralized_ekf_walk"]          # truncated: packed, pooled
+    exact = built_learners["centralized_ekf_gamma"]           # exact: the network model
+    exact.network_model = NetworkModel(model, environment.graph.weights, environment.n_nodes)
+    diffusion = built_learners[onehop]
+    weights = environment.graph.weights
+    nodes = list(range(environment.n_nodes))
+    for step in range(3):
+        observations = environment.step(step)
+        packed = pack_observations(fixture, observations, weights)
+        fixture.adapt_pooled(*pool(packed))
+        exact.adapt_pooled(*pool(observations))
+        seen = pack_observations(diffusion, observations, weights)
+        diffusion.combine({v: diffusion.adapt(v, seen[v]) for v in nodes}, weights)
+        for v in nodes:
+            assert torch.allclose(diffusion.flat_params(v), fixture.flat_params(0), atol=1e-10)
+    assert not torch.allclose(exact.flat_params(0), fixture.flat_params(0), atol=1e-8)
+
+
+def test_the_network_models_gradient_is_its_jacobians():
+    from dekf_bench.env.series import pool
+    from dekf_bench.runner.network import NetworkModel
+
+    environment, model, _lik, _l = built(coupled_config())
+    x, _y = pool(environment.step(0))
+    net = NetworkModel(model, environment.graph.weights, environment.n_nodes)
+    params = model.init_params(torch.Generator().manual_seed(3))
+    cotangent = torch.randn(net.forward(params, x).shape, dtype=DTYPE,
+                            generator=torch.Generator().manual_seed(4))
+    jac = net.per_sample_jacobian(params, x)
+    assert torch.allclose(net.vjp(params, x, cotangent),
+                          torch.einsum("nqp,nq->p", jac, cotangent), atol=1e-10)
+
+
+def test_every_learner_kind_runs_on_the_coupled_network():
+    """A short run through the simulator on an ER graph: filters on neuron blocks,
+    one-hop, full sharing, and the gradient baselines -- every path, finite throughout."""
+    from dekf_bench.evaluation.series_evalsets import build_series_evalsets
+    from dekf_bench.runner import simulate
+
+    blocks = {"covariance_blocks": "neuron"}
+    learners = [
+        {"name": "centralized_ekf_walk", **FILTER, **blocks},
+        {"name": "diffusion_ekf", **FILTER, **blocks},
+        {"name": "diffusion_ekf_onehop_mean_receiver", **FILTER, **blocks},
+        {"name": "diffusion_ekf_full", **FILTER, **blocks},
+        # 1e-6: a Gaussian likelihood at R = 0.03 scales gradients by 1/R, and at 1e-4
+        # every SGD learner here diverges within six steps -- centralised SGD with the
+        # exact network gradient included -- so the rate, not the truncation (measured
+        # 2026-10-08). MG's tuned rates sit at 3e-6 to 3e-4 for the same reason.
+        {"name": "centralized_sgd", "optimizer": "sgd_momentum", "momentum": 0.9, "lr": 1e-6},
+        {"name": "diffusion_sgd_atc", "optimizer": "sgd_momentum", "momentum": 0.9, "lr": 1e-6,
+         "mix_optimizer_state": "momentum"},
+        {"name": "local_adamw", "lr": 1e-3},
+    ]
+    config = coupled_config(topology="erdos_renyi", learners=learners)
+    environment, model, likelihood, built_learners = built(config)
+    theta0 = model.flatten(model.init_params(environment.seeds.torch_generator("init")))
+    records = simulate.run(config, environment, built_learners,
+                           build_series_evalsets(config, environment), likelihood, theta0)
+    import math
+
+    rmse = [(r.learner, r.step, row["node_id"], row["value"]) for r in records for row in r.rows
+            if row["metric"] == "rmse" and row["evalset"] == "current"]
+    # Finite is too weak a test in float64 -- a diverging learner reaches 1e119 and is
+    # still finite -- so the scores are also bounded.
+    bad = [entry for entry in rmse if not (math.isfinite(entry[3]) and entry[3] < 100.0)]
+    assert rmse and not bad, bad[:5]
+    seen = {r.learner for r in records}
+    assert seen == {e["name"] for e in learners}
+    # The forward pass is on the ledger, on its own columns: nothing for the pooled
+    # learner, layers x 2|E| x context x d per step for every distributed one.
+    last = {r.learner: r.rows[-1] for r in records if r.step == config.run.horizon - 1}
+    per_step = 2 * 2 * environment.graph.n_edges * 31 * TINY_GNN["d_model"]
+    assert last["centralized_ekf_walk"]["cum_forward_scalars_tx"] == 0
+    for name in ("diffusion_ekf", "diffusion_sgd_atc", "local_adamw"):
+        assert last[name]["cum_forward_scalars_tx"] == per_step * config.run.horizon
+        assert last[name]["cum_forward_bits_tx"] == 64 * per_step * config.run.horizon

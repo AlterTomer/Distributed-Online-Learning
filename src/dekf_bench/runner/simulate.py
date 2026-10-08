@@ -35,6 +35,13 @@ from dekf_bench.evaluation import belief, protocol
 from dekf_bench.evaluation.evalsets import EvalSetBuilder
 from dekf_bench.learners.registry import POOLING
 from dekf_bench.metrics import disagreement
+from dekf_bench.runner.network import (
+    NetworkEvalSets,
+    NetworkModel,
+    forward_scalars,
+    is_network_model,
+    pack_observations,
+)
 
 #: The pooled filters, in the order one becomes the filters' own E_cent reference
 #: (P5.12, D134). The random walk first: where a run carries both, as M6 does, the
@@ -146,6 +153,14 @@ def run(
     for learner in learners.values():
         learner.init(theta0)
     _attach_channels(config, learners, environment.seeds, theta0)
+    # The coupled-network GNN (D3c): each learner's data is packed from its own
+    # forward pass, and the pooled learners linearise the whole network exactly.
+    network = is_network_model(next(iter(learners.values())).model)
+    if network:
+        for name, learner in learners.items():
+            if name in POOLING:
+                learner.network_model = NetworkModel(learner.model, environment.graph.weights,
+                                                     environment.n_nodes)
 
     # Resume where a previous run stopped, if it did. Exact rather than
     # approximate: the loop consumes no randomness, so there is no RNG state to
@@ -187,9 +202,13 @@ def run(
         score_beliefs = belief.due(config, step, environment.horizon, full_eval)
 
         for name, learner in learners.items():
+            # A GNN learner sees the step through its own forward pass (D3c).
+            seen = (pack_observations(learner, observations, weights) if network
+                    else observations)
+            held_out = NetworkEvalSets(evalsets, learner, weights) if network else evalsets
             # Test-then-train: score first, on the batch about to be learned
             # from. `predict` cannot update anything.
-            preq = protocol.prequential(observations, learner.predict, likelihood, step=step)
+            preq = protocol.prequential(seen, learner.predict, likelihood, step=step)
             rows = preq.as_rows()
 
             # P5.14 scores the belief before combine as well as after, so the
@@ -199,7 +218,7 @@ def run(
                 learner.retain_pre_combine = True
             channel = getattr(learner, "channel", None)
             sent_before = (channel.bits, channel.scalars) if channel is not None else (0, 0)
-            _advance(learner, name, observations, nodes, weights, pooled_x, pooled_y)
+            _advance(learner, name, seen, nodes, weights, pooled_x, pooled_y)
             bits_this_step = _step_bits(learner, name, channel, sent_before, n_edges, pricing)
             if step == start_step and start_step:
                 # A resumed run starts its running sum where the scalar column would:
@@ -210,7 +229,7 @@ def run(
 
             if full_eval:
                 scores = protocol.full_evaluate(
-                    evalsets,
+                    held_out,
                     learner.predict,
                     likelihood,
                     step=step,
@@ -223,7 +242,7 @@ def run(
                 rows.extend(scores.as_rows())
                 rows.extend(_disagreement_rows(learner, learners, nodes, step))
             if score_beliefs and belief.scoreable(learner):
-                rows.extend(belief.evaluate(evalsets, learner, likelihood, config, step,
+                rows.extend(belief.evaluate(held_out, learner, likelihood, config, step,
                                             nodes, environment.seeds))
             if hasattr(learner, "release_pre_combine"):
                 learner.release_pre_combine()
@@ -231,6 +250,18 @@ def run(
             # Cumulative communication, so F2 plots error against it directly
             # rather than joining against the ledger.
             per_step = learner.comm_scalars_per_step(n_edges)
+            # A GNN's forward pass is communication too (D3c, D139): every distributed
+            # learner -- local-only included, since a GNN cannot predict without its
+            # neighbours' embeddings -- sends each layer's embedding over every link,
+            # both ways. Its own columns, at working precision and outside the codec;
+            # written only on GNN runs, so every other run's schema is unchanged.
+            extra = {}
+            if network:
+                forward = 0 if name in POOLING else forward_scalars(learner.model, observations,
+                                                                    n_edges)
+                extra = {"cum_forward_scalars_tx": forward * (step + 1),
+                         "cum_forward_bits_tx": forward * (step + 1)
+                         * working_bits(getattr(torch, config.run.dtype))}
             stamped = [
                 {
                     **row,
@@ -238,6 +269,7 @@ def run(
                     "cum_scalars_tx": per_step * (step + 1),
                     "cum_bits_tx": cum_bits[name],
                     "cum_rounds": (step + 1) if per_step else 0,
+                    **extra,
                 }
                 for row in rows
             ]

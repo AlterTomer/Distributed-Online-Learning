@@ -131,8 +131,9 @@ class _SGDBase:
 
     # -- shared internals --------------------------------------------------- #
 
-    def _gradient(self, theta: torch.Tensor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return loss_gradient(self.model, theta, x, y, self.likelihood)
+    def _gradient(self, theta: torch.Tensor, x: torch.Tensor, y: torch.Tensor,
+                  model: Model | None = None) -> torch.Tensor:
+        return loss_gradient(model or self.model, theta, x, y, self.likelihood)
 
     def is_frozen(self, step: int | None = None) -> bool:
         """Whether adaptation has stopped by ``step`` (default: the last seen)."""
@@ -157,7 +158,8 @@ class _SGDBase:
             return state.theta.clone()
         return self._steps_on(state, observation.x, observation.y)
 
-    def _steps_on(self, state: LearnerState, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def _steps_on(self, state: LearnerState, x: torch.Tensor, y: torch.Tensor,
+                  model: Model | None = None) -> torch.Tensor:
         """``inner_steps`` optimiser steps on one batch, from ``state.theta``.
 
         Returns the final iterate and leaves ``state.theta`` alone, as one step
@@ -165,7 +167,8 @@ class _SGDBase:
         """
         theta = state.theta
         for _ in range(self.inner_steps):
-            theta = self.optimizer.step(theta, self._gradient(theta, x, y), state.extras)
+            theta = self.optimizer.step(theta, self._gradient(theta, x, y, model),
+                                        state.extras)
         return theta
 
     def _payload(self, node: int) -> dict[str, torch.Tensor]:
@@ -204,7 +207,9 @@ class CentralizedSGD(_SGDBase):
         if x.shape[0] == 0:
             return
         shared = self._states[0]
-        theta = self._steps_on(shared, x, y)
+        # A GNN's centralised learner steps on the whole network's exact gradient
+        # (D3c): the runner attaches `network_model`; otherwise the model as always.
+        theta = self._steps_on(shared, x, y, getattr(self, "network_model", None))
         for node in range(self._n_nodes):
             self._states[node].theta = theta.clone()
             self._states[node].extras = {

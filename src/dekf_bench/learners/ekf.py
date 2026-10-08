@@ -673,7 +673,11 @@ class CentralizedEKF:
 
         try:
             self._mean, self._covariance = iterated_update(
-                lambda theta: information_pair(self.model, self.likelihood, theta, x, y),
+                # A GNN's centralised filter linearises the whole network (D3c): the
+                # runner attaches `network_model`, the exact Jacobian through the graph.
+                lambda theta: information_pair(
+                    getattr(self, "network_model", None) or self.model, self.likelihood,
+                    theta, x, y),
                 mean,
                 covariance,
                 self.inner_steps,

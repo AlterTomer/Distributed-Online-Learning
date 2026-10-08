@@ -76,20 +76,30 @@ def evaluate(
     Task-agnostic: images and labels under a categorical likelihood, series blocks
     and targets under a Gaussian one, where the predictive is exact and R enters.
     """
-    evalset = builder.at("current", step)
-    if evalset is None:  # pragma: no cover - `current` always exists
+    def subset(node: int | None) -> tuple[torch.Tensor, torch.Tensor, float] | None:
+        evalset = builder.at("current", step, node) if node is not None else \
+            builder.at("current", step)
+        if evalset is None:
+            return None
+        inputs = getattr(evalset, "images", None)
+        outputs = getattr(evalset, "labels", None)
+        if inputs is None:  # the series task's held-out blocks
+            inputs, outputs = evalset.inputs, evalset.targets
+        return (inputs[: config.eval.belief_subset], outputs[: config.eval.belief_subset],
+                evalset.rotation_degrees)
+
+    # A GNN's held-out snapshots are packed per learner and per node (D3c); every other
+    # task scores all agents on one shared set.
+    per_node = bool(getattr(builder, "per_node", False))
+    shared = None if per_node else subset(None)
+    if not per_node and shared is None:  # pragma: no cover - `current` always exists
         return []
-    inputs = getattr(evalset, "images", None)
-    outputs = getattr(evalset, "labels", None)
-    if inputs is None:  # the series task's held-out blocks
-        inputs, outputs = evalset.inputs, evalset.targets
-    x = inputs[: config.eval.belief_subset]
-    y = outputs[: config.eval.belief_subset]
     regression = bool(getattr(likelihood, "is_regression", False))
     rows: list[dict[str, Any]] = []
     for stage in learner.belief_stages():
         prefix = "" if stage == "post" else f"{stage}_"
         for node in nodes:
+            x, y, drift_state = subset(node) if per_node else shared  # type: ignore[misc]
             theta, covariance = learner.belief(node, stage)
             logits, logit_cov = predictive(learner.model, theta, covariance, x)
             if regression:
@@ -106,7 +116,7 @@ def evaluate(
                                                config.eval.belief_mc_samples, generator)
             rows.extend(
                 {"node_id": node, "evalset": "current", "t": step,
-                 "drift_state": evalset.rotation_degrees,
+                 "drift_state": drift_state,
                  "metric": f"{prefix}{name}", "value": value}
                 for name, value in scores.items())
     return rows

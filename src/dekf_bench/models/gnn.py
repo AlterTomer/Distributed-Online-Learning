@@ -204,6 +204,11 @@ class CoupledGNN:
         """Every block's truncated $\\bm H$, ``(n, context, p)``: the aggregates are inputs."""
         return F.per_sample_jacobian(self._module, params, packed, self.names)
 
+    def vjp(self, params: ParamDict, packed: torch.Tensor, cotangent: torch.Tensor) -> torch.Tensor:
+        """$\\bm u^{\\mathsf T}\\bm H$ through the node's own computation: the truncated
+        gradient's route (`loss_gradient`)."""
+        return self.flatten(F.vector_jacobian_product(self._module, params, packed, cotangent))
+
     def jacobian(self, params: ParamDict, packed: torch.Tensor) -> torch.Tensor:
         return F.jacobian(self._module, params, packed, self.names)
 
