@@ -82,6 +82,14 @@ COLUMNS: dict[str, str] = {
     "wallclock_s": "float",
 }
 
+#: Columns a row may carry that are written **only by the runs that produce them**, so
+#: every other run's file keeps exactly the columns above. The GNN's forward-pass
+#: messages (D3c): their own ledger, outside the codec.
+OPTIONAL_COLUMNS: dict[str, str] = {
+    "cum_forward_scalars_tx": "int",
+    "cum_forward_bits_tx": "int",
+}
+
 #: Columns that must be present and non-null on every row.
 REQUIRED = (
     "run_id",
@@ -224,7 +232,7 @@ def validate(row: dict[str, Any], strict: bool = True) -> None:
         raise SchemaError(f"row is missing required field(s): {missing}")
 
     if strict:
-        unknown = sorted(set(row) - set(COLUMNS))
+        unknown = sorted(set(row) - set(COLUMNS) - set(OPTIONAL_COLUMNS))
         if unknown:
             raise SchemaError(
                 f"row has unknown column(s) {unknown}; known columns are "

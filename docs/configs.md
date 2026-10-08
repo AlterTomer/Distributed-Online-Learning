@@ -259,7 +259,8 @@ and `backward` is refused as an evaluation set.
 | `beta_spread` | float | `0.0` | $[0,\beta)$ | Per-agent $\beta$ offsets, evenly over $[-s, s]$ |
 | `sigma_spread` | float | `0.0` | $[0,1)$ | Per-agent noise, evenly over $\sigma[1-s, 1+s]$ |
 | `tau_values` | list[float] | `[]` | each > 0 | Per-agent delays, cycled; empty means all `tau` |
-| `eval_blocks`, `eval_trajectories` | int | `32`, `8` | ≥ 1 | Size of each held-out set |
+| `eval_blocks`, `eval_trajectories` | int | `32`, `8` | ≥ 1 | Size of each held-out set; under coupling, `eval_trajectories` fresh *networks* |
+| `network_kappa` | float | `0.0` | $[0,1]$ | The coupled network (D3b, D139): node $v$'s production reads $(1-\kappa)x_v(t-\tau_v)+\kappa\sum_u a_{vu}x_u(t-\tau_v)$ over the communication graph's Metropolis weights. `0` is the uncoupled task, byte for byte; `0.6` is D3b's choice. Coupled, every node must be observed every round, the readout is per position, and the held-out sets are network snapshots `(S, N, 31)`, each node at its own delay |
 
 **How a schedule drives the series.** The drift fields keep their degree units
 and their 45-degree cap; on this task the cap stands for the channel's full
@@ -278,7 +279,8 @@ and their 45-degree cap; on this task the cap stands for the channel's full
 | `observation_variance` | float | `1.0` | > 0 | $\sigma^2$ in $\boldsymbol R = \sigma^2\boldsymbol I$; read only by `gaussian` |
 | `observation_variances` | list[float] | `[]` | each > 0, one per output | A per-position diagonal of $\boldsymbol R$, overriding `observation_variance` when non-empty (series task, decision 14) |
 | `context` | int | `31` | = `env.series.length - 1` | Sequence models: positions per block. `output_dim` must equal it |
-| `d_model`, `n_heads`, `d_ff` | int | `16`, `2`, `32` | `d_model` even, divisible by `n_heads` | `causal_transformer` widths |
+| `d_model`, `n_heads`, `d_ff` | int | `16`, `2`, `32` | `d_model` even, divisible by `n_heads` | `causal_transformer` widths, and `coupled_gnn`'s encoder (`mg_gnn.yaml`: 40, 2, 80) |
+| `graph_layers` | int | `2` | ≥ 1 | `coupled_gnn` only (D3c): aggregate-then-transform graph layers after the per-node causal decoder. $p = 20\,001$ at `mg_gnn.yaml`'s widths |
 
 `config.model.num_params` computes $p$ from these — 2908 at the defaults, 2273 for
 `causal_transformer` and 32 for `linear_ar`, checked against the built models.
@@ -548,6 +550,9 @@ Shared fields:
 | `linearization_point` | str | `sender` | `sender`, `receiver` | One-hop only. Where a neighbour's batch is linearised: at the sender's $\boldsymbol\theta_u^-$ (what X20–X26 ran; mixed points, $\boldsymbol\theta_u^-$ must travel) or at the receiver's own $\boldsymbol\theta_v^-$ (one point per update; 3 696 scalars per link per direction instead of 6 604). D93, D94. Pinned by the learner name |
 | `combine_exponent` | float | `1.0` | `[1, 2]` | `P <- sum a^beta P`. `1` is the conservative bound, `2` what independent errors give. Costs no communication |
 | `freeze_after` | int \| null | `null` | ≥ 1 | Stop adapting *and* transmitting at this step |
+| `inner_steps` | int | `1` | ≥ 1 | $K$ passes over each step's batch before the combine (D139): $K$ optimiser steps, or $K$ Gauss–Newton relinearisations (the iterated EKF). Not CTA, not a `sender` one-hop |
+| `covariance_blocks` | str | `full` | `full`, `neuron`, `layer`, `tensor` | The filters' covariance structure (D3a): `neuron` is the decoupled EKF — one shared gain, the mean exact for the block prior, cross-block covariance dropped |
+| `gnn_jacobian` | str | `truncated` | `truncated`, `exact` | `coupled_gnn` only (D3c): `truncated` holds what a node received fixed; `exact` recomputes the receptive field at the agent's own parameters from every node's raw window. For the distributed filters and ATC; refused for pooled learners, which are exact already |
 | `transition` | str | `identity` | `identity`, `scalar` | Phase 5; $\boldsymbol F_t$ |
 | `gamma` | float | `1.0` | $(0,1]$ | Phase 5; $\boldsymbol F_t = \gamma\boldsymbol I$ under `scalar` |
 | `forgetting` | str | `lambda` | `lambda`, `process_noise` | Phase 5; how $\boldsymbol P$ is loosened |

@@ -35,7 +35,7 @@ from typing import Any
 
 import torch
 
-from dekf_bench.recording.schema import RunContext, empty_frame, validate
+from dekf_bench.recording.schema import OPTIONAL_COLUMNS, RunContext, empty_frame, validate
 from dekf_bench.utils.atomic import replace_with_retry
 
 CHECKPOINT_VERSION = 1
@@ -202,7 +202,10 @@ class Recorder:
         for column in template.columns:
             if column not in frame:
                 frame[column] = None
-        return frame[list(template.columns)]
+        # Optional columns follow the fixed ones, and only when some row carries them
+        # (the GNN's forward ledger): every other run's file keeps its exact columns.
+        extra = [c for c in OPTIONAL_COLUMNS if c in frame]
+        return frame[list(template.columns) + extra]
 
     def _write_atomic(self, path: Path, frame: Any) -> None:
         """Write via a temporary file and rename, so an interrupted write cannot

@@ -196,6 +196,26 @@ def test_a_nonsense_node_id_is_rejected(tmp_path) -> None:
         recorder.log(a_row(node_id="agent-seven"))
 
 
+def test_optional_columns_appear_only_where_written(tmp_path) -> None:
+    """The GNN's forward ledger (D3c): allowed when a row carries it, and written after
+    the fixed columns -- while a run that never produces it keeps exactly the fixed
+    columns, so no other run's file changes shape."""
+    from dekf_bench.recording.schema import COLUMNS
+
+    config = config_for()
+    plain = recorder_for(config, tmp_path / "plain")
+    plain.log(a_row())
+    plain._rows.extend(plain._buffer)          # what a flush does before writing
+    assert list(plain._frame().columns) == list(COLUMNS)
+
+    forward = recorder_for(config, tmp_path / "forward")
+    forward.log(a_row(cum_forward_scalars_tx=12, cum_forward_bits_tx=768))
+    forward._rows.extend(forward._buffer)
+    columns = list(forward._frame().columns)
+    assert columns[: len(COLUMNS)] == list(COLUMNS)
+    assert columns[len(COLUMNS):] == ["cum_forward_scalars_tx", "cum_forward_bits_tx"]
+
+
 def test_the_empty_frame_still_has_every_column() -> None:
     """So concatenating a run that produced nothing does not drop columns."""
     assert list(empty_frame().columns) == list(COLUMNS)

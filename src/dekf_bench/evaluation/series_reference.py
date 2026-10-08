@@ -170,3 +170,101 @@ def train_reference(
         cache_dir.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(result.as_dict(), indent=2), encoding="utf-8")
     return result
+
+
+def train_gnn_reference(
+    config: Any,
+    graphs: list[Any],
+    settings: ReferenceSettings = ReferenceSettings(),  # noqa: B008 -- frozen, so safe
+    snapshot_batch: int = 8,
+) -> dict[str, Any]:
+    r"""The coupled task's offline reference, and the R profile it measures (D3c).
+
+    M2's protocol on network snapshots (decided 2026-10-08): one run's budget --
+    ``train_trajectories x blocks_per_trajectory`` node-blocks, i.e. that over $N$
+    snapshots -- from fresh coupled networks at the configured law, spread evenly over
+    ``graphs`` (the report seeds' communication graphs, so the profile belongs to the
+    task rather than to one draw); one shared $\bm\theta$ through the whole network;
+    AdamW, early stopping on a validation set. ``snapshot_batch`` snapshots per step,
+    about M2's 64 blocks at $N=10$. Returns the test RMSE, $e^\star$'s line, and **R:
+    the per-position residual variance on held-out snapshots, pooled over nodes**.
+    """
+    from dekf_bench.env.series import agent_laws, closed_neighbourhoods, network_blocks
+    from dekf_bench.models.registry import build_model_from_config
+    from dekf_bench.utils.determinism import resolve_device
+
+    series = config.env.series
+    n_nodes = config.graph.n_nodes
+    laws = agent_laws(series, n_nodes)
+    model = build_model_from_config(config)
+    dtype = model.dtype
+    # The model's buffers live on the run's device (D104); the data and theta follow.
+    device = torch.device(resolve_device(config.run.device))
+    value = float(series.beta) if series.channel == "beta" else 0.0
+
+    def snapshots(total_blocks: int, stream: int) -> tuple[torch.Tensor, torch.Tensor, list]:
+        per_graph = math.ceil(total_blocks / n_nodes / len(graphs))
+        xs, ys, owners = [], [], []
+        for index, graph in enumerate(graphs):
+            neighbours, weights = closed_neighbourhoods(graph.weights)
+            networks = max(1, math.ceil(per_graph / settings.blocks_per_trajectory))
+            each = math.ceil(per_graph / networks)
+            rng = np.random.default_rng([settings.seed, stream, index])
+            x, y = network_blocks(series, laws, value, neighbours, weights, networks, each, rng)
+            xs.append(torch.tensor(x[:per_graph], dtype=dtype, device=device))
+            ys.append(torch.tensor(y[:per_graph], dtype=dtype, device=device))
+            owners += [index] * min(per_graph, len(x))
+        return torch.cat(xs), torch.cat(ys), owners
+
+    train_x, train_y, train_g = snapshots(
+        settings.train_trajectories * settings.blocks_per_trajectory, 0)
+    val_x, val_y, val_g = snapshots(settings.val_blocks, 1)
+    test_x, test_y, test_g = snapshots(settings.test_blocks, 2)
+    weights = [graph.weights.to(dtype=dtype, device=device) for graph in graphs]
+
+    def predict(at: torch.Tensor, x: torch.Tensor, owner: list) -> torch.Tensor:
+        params = model.unflatten(at)
+        out = torch.empty_like(x)
+        for index in set(owner):
+            rows = torch.tensor([i for i, g in enumerate(owner) if g == index], device=device)
+            out[rows] = model.network_predict(params, x[rows], weights[index])
+        return out
+
+    generator = torch.Generator().manual_seed(settings.seed)
+    theta = torch.nn.Parameter(model.flatten(model.init_params(generator)).to(device))
+    optimiser = torch.optim.AdamW([theta], lr=settings.lr)
+    best, best_epoch, waited = math.inf, 0, 0
+    best_theta = theta.detach().clone()
+    n_train = train_x.shape[0]
+    for epoch in range(1, settings.epochs + 1):
+        order = torch.randperm(n_train, generator=generator).tolist()
+        for start in range(0, n_train - snapshot_batch + 1, snapshot_batch):
+            idx = order[start : start + snapshot_batch]
+            optimiser.zero_grad()
+            prediction = predict(theta, train_x[idx], [train_g[i] for i in idx])
+            ((prediction - train_y[idx]) ** 2).mean().backward()
+            optimiser.step()
+        with torch.no_grad():
+            val = float(((predict(theta.detach(), val_x, val_g) - val_y) ** 2).mean().sqrt())
+        if val < best:
+            best, best_epoch, waited = val, epoch, 0
+            best_theta = theta.detach().clone()
+        else:
+            waited += 1
+            if waited >= settings.patience:
+                break
+
+    with torch.no_grad():
+        residual = predict(best_theta, test_x, test_g) - test_y           # (S, N, positions)
+    profile = residual.pow(2).mean(dim=(0, 1))
+    return {
+        "rmse": float(residual.pow(2).mean().sqrt()),
+        "observation_variances": [float(v) for v in profile],
+        "observation_variance": float(profile.mean()),
+        "best_epoch": best_epoch,
+        "train_snapshots": int(n_train),
+        "graphs": len(graphs),
+        "noise_floor": float(series.sigma),
+        "persistence_rmse": persistence_rmse(test_x.reshape(-1, test_x.shape[-1]).cpu(),
+                                             test_y.reshape(-1, test_y.shape[-1]).cpu()),
+    }
