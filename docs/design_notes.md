@@ -4861,7 +4861,7 @@ definiteness and calibration numbers; the end-to-end speed-ups; and the finding 
 alone moves settled error by up to 0.01.
 
 
-### 🔄 D132. M7: β_c = 2 on Mackey–Glass, as the test of D89's structural claim
+### ✅ D132. M7: β_c = 2 loses on Mackey–Glass as on MNIST, so D89's structural claim holds on a second task
 
 mg branch: `scripts/run_m7_combine_exponent.py`, written 2026-09-27; this note and the
 runner's docstring are the [[D118]] record. The X24 analogue (`schedule.md` B7).
@@ -4894,7 +4894,42 @@ also exposed a trap, fixed before any run: M6 recorded `device: cuda`, so a laun
 `auto` on the same GPU would have failed the gate over a label and withheld the table.
 `run.device` is now exempt here and in M13's gate, whose n_b = 1 partner is also M6's cell.
 
-🔄 Open until the run (mg worktree): `python scripts/run_m7_combine_exponent.py --device cuda`.
+**Result, 2026-10-09 (queue 3; analysed from `--report-only`).** The pairing gate passed in
+all three conditions. No seed diverged at either exponent.
+
+| β_c = 2 − β_c = 1, settled RMSE | stationary | linear | abrupt |
+|---|---|---|---|
+| `diffusion_ekf_full` (local adapt) | **+0.0864** | **+0.0951** | **+0.0866** |
+| `diffusion_ekf_onehop_receiver` | **+0.0534** | **+0.0606** | **+0.0546** |
+
+Every row has p_holm < 0.001, with t from 11.0 (local, abrupt) to 29.9 (one-hop, linear);
+the stationary local-adapt CI is [+0.077, +0.096]. In absolute terms, local adapt goes from
+0.144–0.150 to 0.230–0.245, and one-hop from 0.141–0.145 to 0.194–0.206.
+
+- **Both predictions are confirmed.** The sign is positive in all six rows. The ordering
+  holds in every condition: local adapt pays about 1.6× what one-hop pays, D89's ordering
+  (MNIST: +0.134 against +0.040).
+- **Drift barely moves it.** The cost is within 0.01 across the three conditions, so it is
+  a property of the combine, not of tracking.
+
+**Exploratory: calibration, which is the mechanism.**
+- β_c = 1 is slightly under-confident: `variance_ratio` 0.83–0.89 and `coverage_90`
+  0.92–0.93. lem:conservative's bound is close to tight, conservative by about 10–15% in
+  variance.
+- β_c = 2 is badly over-confident: `variance_ratio` 1.84–2.93 and `coverage_90` 0.66–0.77.
+  Dividing the combined covariance by about |M_v| claims information the agents do not
+  have. The over-small P gives small gains, so new data are under-weighted and the error
+  rises.
+
+**Reading.** D89's claim now holds on a second task with a second architecture and
+likelihood (Transformer regression rather than MLP classification). The agents' errors
+coincide because they mix every step, so **β_c = 1 is the right combine for diffusion,
+not for one task**. For the paper, this is a robustness result for the theory's
+conservative combine, and the β_c = 1 calibration shows the bound is near tight. It
+concerns only the full-sharing variants. The deployable mean-only one-hop never combines
+covariances, so no headline number moves.
+
+Figure MG25 (`plot_m7_combine_exponent.py`, private; published to the Diff-EKF folder).
 
 ### 🔄 D131. M13: data rate on Mackey–Glass, P5.4's three questions at both ends of π
 
