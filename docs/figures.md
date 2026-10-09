@@ -1050,6 +1050,22 @@ null.
 ⚠ The title says "nothing is established", and the figure must not be captioned as a
 finding about coupling: that reading is *suggestive* in D118's tiers, not established.
 
+### MG25 — M7: β_c = 2 loses, as on MNIST
+
+D132's result (`plot_m7_combine_exponent.py`, published as `MG25_m7_combine_exponent.png`
+in the Diff-EKF folder). The two full-sharing filters at β_c = 1 (M6 group B) and β_c = 2
+(M7), five seeds, all three conditions.
+
+- **(a)** Settled RMSE per seed, with each seed's β_c = 1 and β_c = 2 points joined. Every
+  seed loses at β_c = 2.
+- **(b) Confirmatory:** β_c = 2 − β_c = 1, paired, with 95% intervals and p_holm across
+  six. The dotted lines are MNIST's D89 contrasts for the same variants.
+- **(c) Exploratory:** realised against nominal coverage, averaged over the conditions,
+  with each arm's E[r²/s²] in the legend. At β_c = 1 the two variants' curves coincide.
+
+Values come through the runner's own `_by_seed`/`_metric_by_seed` and `paired`/`holm`,
+so the figure cannot disagree with `--report-only`.
+
 ## 16. Still to come
 
 **F11** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is
