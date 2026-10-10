@@ -1096,6 +1096,20 @@ Diff-EKF folder). Damage is ramp RMSE minus twin RMSE, mean over agents, per see
 The confirmatory values printed by the builder equal `--report-only`'s. ⚠ Panel (b)'s
 hollow rows were chosen after seeing the data. Caption them as suggestive.
 
+### MG28 — M9: topology
+
+D128's result (`plot_m9_topology.py`, published as `MG28_m9_topology.png` in the Diff-EKF
+folder). Path, ring, ER 0.3 (M6's cell) and complete.
+
+- **(a) Exploratory:** each diffusion learner minus its centralised counterpart, paired per
+  seed, with 95% CIs. A topology where a seed diverged (ATC + momentum, ring) is drawn
+  hollow and not joined to its line.
+- **(b) Confirmatory Q1 and Q2,** with the TOST band. ER 0.3 is a hollow reference row.
+- **(c) Confirmatory Q3.**
+
+The builder recomputes settled RMSE with the runner's window, and prints the confirmatory
+values, which equal `--report-only`'s.
+
 ## 16. Still to come
 
 **F11** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is
