@@ -4972,7 +4972,7 @@ covariances, so no headline number moves.
 
 Figure MG25 (`plot_m7_combine_exponent.py`, private; published to the Diff-EKF folder).
 
-### 🔄 D131. M13: data rate on Mackey–Glass, P5.4's three questions at both ends of π
+### ✅ D131. M13: sparse sensors on Mackey–Glass — one-hop keeps pace with the centralised filter, and local adapt is the filter that pays
 
 mg branch: `scripts/run_m13_data_rate.py`, written 2026-09-27; this note and the runner's
 docstring are the [[D118]] record. The P5.4 analogue ([[D122]]): below
@@ -5011,7 +5011,47 @@ Smoked 2026-09-28 (8 min, CPU, all six cells fresh at the smoke's horizon): the 
 gate holds for all six pairs, every data rate runs (n_b = 4 included, the per-position
 R tiled across blocks), and no selected rate sits on the extended grids' edges.
 
-🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass.
+**Result, 2026-10-10 (queue 3).** The pairing gate holds in all six pairs. No selected
+rate is on an extended grid's edge (ATC AdamW's 0.01 is interior; its grid runs to 0.1),
+and no seed diverged in any cell.
+
+**Confirmatory.** Each row is the change from π = 1 to 0.25, per seed:
+
+| | n_b = 1 | n_b = 2 | n_b = 4 |
+|---|---|---|---|
+| Q1 one-hop − local (pred. − or null) | **−0.0051** (p_holm 0.004) | −0.0008 (0.43) | **−0.0012** (0.033) |
+| Q2 local − centralised | **+0.0040** (0.042) | +0.0012 (1.0) | +0.0012 (0.17) |
+| Q2 one-hop − centralised | −0.0010 (1.0) | +0.0004 (1.0) | −0.0000 (1.0) |
+| Q3 local − ATC | **+0.0065** (0.023) | −0.0010 (0.22) | **−0.0034** (0.023) |
+
+1. **Q1 is consistent with the prediction.** One-hop's lead over local adapt grows under
+   sparsity at n_b = 1 and 4, and is null at 2.
+2. **Q2: only local adapt falls further behind the centralised filter,** established only
+   at n_b = 1. One-hop's gap does not move at any n_b: on this task it keeps pace with the
+   centralised filter under sparse sensors.
+3. **Q3's sign flips with n_b.** ATC + momentum's own sparse cost grows with n_b (+0.0039,
+   +0.0075, +0.0086). It is consistent across seeds, and not a divergence.
+
+**Differs from MNIST** ([[D122]]). There, one-hop's lead was fragile (it reversed at
+n = 2), and both filters' gaps widened. Both readings are carried. A candidate reason,
+untested: an MG block is a whole sequence, so the coverage argument (a neighbour usually
+has data) weighs more.
+
+**Exploratory.**
+- **Sparsity's cost per learner.** ATC AdamW pays least (+0.001 to +0.002); local adapt
+  and centralised AdamW pay most (+0.010 at n_b = 1). ATC AdamW − centralised AdamW
+  changes by −0.0079 (t −3.9) at n_b = 1, a weaker echo of MNIST's "the centralised
+  gradient methods suffer more".
+- **One-hop's lead over ATC AdamW shrinks** by about 0.003 at n_b = 1 (t 2.9), from about
+  0.025.
+- **Full sharing changes nothing** (|Δ| ≤ 0.0004).
+- **Local adapt improves with n_b** (0.1442 → 0.1417 → 0.1393), though it is flat in N
+  ([[D129]]) and across topology ([[D128]]). This is exploratory support for the
+  hypothesis that local adapt's accuracy is set by each agent's own data rate.
+- `variance_ratio` stays at 0.80–0.91 throughout; sparsity makes the filters slightly
+  less under-confident.
+
+Figure MG30 (`plot_m13_data_rate.py`, private; published to the Diff-EKF folder).
 
 ### ✅ D130. M14: on a β ramp nothing is detected at the matched rate; the drift is too gentle for the design
 
