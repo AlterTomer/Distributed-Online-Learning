@@ -1110,6 +1110,20 @@ folder). Path, ring, ER 0.3 (M6's cell) and complete.
 The builder recomputes settled RMSE with the runner's window, and prints the confirmatory
 values, which equal `--report-only`'s.
 
+### MG29 — M10: network size, stationary
+
+D129's result (`plot_m10_network_size.py`, published as `MG29_m10_network_size.png` in the
+Diff-EKF folder). N = 10, 20, 30 on N>10's own graphs.
+
+- **(a)** Settled RMSE against N for the three filters and the AdamW pair, with first and
+  last values labelled.
+- **(b) Exploratory:** each diffusion learner minus its centralised counterpart, by N.
+  ATC + momentum at N = 10 is hollow: one seed diverged.
+- **(c) Confirmatory Q1a, Q1b and Q2,** Holm within each family.
+
+The printed confirmatory values equal `--report-only`'s. The abrupt condition has no
+figure yet.
+
 ## 16. Still to come
 
 **F11** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is
