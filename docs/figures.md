@@ -1124,6 +1124,19 @@ Diff-EKF folder). N = 10, 20, 30 on N>10's own graphs.
 The printed confirmatory values equal `--report-only`'s. The abrupt condition has no
 figure yet.
 
+### MG30 — M13: data rate and sparse sensors
+
+D131's result (`plot_m13_data_rate.py`, published as `MG30_m13_data_rate.png` in the
+Diff-EKF folder). n_b ∈ {1, 2, 4} blocks per agent per round, and π ∈ {1, 0.25}.
+
+- **(a)** Settled RMSE, dense against sparse, at each n_b, for the filters and the SGD and
+  AdamW pairs.
+- **(b) The three named questions,** each a change from π = 1 to 0.25 per seed, with Holm
+  within each family. Filled markers are p_holm < 0.05.
+- **(c) Exploratory:** each learner's sparse cost by n_b, with 95% CIs.
+
+The printed confirmatory values equal `--report-only`'s.
+
 ## 16. Still to come
 
 **F11** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is
