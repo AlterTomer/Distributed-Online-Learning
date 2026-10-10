@@ -199,7 +199,12 @@ def seed_means(run: str, learner: str, metric: str, log_kappa: bool = False
         frame = pd.read_parquet(path, columns=["learner", "metric", "evalset", "t", "value"])
         rows = frame[(frame["learner"] == learner) & (frame["metric"] == metric)
                      & (frame["evalset"] == "current")]
-        if metric in ("nll",):  # a plug-in row from M6, settled window only
+        # Plug-in rows are written at every evaluation, the belief's only in the settled
+        # window; window them too, or Q1's MSE_post averages in the transient while
+        # MSE_pre does not. That defect read shrink 1.14-1.42 (averaging "raised" the
+        # error) on the first report, 2026-10-10; matched per (t, agent), post exceeded
+        # pre in 3% of cases. In the window both writers' `mse` rows agree exactly.
+        if metric in ("nll", "mse"):
             rows = rows[rows["t"] >= 0.8 * frame["t"].max()]
         values = rows["value"]
         if not len(values):
