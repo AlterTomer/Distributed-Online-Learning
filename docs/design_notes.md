@@ -5013,7 +5013,7 @@ R tiled across blocks), and no selected rate sits on the extended grids' edges.
 
 🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass.
 
-### 🔄 D130. M14: the break rate on a β ramp, with the law's own difficulty taken out
+### ✅ D130. M14: on a β ramp nothing is detected at the matched rate; the drift is too gentle for the design
 
 mg branch: `scripts/run_m14_break_rate.py`, written 2026-09-27; this note and the
 runner's docstring are the [[D118]] record. The P5.5 analogue ([[D123]]).
@@ -5076,7 +5076,51 @@ within a step, so **the single-step reading stands as registered**. It also give
 read on power: one-hop − ATC is −0.0046 there with s.d. 0.0026, t ≈ −4 at five seeds, at a
 third of M14's matched rate.
 
-🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass.
+**Result, 2026-10-10 (queue 3).** The pairing gate passed in both groups. None of the
+re-tuned baseline rates is on a grid edge.
+
+**Confirmatory: nothing detected.** At t = 1340 (β 0.2302), every p_holm is 1.000:
+
+| contrast | predicted | diff | 95% CI |
+|---|---|---|---|
+| one-hop − ATC | − | −0.0023 | [−0.0089, +0.0044] |
+| local adapt − ATC | none | −0.0021 | [−0.0072, +0.0030] |
+| one-hop − centralised | + | +0.0000 | [−0.0035, +0.0036] |
+| local adapt − centralised | + | +0.0002 | [−0.0056, +0.0060] |
+| one-hop − ATC AdamW | − | +0.0006 | [−0.0032, +0.0044] |
+
+**Why the test is underpowered:**
+- **The drift is gentle.** The law's difficulty shift at the matched step is +0.0028, and
+  no learner loses more than 0.0032 beyond it, including ATC frozen at 300. MNIST's ramp
+  cost ATC 0.036 at the same rate.
+- **β moves late.** X9's exponent-6 schedule leaves β near 0.22 until t ≈ 1000, and the
+  matched step has covered only half the span.
+- **The twin adds realisation noise.** Per-seed damage scatters about ±0.005, and the
+  contrasts' s.d. is ≈ 0.0054. That is twice the pilot's 0.0026, so the registered power
+  read (t ≈ −4) was optimistic; the result was t = −0.95.
+
+**Exploratory, post hoc: the last 100 steps (t ≥ 1400).** All five contrasts point the
+predicted way: local adapt − centralised +0.0028 (p_holm 0.017), one-hop − centralised
++0.0007 (0.057), one-hop − ATC −0.0045 (0.15), local adapt − ATC −0.0023, one-hop − ATC
+AdamW −0.0025. The damage curves fall into MNIST's order near the peak rate: centralised
+< one-hop < local adapt < ATC < frozen. This is suggestive only, since the window was
+chosen after seeing the data.
+
+**Break rates, exploratory and difficulty-corrected.** Only plain ATC, `local_only` and the
+frozen model break, all at 0.162 deg/step. The filters, ATC with momentum and the AdamW
+pair never break below the ramp's 0.18 peak.
+
+**Reading.** M14 neither confirms nor contradicts P5.5 ([[D123]]): the β span 0.22 → 0.24
+is too gentle for a break-rate design. For the paper it is reported as "not detected,
+underpowered", and the drift-robustness evidence stays MNIST's.
+
+**Decided with the user, 2026-10-10: a harder-drift follow-up, M14b**, run between queue 4
+and queue 5, to find the break rates on Mackey–Glass. Its design (span, schedule, matched
+rate, twin) is undecided. It is to be agreed question by question before it is built
+([[ask-on-algorithmic-forks]]). Queue 5 currently waits only for queue 4, so it must be
+held or re-gated for M14b.
+
+Figure MG27 (`plot_m14_break_rate.py`, private; published to the Diff-EKF folder).
 
 ### 🔄 D129. M10: network size on Mackey–Glass, on N>10's own graphs, at the full horizon
 
