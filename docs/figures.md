@@ -1066,6 +1066,22 @@ in the Diff-EKF folder). The two full-sharing filters at β_c = 1 (M6 group B) a
 Values come through the runner's own `_by_seed`/`_metric_by_seed` and `paired`/`holm`,
 so the figure cannot disagree with `--report-only`.
 
+### MG26 — P5.14: lem:conservative is tight, measured without the covariance
+
+D120's Mackey–Glass half (`plot_mg_belief_calibration.py`, published as
+`MG26_belief_calibration.png` in the Diff-EKF folder). The `mcal_*` cells, settled window.
+
+- **(a) Confirmatory Q1:** log10 of the model-error shrink across the combine, per filter
+  and condition, with 95% CIs. The TOST band is ±0.3, and the dashed line marks where
+  independent errors would sit.
+- **(b) Q2 and Q3:** the share of evaluations with κ\* = 0, before (pale) and after the
+  combine, against D120's 50% rule. This is why both questions are undecidable.
+- **(c) Exploratory:** log10 κ\*, raw and after R is rescaled by ρ\*, against κ = 1.
+
+Every number comes through the runner's own `seed_means`, `compare` and `holm`, *after*
+the `mse` windowing fix (`d4177ae`). An earlier draft built on the unfixed report would
+have shown the opposite sign in (a).
+
 ## 16. Still to come
 
 **F11** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is
