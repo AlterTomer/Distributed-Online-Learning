@@ -5162,7 +5162,7 @@ held or re-gated for M14b.
 
 Figure MG27 (`plot_m14_break_rate.py`, private; published to the Diff-EKF folder).
 
-### ✅ D129. M10: network size on Mackey–Glass — local adapt falls behind as N grows and one-hop does not, as on MNIST (stationary; abrupt pending)
+### ✅ D129. M10: network size on Mackey–Glass — local adapt falls behind as N grows and one-hop does not, as on MNIST, stationary and abrupt
 
 mg branch: `scripts/run_m10_network_size.py`, written 2026-09-27; this note and the
 runner's docstring are the [[D118]] record. The N>10 analogue ([[D114]], [[D117]]): on
@@ -5259,8 +5259,31 @@ confirmatory family. The pattern is recorded for the paper's baselines: a stabil
 selection (the best rate that diverges on no evaluation seed) is an option for the figure
 build, not yet decided.
 
-**Still open: the abrupt condition.** The cells ran in queue 3 (`--abrupt`). Their
-analysis is a separate item; the abrupt rows are exploratory by this note's registration.
+**The abrupt condition, 2026-10-10.** Exploratory by this note's registration. The gate
+holds: at N = 10 the graph-blind learners match `m6_abrupt_a` to 0.0e+00. The stationary
+result repeats:
+
+| | abrupt | stationary |
+|---|---|---|
+| Q1a local-adapt gap, N = 30 − 10 | +0.0029 (p_holm 0.010) | +0.0029 (0.022) |
+| Q1b that growth − one-hop's | +0.0019 (0.018) | +0.0023 (0.022) |
+| Q2 one-hop − ATC AdamW, N = 10 / 20 / 30 | −0.0239 / −0.0245 / −0.0247 | −0.0245 / −0.0258 / −0.0259 |
+
+**What drift adds:**
+- **Local adapt pays about 0.0025 more at every N:** its gap to the centralised filter is
+  +0.0078 → +0.0107, against +0.0053 → +0.0082 stationary. Its error is again flat in N
+  (0.1487 → 0.1482).
+- **One-hop pays only slightly more:** +0.0027 → +0.0037, growth not detected (t 1.93).
+- **The rest:** ATC AdamW's gap is +0.0018 → +0.0033 (t 1.46). Full sharing at N = 10
+  changes nothing.
+- **ATC + momentum** diverges on seed 2 at t = 25, the same event as in the stationary
+  cell: both see identical data before the first jump.
+
+The reading: drift widens local adapt's gap but not one-hop's, consistent with one-hop
+gathering its neighbours' fresh data.
+
+Figure MG31 (`plot_m10_network_size.py --condition abrupt`; published to the Diff-EKF
+folder).
 
 Figure MG29 (`plot_m10_network_size.py`, private; published to the Diff-EKF folder).
 
