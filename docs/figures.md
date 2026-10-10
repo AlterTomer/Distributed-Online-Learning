@@ -1121,8 +1121,11 @@ Diff-EKF folder). N = 10, 20, 30 on N>10's own graphs.
   ATC + momentum at N = 10 is hollow: one seed diverged.
 - **(c) Confirmatory Q1a, Q1b and Q2,** Holm within each family.
 
-The printed confirmatory values equal `--report-only`'s. The abrupt condition has no
-figure yet.
+The printed confirmatory values equal `--report-only`'s.
+
+**MG31** is the same builder with `--condition abrupt`: the same three panels on the
+abrupt cells. Every panel there is exploratory, since D129 named its questions for
+stationary only, and the titles say so.
 
 ### MG30 — M13: data rate and sparse sensors
 
