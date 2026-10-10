@@ -5186,7 +5186,7 @@ sources exactly.
 
 🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass.
 
-### 🔄 D128. M9: topology on Mackey–Glass, built from M6's recorded cells, three questions named
+### ✅ D128. M9: topology on Mackey–Glass — one-hop's leads hold on every graph, and its gap to the centralised filter closes as the graph densifies
 
 mg branch: `scripts/run_m9_topology.py`, written 2026-09-27; this note and the runner's
 docstring are the [[D118]] record. The P5.3 analogue ([[D103]]), where MNIST refuted both
@@ -5231,8 +5231,54 @@ path, ring and complete, and on the complete graph ATC equals centralised SGD at
 shared rate (0.2190 both), the M1 identity through the new runner. No rate on a grid
 edge.
 
-🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass. ~10 GPU-h
-plus ~1 h of tuning, from M6's per-condition cost.
+**Result, 2026-10-10 (queue 3).**
+
+**Gates.** The five graph-blind learners agree across all four topologies to 0.0e+00. The
+re-tuned rates are all off the grid edges.
+
+**Confirmatory.** Holm within each family, over path, ring and complete:
+
+| | path | ring | complete |
+|---|---|---|---|
+| Q1 one-hop − local adapt (pred. −) | **−0.0026** | **−0.0028** | **−0.0057** |
+| Q2 full − mean-only, local (TOST ±0.001) | equiv., p 0.028 | equiv., p 0.028 | not shown, p 0.156 |
+| Q2 full − mean-only, one-hop | equiv., p < 0.001 | equiv., p 0.002 | equiv., p < 0.001 |
+| Q3 one-hop − ATC AdamW (pred. −) | **−0.0249** | **−0.0244** | **−0.0258** |
+
+1. **Q1 is confirmed on all three** (p_holm ≤ 0.001), and is strongest on the complete
+   graph, where MNIST went +0.0031 (ns).
+2. **Q2 is equivalent in five of six.** For local adapt on the complete graph the
+   difference is −0.0006, with CI [−0.0015, +0.0003]: full sharing may help local adapt
+   slightly there. This is exploratory.
+3. **Q3 is confirmed on every topology** (p_holm < 0.001).
+
+**Exploratory: the cost of decentralising** (each learner minus its centralised
+counterpart, paired per seed):
+
+| | path | ring | ER 0.3 | complete |
+|---|---|---|---|---|
+| local adapt | +0.0055 | +0.0053 | +0.0052 | +0.0052 |
+| one-hop | +0.0029 | +0.0025 | +0.0017 | −0.0005 (ns) |
+| ATC AdamW | +0.0040 | +0.0032 | +0.0031 | +0.0016 |
+
+- **Local adapt pays the same on every graph, the complete one included.** With
+  [[D134]] (the agents agree to ~10⁻³ of ‖θ‖²), its cost is not disagreement but each
+  agent's update using only its own batch.
+- **One-hop's cost falls with connectivity to zero.** On the complete graph each agent
+  assimilates every batch.
+- **ATC + momentum reaches its M1 identity on the complete graph** (+0.0000).
+
+**Differs from MNIST** ([[D103]]). One-hop's value over local adapt grows monotonically
+with connectivity here, where on MNIST it was non-monotone. The sharing nulls agree across
+the two tasks. Both readings are carried.
+
+⚠ **A divergence.** ATC + momentum on the ring was tuned to 3e-5, one step above the
+path's rate, and diverged on seed 2 in the main pass (NaN from early in the run). Its ring
+value, +0.0007, is over four seeds, and it sits in no confirmatory family. It is reported
+as is: momentum ATC is near its stability edge on sparse graphs. Not re-run (decided with
+the user, 2026-10-10).
+
+Figure MG28 (`plot_m9_topology.py`, private; published to the Diff-EKF folder).
 
 ### ✅ D127. The AdamW backfill: one-hop beats ATC AdamW in nine of twelve conditions; under label skew only the receiver point does
 
