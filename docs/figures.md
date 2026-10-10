@@ -1082,6 +1082,20 @@ Every number comes through the runner's own `seed_means`, `compare` and `holm`, 
 the `mse` windowing fix (`d4177ae`). An earlier draft built on the unfixed report would
 have shown the opposite sign in (a).
 
+### MG27 — M14: nothing detected on a gentle β ramp
+
+D130's result (`plot_m14_break_rate.py`, published as `MG27_m14_break_rate.png` in the
+Diff-EKF folder). Damage is ramp RMSE minus twin RMSE, mean over agents, per seed.
+
+- **(a)** Seed-mean damage over the run, as a centred 5-evaluation rolling mean (for
+  reading only), against the law's own difficulty from M2's fit. A top axis gives β.
+- **(b)** The five named contrasts: at t = 1340 (filled, confirmatory), and over t ≥ 1400
+  (hollow, exploratory and post hoc).
+- **(c)** Per-seed damage at the matched step: the twin's realisation noise.
+
+The confirmatory values printed by the builder equal `--report-only`'s. ⚠ Panel (b)'s
+hollow rows were chosen after seeing the data. Caption them as suggestive.
+
 ## 16. Still to come
 
 **F11** *(phase 5)* — Diff-EKF added to F1 and F2. Its competitor on F2 is
