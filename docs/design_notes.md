@@ -5787,7 +5787,7 @@ learners (local adapt $-0.0032$, $t=-3.69$, $p_\text{holm}=0.084$ across 18), so
 five-seed surprise persists, still exploratory and still unexplained beyond the
 standardisation hypothesis above. gain+bias is null on both contrasts, as predicted.
 
-### 🔄 D120. P5.11 / P5.14: the belief is scored, and $\kappa^\star$ measures the covariance before and after combine
+### ✅ D120. P5.11 / P5.14: lem:conservative is tight (shown covariance-free on Mackey–Glass); the covariance is not a usable predictive on either task
 
 Written 2026-09-26/27, before any cell ran; this note and the docstring of
 `scripts/run_belief_calibration.py` are the [[D118]] record.
@@ -5920,7 +5920,55 @@ mean is what is scored. Whether the covariance is calibrated is a Mackey–Glass
 question, where the half below does not depend on $\kappa^\star$. Figure 47 (private
 `plot_belief_calibration.py`) reads every number through the runner's own readers.
 
-🔄 Open until the Mackey–Glass run: on mg-task `run_mg_belief_calibration.py`.
+**The Mackey–Glass run (queue 3; analysed 2026-10-10).** The cells reproduce M6's RMSE to
+0.0e+00 at all 31 shared evaluations, for every filter and condition.
+
+⚠ **A report defect, fixed before reading (mg `d4177ae`).** The plug-in `mse` rows are
+written at every evaluation, from t = 0. The belief's `pre_mse` rows exist only in the
+settled window (t ≥ 1200). `seed_means` windowed only `nll`, so MSE_post averaged in the
+transient while MSE_pre did not. The first report therefore read a shrink of 1.14–1.42,
+i.e. "averaging raises the error". Matched per (t, agent), post exceeded pre in 3% of
+cases. Windowing `mse` as registered ("averaged over agents and settled steps") fixes it;
+inside the window both writers' `mse` rows agree exactly. No other metric the report reads
+is affected: the rest are belief-only, or `nll`, which was already windowed.
+
+**Q1 (covariance-free, confirmatory) shows the bound tight in all 12 rows.** The shrink
+(MSE_post − σ²)/(MSE_pre − σ²) is:
+
+- 0.985–0.988 for local adapt (both variants);
+- 0.994–0.995 for one-hop (both variants).
+
+TOST at ±0.3 decades gives p_holm < 0.001 in every row, and the shift is below 0.007
+decades (independence would be ≈ −0.59). The shrink is also significantly below 1
+(p_holm ≤ 0.021), so averaging removes 0.5–1.5% of the model error, against ≈ 74% were
+the errors independent. One-hop gains less from the combine, having gathered its
+neighbours' data in the update.
+
+**Q2 and Q3 are UNDECIDABLE**, as on MNIST. κ\* sits at 0 in 70–100% of evaluations: R
+alone already over-covers.
+
+**Exploratory.**
+- The belief scores worse than the plug-in for every filter, by 0.004–0.009 NLL, as M6
+  showed. The variance ratio at κ = 1 is 0.81–0.90.
+- R as tuned is slightly wide: ρ\* is 0.87–0.93 for the centralised filter and one-hop,
+  and 0.93–1.01 for local adapt.
+- With R rescaled, the tempered κ̃\* is about 10⁻³·⁵, so HPHᵀ is some 3000× too wide as a
+  predictive.
+
+**Reading, with [[D132]] and [[D134]].** The agents mix every step. They agree to about
+10⁻³ of ‖θ‖² (D134), the combine removes almost nothing (here), and assuming independence
+costs accuracy on both tasks (D132). So `lem:conservative`'s combine is close to exact for
+diffusion. It also explains the covariance-sharing nulls ([[D100]], M6): under β_c = 1,
+averaging near-identical covariances returns the same covariance, so sending P adds
+nothing. Under β_c = 2 it does harm. The deployable mean-only variant loses nothing by not
+sending it. This is empirical, at N = 10; full sharing at N = 20 and 30 is unrun
+([[D117]]).
+
+**For the paper.** On both tasks P is a gain-shaping device tuned for tracking, not a
+calibrated predictive. The mean is what is scored. The tightness claim rests on MG's
+covariance-free test.
+
+Figure MG26 (`plot_mg_belief_calibration.py`, private; published to the Diff-EKF folder).
 
 ### ✅ D119. The AdamW pass starts with N>10: one-hop beats ATC AdamW at every N, and ATC AdamW's own scaling is not resolved
 
