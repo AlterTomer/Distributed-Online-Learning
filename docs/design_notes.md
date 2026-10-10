@@ -4655,7 +4655,7 @@ filter setting to add, and C2's public copies will live in `Channel`, which is s
 today. The mg port waits for the C4 runner, since only C4 needs the channel on the
 series task.
 
-### 🔄 D134. P5.12 was not "analysis only": E_cent measured the filters against SGD
+### ✅ D134. P5.12: the agents converge to each other, not to the centralised filter's weights, and weight distance does not track accuracy
 
 `scripts/run_disagreement.py` and a change to `simulate.py` and
 `metrics/disagreement.py` on both branches, written 2026-09-27. This note and the
@@ -4707,7 +4707,48 @@ the centralised filter added to the b cell as its reference, checked against the
 The report's SGD-referenced E_cent column now reads the *source* cells, which carried
 `centralized_sgd`; the rebuilt cells hold filters only, and it showed NaN.
 
-🔄 Open until the run: `python scripts/run_disagreement.py`.
+This note began as "P5.12 was not 'analysis only': E_cent measured the filters against SGD";
+the defect and fix above stand.
+
+**Result, 2026-10-09 (queue 3).** The gate reproduces every learner's settled error to
+0.0e+00 on all five seeds in all six cells. Normalised by ‖θ_C‖² (≈ 86, from ‖θ₀‖² ≈ 37):
+
+| settled | E_agree | offset |
+|---|---|---|
+| local adapt (mean-only / full) | 0.14–0.15% | 0.42–0.50 |
+| one-hop (mean-only / full) | 0.49–0.52% | 0.86–0.98 |
+
+1. **Q1 is confirmed in all six rows** (offset − E_agree, +39 to +84 in ‖θ‖² units,
+   p_holm ≤ 0.004). E_agree levels off by t ≈ 300, while the offset grows all run.
+2. **Q2 is refuted, and the opposite holds in all three conditions.** One-hop's offset is
+   about twice local adapt's (+35 to +42, p_holm 0.020–0.023). It is the nearer of the two
+   until t ≈ 200, and then overtakes local adapt.
+3. **Q3 is not detected.** Local adapt shows −0.0005 [−0.0096, +0.0086], p_holm 0.89;
+   one-hop +0.036, p_holm 0.18. This is consistent with D115.
+
+**Exploratory: the offset is direction, not norm.** Settled ‖θ̄‖² is about 56 for local
+adapt and 146 for one-hop, against ≈ 86 for the centralised filter. The radial part,
+(‖θ̄‖ − ‖θ_C‖)², is only 8–11% of the offset. θ̄ and θ_C are about 45° apart (cosine
+0.66–0.76).
+
+**Weight distance does not track accuracy.** One-hop sits twice as far from θ_C, yet it is
+the more accurate: its settled error gap to the centralised filter is ≈ 0.015, against
+≈ 0.018 for local adapt. Across seeds, a larger offset does not mean a larger error gap.
+Both are what one expects of a non-convex network, where distant weights can compute
+nearly the same function.
+
+**Reading, for the paper.** On ER 0.3 the claim cannot be "the agents converge to the
+centralised solution" in parameter space. The defensible claim is functional: the agents
+reach consensus (E_agree ~10⁻³ of ‖θ_C‖²), and the consensus predicts within ≈ 0.015
+error of the centralised filter. Q2's mechanism ("one-hop gathers more, so it lands
+nearer") fails in weight space. That one-hop takes larger effective steps (‖θ̄‖² grows to
+146) is a plausible account, but it is untested.
+
+**Not run (an option only):** the function-space version, the distance between θ̄'s and
+θ_C's predictive distributions on the evaluation set. It needs a re-run (≈ 8 GPU-h),
+because parameters are not saved per step.
+
+Figure 54 (`plot_disagreement.py`, private; published to the Diff-EKF folder).
 
 ### ✅ D133. The float32 probe: single precision is numerically safe on both tasks, and the benchmark stays float64
 
