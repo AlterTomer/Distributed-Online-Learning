@@ -164,9 +164,12 @@ def count_events(q: torch.Tensor) -> tuple[Counter, Counter]:
     _rows, runs, amps = events(q)
     run_values, run_counts = torch.unique(runs, return_counts=True)
     amp_values, amp_counts = torch.unique(amps, return_counts=True)
-    run_counter = Counter({int(v): int(c) for v, c in zip(run_values, run_counts, strict=True)})
+    # One bulk transfer per tensor. Iterating the tensors element by element read each
+    # value separately -- a device sync apiece on CUDA, thousands per step at small c,
+    # which made compressed runs 6-15x slower than uncompressed ones (2026-10-11).
+    run_counter = Counter(dict(zip(run_values.tolist(), run_counts.tolist(), strict=True)))
     run_counter[EOB] += q.shape[0]
-    amp_counter = Counter({int(v): int(c) for v, c in zip(amp_values, amp_counts, strict=True)})
+    amp_counter = Counter(dict(zip(amp_values.tolist(), amp_counts.tolist(), strict=True)))
     return run_counter, amp_counter
 
 
@@ -252,12 +255,20 @@ class LayerCode:
         """(escaped symbols, symbols) in a block: the transfer check (D137)."""
         _rows, runs, amps = events(q)
         unseen = 0
-        for values, costs, tokens in ((runs, self.run_lengths, (ESC, EOB)),
-                                      (amps, self.amp_lengths, (ESC,))):
-            seen = torch.tensor([s for s in costs if s not in tokens], dtype=torch.int64,
-                                device=values.device)
-            unseen += int((~torch.isin(values, seen)).sum())
+        for values, costs, tokens, name in ((runs, self.run_lengths, (ESC, EOB), "runs"),
+                                            (amps, self.amp_lengths, (ESC,), "amps")):
+            unseen += int((~torch.isin(values, self._seen(name, costs, tokens,
+                                                          values.device))).sum())
         return unseen, 2 * runs.numel() + q.shape[0]
+
+    def _seen(self, name: str, costs: dict, tokens: tuple, device) -> torch.Tensor:
+        """The table's seen integers, built once per alphabet and device: a table can hold
+        tens of thousands of symbols, and rebuilding them every call cost a step's time."""
+        cache = ("seen", name, str(device))
+        if cache not in self._dense:
+            self._dense[cache] = torch.tensor([s for s in costs if s not in tokens],
+                                              dtype=torch.int64, device=device)
+        return self._dense[cache]
 
     def message_bits(self, q: torch.Tensor) -> torch.Tensor:
         """Bits of each row's message (rows = agents' messages for this layer)."""
