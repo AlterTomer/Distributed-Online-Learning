@@ -5122,7 +5122,7 @@ held or re-gated for M14b.
 
 Figure MG27 (`plot_m14_break_rate.py`, private; published to the Diff-EKF folder).
 
-### 🔄 D129. M10: network size on Mackey–Glass, on N>10's own graphs, at the full horizon
+### ✅ D129. M10: network size on Mackey–Glass — local adapt falls behind as N grows and one-hop does not, as on MNIST (stationary; abrupt pending)
 
 mg branch: `scripts/run_m10_network_size.py`, written 2026-09-27; this note and the
 runner's docstring are the [[D118]] record. The N>10 analogue ([[D114]], [[D117]]): on
@@ -5184,7 +5184,45 @@ horizons are **not paired**, even at one seed, and a smoke can never pass a gate
 a full-length cell. MNIST does not share this: the AdamW backfill's smoke reproduced its
 sources exactly.
 
-🔄 Open until the run (mg worktree): `--lr --device cuda`, then the main pass.
+**Result, stationary, 2026-10-10 (queue 3).**
+
+**Gates.** All 15 realised mixing gaps match N>10's. At N = 10 the graph-blind learners
+match `m6_stationary_a` to 0.0e+00. The seven re-tuned baselines are all off the grid
+edges.
+
+**Confirmatory: all five as predicted.**
+
+| test | predicted | result | p_holm |
+|---|---|---|---|
+| Q1a local-adapt gap, N = 30 − N = 10 | + | **+0.0029** (0.0053 → 0.0082) | 0.022 |
+| Q1b that growth − one-hop's | + | **+0.0023** | 0.022 |
+| Q2 one-hop − ATC AdamW, N = 10 / 20 / 30 | − | **−0.0245 / −0.0258 / −0.0259** | < 0.001 |
+
+This reproduces MNIST's N>10 result ([[D114]], [[D119]]) on the second task: local adapt
+falls behind the centralised filter as N grows, one-hop's growth is not detected
+(0.0021 → 0.0027, t 1.41), and one-hop beats ATC AdamW at every N.
+
+**Exploratory: what scales and what does not.**
+- The centralised filter improves with N (0.1391 → 0.1368 → 0.1360), and one-hop follows
+  it (0.1412 → 0.1391 → 0.1387).
+- **Local adapt stays at 0.1444 → 0.1444 → 0.1442.** With [[D128]] (0.1442–0.1445 on
+  every topology), local adapt's accuracy is invariant to both N and the graph. With
+  [[D134]] and [[D120]] (agents agree, and the combine removes almost nothing), the
+  consistent reading is that each agent's update, on its own batch only, sets its
+  accuracy. That is a hypothesis, not a test.
+- ATC AdamW's gap grows from +0.0029 to +0.0041 (t 1.56). Full sharing at N = 10 helps
+  one-hop by 0.0004 (t −3.1), which is negligible.
+
+⚠ **ATC + momentum diverges on seed 2 at N = 10.** Tuned on seeds 0–1 (M3's rule) to
+3e-5, it diverges at t = 25, the same failure as on M9's ring ([[D128]]). It is in no
+confirmatory family. The pattern is recorded for the paper's baselines: a stability-aware
+selection (the best rate that diverges on no evaluation seed) is an option for the figure
+build, not yet decided.
+
+**Still open: the abrupt condition.** The cells ran in queue 3 (`--abrupt`). Their
+analysis is a separate item; the abrupt rows are exploratory by this note's registration.
+
+Figure MG29 (`plot_m10_network_size.py`, private; published to the Diff-EKF folder).
 
 ### ✅ D128. M9: topology on Mackey–Glass — one-hop's leads hold on every graph, and its gap to the centralised filter closes as the graph densifies
 
