@@ -24,6 +24,7 @@ from dekf_bench.env.drift import (
     Sawtooth,
     Sinusoidal,
     Stationary,
+    Triangle,
     build_drift,
     build_schedule,
 )
@@ -178,6 +179,71 @@ def test_sawtooth_refuses_a_period_below_two() -> None:
     """At period 1 every step is a reset, which is `recurring` under this name."""
     with pytest.raises(DriftError, match="period >= 2"):
         Sawtooth(amplitude_degrees=45.0, period=1)
+
+
+# -- triangle: a constant speed that a bounded band cannot cap -------------- #
+
+
+def test_triangle_starts_at_rest_and_visits_both_edges() -> None:
+    """0 -> +A at P/4, back to 0 at P/2, -A at 3P/4, 0 at P: the twin's value at t=0."""
+    tri = Triangle(amplitude_degrees=45.0, period=40, horizon=HORIZON)
+    assert tri.rotation_at(0) == 0.0
+    assert tri.rotation_at(10) == pytest.approx(45.0)
+    assert tri.rotation_at(20) == pytest.approx(0.0, abs=1e-9)
+    assert tri.rotation_at(30) == pytest.approx(-45.0)
+    assert tri.rotation_at(40) == pytest.approx(0.0, abs=1e-9)
+    assert tri.total_travel(HORIZON) == pytest.approx(45.0)
+
+
+def test_triangle_moves_at_one_speed_through_its_reflections() -> None:
+    """rate_at is distance travelled, so it holds 4A/P even on steps that reflect."""
+    tri = Triangle(amplitude_degrees=45.0, period=10, horizon=200)
+    rates = [tri.rate_at(step) for step in range(1, 201)]
+    assert all(r == pytest.approx(18.0) for r in rates)
+    assert tri.mean_rate(200) == pytest.approx(18.0)
+    # The signed displacement change would read 0 at the turn (36 -> 54 reflects to 36).
+    assert tri.rotation_at(2) == pytest.approx(36.0)
+    assert tri.rotation_at(3) == pytest.approx(36.0)
+
+
+def test_triangle_sweep_rises_geometrically_from_one_period_to_the_other() -> None:
+    tri = Triangle(amplitude_degrees=45.0, period=1000, horizon=HORIZON, final_period=10)
+    assert tri.speed_at(0) == pytest.approx(0.18)
+    assert tri.speed_at(HORIZON) == pytest.approx(18.0)
+    assert tri.speed_at(HORIZON / 2) == pytest.approx(1.8)  # the geometric midpoint
+    # The per-step distance is the speed integrated over the step.
+    assert tri.rate_at(750) == pytest.approx(tri.speed_at(749.5), rel=1e-4)
+    assert max(abs(tri.rotation_at(s)) for s in range(HORIZON + 1)) <= 45.0 + 1e-9
+
+
+def test_triangle_without_a_final_period_is_the_constant_one() -> None:
+    swept = Triangle(45.0, 200, HORIZON, final_period=200)
+    constant = Triangle(45.0, 200, HORIZON)
+    assert [swept.rotation_at(s) for s in range(0, HORIZON, 7)] == pytest.approx(
+        [constant.rotation_at(s) for s in range(0, HORIZON, 7)])
+
+
+def test_triangle_refuses_a_period_below_two() -> None:
+    with pytest.raises(DriftError, match="period >= 2"):
+        Triangle(amplitude_degrees=45.0, period=1, horizon=HORIZON)
+    with pytest.raises(DriftError, match="final_period >= 2"):
+        Triangle(amplitude_degrees=45.0, period=100, horizon=HORIZON, final_period=1)
+
+
+def test_triangle_builds_from_a_config() -> None:
+    config = load_config("x1_stationary", overrides={"env": {"drift": {
+        "schedule": "triangle", "amplitude_degrees": 45.0, "period": 1000,
+        "final_period": 10}}})
+    schedule = build_drift(config).schedule
+    assert isinstance(schedule, Triangle)
+    assert schedule.final_period == 10
+    assert schedule.horizon == config.run.horizon
+
+
+def test_final_period_belongs_to_the_triangle_alone() -> None:
+    with pytest.raises(Exception, match="only the triangle"):
+        load_config("x1_stationary", overrides={"env": {"drift": {
+            "schedule": "sinusoidal", "final_period": 10}}})
 
 
 # =========================================================================== #

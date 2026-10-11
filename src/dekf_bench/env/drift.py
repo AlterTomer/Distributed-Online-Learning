@@ -28,6 +28,10 @@ Five schedules, one interface:
     exposes forgetting -- and therefore what to avoid when the question is
     tracking, since a learner can score well by remembering rather than by
     keeping up.
+``triangle``
+    Back and forth across the band at a constant speed, reflecting at the edges,
+    optionally with a geometrically shrinking period. Speed, not displacement, is
+    then the swept quantity, with no ceiling from the band (M14b).
 
 **Rate is the axis, not displacement.** Rotation is capped at
 ``MAX_WELL_POSED_DEGREES`` because past it a 6 is a 9 and a rising error would
@@ -441,6 +445,91 @@ class Sawtooth(DriftSchedule):
         return "sawtooth"
 
 
+@dataclass(frozen=True)
+class Triangle(DriftSchedule):
+    r"""Back and forth across $[-A, +A]$ at a constant speed, reflecting at both edges.
+
+    **Built for M14b, where the speed is the quantity under study.** On a bounded
+    channel a monotone schedule runs out of room: M14's ramp reached 0.18 deg/step
+    and stopped there, because $\beta$ had crossed its window. A triangle never runs
+    out -- it turns at the edge and keeps the speed -- so the rate can be raised as
+    far as the question needs while the channel stays inside the band. Unlike
+    ``sinusoidal`` the speed does not pass through zero twice a cycle, so "damage at
+    rate $r$" is the damage at $r$ and not an average over a cycle of rates.
+
+    ``period`` is one full cycle, $0 \to +A \to -A \to 0$: a path of $4A$, so the
+    speed is $4A/P$ degrees per step. With ``final_period`` the period shrinks
+    geometrically from ``period`` at step 0 to ``final_period`` at ``horizon``, and
+    the speed rises geometrically with it -- the triangle's analogue of ``ramp``, a
+    sweep of rates in one run, but without the ramp's ceiling.
+
+    **``rate_at`` is the distance travelled, not the change in displacement.** The
+    base class reads the step's signed displacement change; at a reflection that
+    undercounts (at 100x M14's speed every fifth step reflects) and on the way down
+    it is negative. Neither is what a learner experiences: the law moved the full
+    distance either way. The break analysis compares ``rate_at`` against a rate, so
+    this schedule reports path length, and ``mean_rate`` is then exact.
+
+    **Evaluate off the period.** Held-out sets are built at the channel's value at
+    the evaluated step, so a cadence that divides the period scores every evaluation
+    at the same phase -- at a multiple of $P/2$, the rest value itself, where the
+    twin is scored too and the damage reads as zero.
+    """
+
+    amplitude_degrees: float
+    period: int
+    horizon: int
+    final_period: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.period < 2:
+            raise DriftError(f"triangle drift needs period >= 2, got {self.period}")
+        if self.horizon < 1:
+            raise DriftError(f"triangle drift needs horizon >= 1, got {self.horizon}")
+        if self.final_period is not None and self.final_period < 2:
+            raise DriftError(
+                f"triangle drift needs final_period >= 2, got {self.final_period}"
+            )
+
+    @property
+    def _growth(self) -> float:
+        """$k$ in $P(t) = P_0 e^{kt}$; zero at a constant period."""
+        if self.final_period is None or self.final_period == self.period:
+            return 0.0
+        return math.log(self.final_period / self.period) / self.horizon
+
+    def path_at(self, step: int) -> float:
+        """Degrees travelled by ``step``: the integral of the speed $4A/P(t)$."""
+        speed0 = 4.0 * self.amplitude_degrees / self.period
+        k = self._growth
+        if k == 0.0:
+            return speed0 * step
+        return speed0 * (1.0 - math.exp(-k * step)) / k
+
+    def speed_at(self, step: float) -> float:
+        """Degrees per step at ``step``: $4A/P(t)$."""
+        return 4.0 * self.amplitude_degrees / self.period * math.exp(-self._growth * step)
+
+    def progress_at(self, step: int) -> float:
+        if self.amplitude_degrees == 0.0:
+            return 0.0
+        x = self.path_at(step) / self.amplitude_degrees
+        return 1.0 - abs(math.fmod(x + 1.0, 4.0) - 2.0)
+
+    def rate_at(self, step: int) -> float:
+        if step <= 0:
+            return 0.0
+        return self.path_at(step) - self.path_at(step - 1)
+
+    @property
+    def degrees_scale(self) -> float:
+        return self.amplitude_degrees
+
+    @property
+    def name(self) -> str:
+        return "triangle"
+
+
 # --------------------------------------------------------------------------- #
 # scope
 # --------------------------------------------------------------------------- #
@@ -580,6 +669,13 @@ def build_schedule(drift_config: Any, horizon: int) -> DriftSchedule:
     if kind == "sawtooth":
         return Sawtooth(
             amplitude_degrees=drift_config.amplitude_degrees, period=drift_config.period
+        )
+    if kind == "triangle":
+        return Triangle(
+            amplitude_degrees=drift_config.amplitude_degrees,
+            period=drift_config.period,
+            horizon=horizon,
+            final_period=drift_config.final_period,
         )
     raise DriftError(f"unknown drift schedule {kind!r}")
 

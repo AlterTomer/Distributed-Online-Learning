@@ -4106,6 +4106,66 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### 🔄 D140. M14b: a triangle wave on two channels, a pilot to find the range, then a sweep with two confirmatory families
+
+Decided 2026-10-11, question by question, before any code. M14 ([[D130]]) found nothing
+at its matched rate because the drift was too gentle: the β ramp ran out of window
+(0.22 → 0.24) at 0.18 deg/step, before it ran out of rate. The user: "I want to try
+harder changes so we'll find the break rates."
+
+| question | decided |
+|---|---|
+| which drift | **both arms**: β (a law change) and the sensor gain (D108's other non-trivial channel) |
+| how to find the range | **a pilot, then the sweep**: constant speeds first, the sweep's range set so the break lands mid-run |
+| confirmatory reading | **both families**, Holm within each: (1) P5.5/M14's five damage contrasts at a matched rate; (2) per-seed break-rate contrasts from the comparative break against frozen ATC |
+| schedule | **a new `triangle`**: constant speed, reflecting at the band edges |
+| β band | **the chaotic window, 0.20 ↔ 0.24** (span 0.02 about 0.22). The user offered 0.40 as the upper edge; declined because above ≈ 0.26 the series is periodic (λ ≈ 0, MG2), so a break would mix "too fast" with "a different kind of dynamics" and need new $e^\star(\beta)$ references |
+| gain band | **0.9 ↔ 1.1** (span 0.1, M11's): ±1 observation-noise σ, the same displacement as the β band, so the arms differ in what moves and not by how much |
+
+**The schedule** (`env/drift.py` `Triangle`, both branches, seven tests). One cycle
+$0 \to +A \to -A \to 0$ is a path of $4A = 180$ schedule degrees, so period $P$ is a speed
+of $180/P$ deg/step; `final_period` shrinks the period geometrically to sweep the speed
+within one run. Two choices in it:
+
+- **`rate_at` is distance travelled**, not the signed change in displacement the base
+  class reports. At a reflection the signed change undercounts (at period 10 every
+  fifth step reflects), and on the way down it is negative; `metrics/breaks.py`
+  compares `rate_at` with a rate, so the triangle reports the speed the law moves at.
+- **It starts at rest.** Step 0 is the twin's own value, as every other schedule's is.
+
+**⚠ Evaluate off the period.** The `current` set is built at the channel's value at the
+evaluated step. A cadence dividing the period scores every evaluation at one phase,
+and at period 10 with M14's cadence of 10 that phase is the rest value, the twin's own,
+so every damage would read zero. The pilot evaluates every **9** steps, coprime with
+all four periods.
+
+**The pilot** (`scripts/run_m14b_break_rate.py --pilot`, mg). Speeds 1×, 5×, 25× and 100×
+M14's peak (0.18, 0.9, 4.5, 18 deg/step; periods 1000, 200, 40, 10), both arms, each arm
+with its own stationary twin (the pairing gate compares the whole `env` block, channel
+included): 10 cells. Seeds **100, 101**, apart from the main run's. M6's filters
+(centralised, local adapt, one-hop), ATC, ATC AdamW and local only at **M14's tuned
+rates**, `frozen_atc` at 300; full sharing waits. $T = 1500$. Exploratory throughout:
+settled damage (drifting − twin), the settled margin over frozen ATC in the same cell
+(twin-free), and the comparative break. Estimated **~7 GPU-h**, scaled from M14's group-a
+cell (172 min at five seeds and twelve learners).
+
+**The main run, fixed after the pilot and before it runs:**
+
+- the triangle with `final_period`, its two ends chosen so the pilot's break region falls
+  mid-run;
+- seeds 0–9;
+- the gradient baselines re-tuned on each arm's sweep (P5.5's rule), the filters on M6's
+  settings, full sharing included;
+- family 1's matched rate named from the pilot, before the run, so it stays
+  pre-registered.
+
+⚠ Family 2 needs the comparative break **per seed**; the existing reports call it on
+seed-pooled errors.
+
+**Order.** Queue 4 → the pilot (`gpu_queue_m14b_pilot.ps1`, which waits for queue 4) →
+analysis → the main run → queue 5, re-gated to wait for M14b's main run
+(`gpu_logs\m14b\queue.txt`) instead of queue 4.
+
 ### ❓ D139. Four extensions before the writing: K steps and the iterated EKF, subtractive dither, a block-diagonal covariance, a coupled-MG GNN
 
 Decided 2026-10-06, before any code. The supervisor, after the results so far, asked
