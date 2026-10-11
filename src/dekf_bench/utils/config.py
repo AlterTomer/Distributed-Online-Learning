@@ -52,6 +52,7 @@ WEIGHT_RULES = ("metropolis", "relative_degree", "uniform")
 PARTITIONS = ("iid", "dirichlet")
 SCHEDULES = (
     "stationary", "linear", "ramp", "recurring", "piecewise", "sinusoidal", "sawtooth",
+    "triangle",
 )
 DRIFT_SCOPES = ("global", "per_node")
 OPTIMIZERS = ("sgd", "sgd_momentum", "adamw")
@@ -178,6 +179,10 @@ class DriftConfig:
     jump_degrees: float = 15.0
     amplitude_degrees: float = 30.0
     period: int = 500
+    #: `triangle` only. The period at the horizon: the period shrinks geometrically
+    #: from `period` to this, so the speed 4A/P rises across the run. None holds the
+    #: period, and the speed, constant.
+    final_period: int | None = None
     #: `ramp` only. The run ends at this multiple of the constant rate covering
     #: the same ground, so it is the width of the rate sweep. Must exceed 1:
     #: at 1 the ramp is the linear schedule under another name.
@@ -240,6 +245,18 @@ class DriftConfig:
                     "neither direction would land inside the well-posed band, so no jump "
                     "of that size is possible."
                 )
+        if self.final_period is not None:
+            if self.schedule != "triangle":
+                raise ConfigError(
+                    f"env.drift.final_period is set but the schedule is {self.schedule!r}; "
+                    "only the triangle sweeps its period"
+                )
+            if self.final_period < 2:
+                raise ConfigError(
+                    f"env.drift.final_period must be >= 2, got {self.final_period}"
+                )
+        if self.schedule == "triangle" and self.period < 2:
+            raise ConfigError(f"env.drift.period must be >= 2 for a triangle, got {self.period}")
         if self.schedule == "ramp" and self.ramp_exponent <= 1.0:
             raise ConfigError(
                 f"env.drift.ramp_exponent must be > 1, got {self.ramp_exponent}. At 1.0 "
