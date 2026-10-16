@@ -597,8 +597,9 @@ class ReferenceConfig:
     selection: str = "validation"
     validation_size: int = 5000
     #: The grid covers every rotation the configured schedules actually visit:
-    #: linear [0, 45], piecewise [0, 15], sinusoidal [-30, +30].
-    rotation_min_degrees: float = -30.0
+    #: linear [0, 45], piecewise [0, 15], sinusoidal [-30, +30], and the recurring
+    #: walk, which reflects at -45 (extended 2026-10-16, D33).
+    rotation_min_degrees: float = -45.0
     rotation_max_degrees: float = 45.0
     rotation_step_degrees: float = 5.0
     seed: int = 0

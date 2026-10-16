@@ -76,7 +76,7 @@ reference:
   init_strategy: shared_seed   # shared_seed | independent_seeds | warm_start
   selection: validation        # validation | fixed_budget
   validation_size: 5000        # held out from train; 0 under fixed_budget
-  rotation_min_degrees: -30.0  # the union of every schedule's range
+  rotation_min_degrees: -45.0  # the union of every schedule's range (X20 abrupt reflects at -45, D33)
   rotation_max_degrees: 45.0
   rotation_step_degrees: 5.0
   seed: 0

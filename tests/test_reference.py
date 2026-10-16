@@ -69,12 +69,12 @@ def config_for(**reference):
 
 
 def test_the_default_grid_covers_every_schedule_the_configs_use() -> None:
-    """linear [0, 45], piecewise [0, 15], sinusoidal [-30, +30]. No run should
-    have to extrapolate."""
+    """linear [0, 45], piecewise [0, 15], sinusoidal [-30, +30], and the recurring
+    walk, which reflects at -45 (D33). No run should have to extrapolate."""
     settings = load_config("x1_stationary").reference
-    assert settings.rotations[0] == -30.0
+    assert settings.rotations[0] == -45.0
     assert settings.rotations[-1] == 45.0
-    assert len(settings.rotations) == 16
+    assert len(settings.rotations) == 19
 
 
 def test_grid_endpoints_are_inclusive() -> None:

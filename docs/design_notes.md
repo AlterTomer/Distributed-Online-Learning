@@ -826,6 +826,26 @@ mirroring negatives, and the symmetry $e^\star(-\varphi) = e^\star(+\varphi)$ is
 then checked: the largest mismatch is **0.0037**. The cheaper ten-level grid
 would have been defensible — but that is now a measurement rather than a hope.
 
+**Extended to −45° (2026-10-16).** The grid was the union of the schedules as first
+written. X20's recurring walk (15° every 25 steps) reflects at **−45°** and spends 22%
+of its run there, so figure 56(b) could draw no $e^\star$: `at()` refused, as designed.
+The `shared_seed` / `validation` cache now has **−35°, −40°, −45°**, trained by
+`train_one` with the cache's own settings (seed, shared $\boldsymbol\theta_0$, split, 100 epochs,
+AdamW at 0.003, batch 128), and the configured grid follows (`reference.rotation_min_degrees`
+−45 in `base.yaml` and the dataclass default; 19 levels). Before adding them, one existing
+level was retrained and reproduced exactly (−25°: 0.0446 cached and retrained, the same
+epoch selected), so the new levels sit on the same footing:
+
+| rotation | −35° | −40° | −45° |
+|---|---|---|---|
+| $e^\star$ | 0.0429 | 0.0425 | 0.0449 |
+| selected epoch | 92 | 92 | 86 |
+
+All inside the old grid's range (0.041–0.048) and its seed noise (D34). Every value in
+$[-30°, +45°]$ is unchanged. The `independent_seeds` and `warm_start` caches were not
+extended. The file before the extension is kept beside it as
+`e_star_shared_seed_validation_v1.before_m45.json`.
+
 ### 🔄 D34. $e^\star$'s run-to-run noise is measured, and the rotation trend is not established
 
 **Decision.** `reference.repeat_seeds()` retrains one rotation several times,
