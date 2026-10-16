@@ -4106,7 +4106,7 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
-### 🔄 D140. M14b: a triangle wave on two channels, a pilot to find the range, then a sweep with two confirmatory families
+### ✅ D140. M14b: a triangle wave on two channels — the pilot finds no break at any speed, closed as a null
 
 Decided 2026-10-11, question by question, before any code. M14 ([[D130]]) found nothing
 at its matched rate because the drift was too gentle: the β ramp ran out of window
@@ -4165,6 +4165,42 @@ seed-pooled errors.
 **Order.** Queue 4 → the pilot (`gpu_queue_m14b_pilot.ps1`, which waits for queue 4) →
 analysis → the main run → queue 5, re-gated to wait for M14b's main run
 (`gpu_logs\m14b\queue.txt`) instead of queue 4.
+
+**Settled 2026-10-16: the pilot finds no break, and the main run is dropped.** The
+pilot's report (`--pilot --report-only`) and a probe of its per-step excess, seeds
+100–101, settled window $t\ge1200$:
+
+- **Nothing breaks.** Every learner holds against frozen ATC at every speed in both
+  arms; `local_only` is never ahead of it.
+- **The drift costs almost nothing.** Frozen ATC loses at most +0.002 RMSE in the β arm,
+  even with β at the band's edge, and nothing in the gain arm (−0.001 to −0.005). Every
+  learner's damage lies between −0.004 and +0.011, at every speed.
+- **The twin's realisation dominates.** The part of the damage every learner in a
+  (speed, seed) shares runs from −0.006 to +0.010, larger than any learner's own part:
+  M14's ±0.005 again.
+- **No rate dependence.** In the β arm the damage is flat in the distance from rest and
+  in speed. The one hint is at 100× at the band's edge, where it roughly doubles for
+  local adapt (0.003 → 0.007), one-hop, `local_only` and the gradient learners, inside
+  the two-seed noise.
+- **M14's order, as a level.** Net of the shared part, the filters lose 0.001–0.005
+  less than the mean in the β arm and the gradient learners 0.002–0.004 more, at every
+  speed, 1× included.
+- **The comparative break could not fire.** Frozen at 300, ATC has not converged: twin
+  settled RMSE 0.187, against ATC's 0.172 and the filters' 0.138–0.147. The margin over
+  it (−0.05 for the filters) measures the learning after step 300, not adaptation, and
+  a drift worth 0.002 cannot close it.
+- **The gain arm is null, plausibly by construction.** The inputs are the same sensor's
+  past readings, so a gain scales input and target together, and a predictor near
+  homogeneous barely sees it. Not tested.
+- Checked: at 1× the settled window is 0.3 of a period, but it still covers the band
+  evenly (mean distance from rest 0.55, against about 0.5 at the other speeds).
+
+**Reading.** Inside the chaotic window no learner breaks at up to 18 deg/step, 100× M14's
+peak, because the band itself costs a frozen model at most 0.002. Reported as an
+exploratory null. The user chose this (option A) over two alternatives: an amplitude
+pilot (gain 0.5 ↔ 1.5, or the bias channel, which is not scale-invariant), and the same
+with ATC frozen late enough to have converged. The main run (seeds 0–9, `final_period`,
+the two families) is not run. Queue 5 was started without waiting for it.
 
 ### ❓ D139. Four extensions before the writing: K steps and the iterated EKF, subtractive dither, a block-diagonal covariance, a coupled-MG GNN
 
@@ -4439,7 +4475,7 @@ On CPU a 20k-GNN step costs 0.23 s (exact centralised), 0.15 (truncated), 0.44 (
 adapt), 0.56 (one-hop), 0.17 (ATC): neuron blocks keep every filter cheap.
 | confirmatory | all four, Holm within each: **truncation cost** (truncated minus exact centralised; predicted $\ge0$ — the question was first put as "exact minus truncated, predicted ≥ 0", a sign slip; the approved meaning, that truncation costs, is this contrast's); **decentralisation gap** (one-hop and local adapt minus the exact centralised filter); **filter vs gradient** (one-hop minus ATC AdamW and ATC momentum; predicted negative, as M6); **blocks cost** on the twin (neuron minus full per filter; no direction, read against 0.002) |
 
-### 🔄 D138. The codec build: every implementation question, answered before the code
+### ✅ D138. The codec build: every implementation question, answered before the code
 
 Asked and answered 2026-10-03, before any of D137's codec was written (the user: every
 algorithmic or implementation question not yet decided is asked first).
@@ -4513,7 +4549,71 @@ well**, so not the codec's doing. M8's own roster never carried ATC with momentu
 codec's report will be the benchmark's first look at it there. The report now prints a
 learner with no paired seeds as DIVERGED instead of dropping its row.
 
-🔄 Open until it runs: MNIST and then Mackey–Glass, after queue 3.
+**MNIST, run in queue 4 (calibrate 54.7 h, validate 13.6 h, report 23.4 h), analysed
+2026-10-16 and reported as is.** All 83 calibration cells completed, and every
+validation and report cell. For the paper the result is D-BOLT's (the user: the
+communication results exist to show it can be carried efficiently; the baselines are
+comparison).
+
+| report seeds 0–4, $c=0.01$ | bits/param per message | settled error | cost, paired [95% CI] |
+|---|---|---|---|
+| local adapt | 4.28 (15× below FP64, 7.5× below FP32) | 0.0735 | −0.0001 [−0.0004, +0.0003] |
+| one-hop | 5.27 for $\boldsymbol\psi$, + 2.2 for its raw batch = 7.4 (8.9× / 4.6×) | 0.0709 | +0.0002 [−0.0002, +0.0006] |
+
+- **$\mathcal C^\star=0.01$, the grid's coarsest, for both filters**, at a cost about 10×
+  inside $\varepsilon=0.002$. The cost is real, not a codec switched off: per seed the settled
+  error moves both ways under compression (seed 0 0.0782 → 0.0777, seed 1 0.0726 → 0.0727).
+  The frontier stops before D-BOLT's does; C2c (schedule, after queue 6) extends it to
+  $c\in\{0.03, 0.1, 0.3\}$ for the filters.
+- **One-hop's raw batch** (788 values: 4 images × 196 pixels and the labels) is priced
+  at 8 bits (`DATA_BITS`), 2.2 bits per parameter, 29% of its compressed message.
+- **The tables generalise.** The bound under the trained probabilities (3.96 bits for
+  local adapt) equals the report runs' empirical entropy (3.96), with no escapes; the
+  canonical Huffman code sits 8–10% above it (an arithmetic coder would take 0.3–0.5 bits).
+- **Transfer.** Trained on the stationary IID cell only, carried unchanged: local adapt
+  4.35 / 4.68 / 4.43 bits under linear, abrupt and skew 0.1, one-hop 5.28 / 5.50 / 5.14, no
+  escapes, every cost within ±0.0002.
+- **The comparison.** ATC with momentum sends two vectors, 10.2 bits per message, and is
+  quantisation-sensitive: +0.0014 [+0.0010, +0.0019] stationary, +0.0024 [+0.0004, +0.0044]
+  linear (beyond $\varepsilon$), +0.0028 abrupt. Plain ATC is the cheapest (3.72 bits, +0.0002)
+  and the least accurate (0.086). ATC AdamW has no $\mathcal C^\star$: +0.075 at $c=0.01$ (one seed
+  collapsed to 0.28), still +0.002 at $c=10^{-4}$.
+
+**Mackey–Glass, run in queue 4 (calibrate 23.7 h, validate 9.0 h after the reboot,
+report 28.5 h), analysed 2026-10-16 and reported as is.** All 65 calibration cells
+completed, no divergence. The validation was interrupted by the reboot: the two cells
+finished before it were reused from the cache, and the interrupted $c=0.003$ cell was run
+again from the start (the channel refuses to resume mid-cell).
+
+| report seeds 0–4 | bits/param per message | settled RMSE | cost, paired [95% CI] |
+|---|---|---|---|
+| local adapt, $c=0.01$ ($\mathcal C^\star$) | 1.50 (43× below FP64, 21× below FP32) | 0.1455 | +0.0013 [+0.0008, +0.0017] |
+| local adapt, $c=0.003$ | 3.20 | 0.1443 | +0.0001 [+0.0000, +0.0001] |
+| one-hop, $c=0.01$ ($\mathcal C^\star$) | 1.58 for $\boldsymbol\psi$, + 0.90 for its raw batch = 2.5 | 0.1416 | +0.0008 [+0.0005, +0.0011] |
+| one-hop, $c=0.003$ | 3.28 + 0.90 = 4.2 | 0.1408 | +0.0000 [−0.0000, +0.0001] |
+
+- **The knee is in view on MG.** At $c=0.01$, the grid's coarsest, the cost is resolved
+  (0.9% of the RMSE, 65% of $\varepsilon=0.002$); at $c=0.003$ it is gone. Unlike MNIST, MG's
+  frontier is not cut off far from its edge.
+- **One-hop's raw batch** (32 values) is priced at the run's working precision, float64:
+  0.90 bits per parameter. Sensor readings sent as float32 would be 0.45.
+- **The tables generalise**: no escapes; the canonical Huffman code sits 3% above the
+  trained-probability bound (1.50 against 1.45).
+- **Transfer** at $c=0.01$, carried unchanged: local adapt 1.55 / 1.56 / 1.86 bits under
+  linear, abrupt and M8's τ spread (the per-agent delays cost 24% more bits), one-hop
+  1.63 / 1.63 / 1.81; no escapes; costs +0.0006 to +0.0010, all resolved, all inside ε.
+- **The comparison.** Every baseline needs a 10× finer step: $\mathcal C^\star=0.001$ for ATC, plain
+  ATC and AdamW. At $c=0.01$ they lose +0.0115 (ATC), +0.0179 (plain) and +0.063 (AdamW,
+  one seed collapsing). At their operating points ATC with momentum costs ~10 bits per
+  message (two vectors) at RMSE 0.178, plain ATC 2.13 bits at 0.187, and AdamW ~14 bits
+  (three vectors) at 0.169, its report cost +0.0030 [+0.0001, +0.0058] past ε. **On MG,
+  D-BOLT is both the cheapest message and the most accurate learner.**
+
+**Reading, both tasks.** D-BOLT carries at 1.5–2.5 bits per parameter on MG and 4.3–7.4
+on MNIST, at a cost inside $\varepsilon$ (none measurable on MNIST), with tables trained once on
+the stationary IID cell and carried unchanged to drift, skew and delays. It also
+tolerates a step ten times coarser than the gradient baselines on MG. C2c (schedule,
+after queue 6) extends the grid past $c=0.01$.
 
 ### 🔄 D137. The offline codec protocol: trained on disjoint seeds, one global step multiplier, the frontier first
 The user's protocol, `Diff_EKF_Offline_Codec_Training_Protocol.tex` (OneDrive, Diff-EKF),
@@ -4665,6 +4765,34 @@ distortion whose cost only C4's closed loop can price; and the filter's bit adva
 structural, one vector against two or three, which survives compression, with ATC plain
 the exception and so the hardest matched-bits baseline. The user's own codec plan,
 reviewed 2026-10-01, is D137.
+
+**C2a, the extended probe re-run (queue 4, 2026-10-08), analysed 2026-10-16.** The same
+sources and one seed, now with per-layer trends, histograms, the successive-change cosine
+and, for the filters, the change in units of $\sqrt{P_{ii}}$
+(`results/delta_stats_<task>.npz`). It confirms the first probe and adds:
+
+- **The filters move furthest per step.** In units of the layer's scale, late in the run:
+  MNIST 0.05–0.09 for the filters against 0.009 for ATC with momentum; MG 0.003–0.005
+  against 0.0003–0.002. So at a matched step their $\boldsymbol\psi$ costs the most bits (MNIST
+  3.8–4.3 against 1.7–3.2 at $\varepsilon=10^{-2}$; MG 1.4 against 0.2–0.5), and per message
+  they still undercut ATC with momentum (9.1 bits, $\boldsymbol\psi$ plus momentum) and ATC AdamW
+  (MG 3.3). Plain ATC stays the cheapest.
+- **The trend differs by task.** On MNIST the filter's change grows fourfold over the run
+  in parameter units but stays a constant 2–3% of $\sqrt{P_{ii}}$, because $\boldsymbol P$ grows.
+  On MG it shrinks 9–25× by layer, and about 6× even in units of $\sqrt{P}$.
+- **Persistence.** Successive changes are anti-correlated for the filters (cosine −0.2 to
+  −0.33) and plain ATC (−0.3), near zero for one-hop (−0.1), positive for ATC's momentum
+  (+0.1 to +0.3 late) and AdamW's $\boldsymbol v$ (+0.8 to +0.95). A linear predictor would remove
+  at most 4–11% of the filter's variance, under 0.1 bits: not worth building.
+- **Heavy tails.** Half the filter's change energy sits in the top 1% of coordinates on
+  MNIST (ATC 36%), 6–17% on MG, which is what run-length coding with an escape suits.
+- **No burst after a jump** (after/before 1.00–1.05, every learner, both tasks), and the
+  $\sqrt{P}$ dead-zone rule saves at most 0.06 bits.
+- **Learning rate drives the rate.** Plain ATC's $\boldsymbol\psi$ costs 3.19 bits in P5.3's cell
+  and 1.72 in X20's, at tuned rates of 0.05 and 0.01: baselines compare within a cell only.
+- MNIST carries no AdamW: the probe takes its roster from the source cells, which predate
+  the AdamW backfill. Not pursued: the paper's communication results are D-BOLT's (the
+  user, 2026-10-16), and C2b codes AdamW anyway.
 
 
 ### 🔄 D135. C1 built: a channel inside the mix, bits by kind, and the default is the old arithmetic
