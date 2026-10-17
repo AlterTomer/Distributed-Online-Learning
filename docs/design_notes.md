@@ -4220,7 +4220,9 @@ peak, because the band itself costs a frozen model at most 0.002. Reported as an
 exploratory null. The user chose this (option A) over two alternatives: an amplitude
 pilot (gain 0.5 ↔ 1.5, or the bias channel, which is not scale-invariant), and the same
 with ATC frozen late enough to have converged. The main run (seeds 0–9, `final_period`,
-the two families) is not run. Queue 5 was started without waiting for it.
+the two families) is not run. Queue 5 was started on 2026-10-16 at 06:04 with its wait for
+that run still in place, so it sat idle until 2026-10-17, when it was stopped and the wait
+block removed from `gpu_queue_5.ps1`.
 
 ### ❓ D139. Four extensions before the writing: K steps and the iterated EKF, subtractive dither, a block-diagonal covariance, a coupled-MG GNN
 
