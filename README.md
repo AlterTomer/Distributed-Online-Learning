@@ -20,6 +20,7 @@ There are two tasks, on two branches until they are merged (`docs/schedule.md`,
 
 | File | What it answers |
 |---|---|
+| [`REPRODUCE.md`](REPRODUCE.md) | **Working with the code — data, a filter, stepping through time, scoring — and, to come, reproducing every result** |
 | [`docs/schedule.md`](docs/schedule.md) | **Where everything stands: the four tracks, each item's status and the design note behind it** |
 | [`docs/experiments.md`](docs/experiments.md) | **X0–X28: what each asks, the command that runs it, and in what order** |
 | [`docs/phase5_plan.md`](docs/phase5_plan.md) | What the diffusion filter had to be tested on (the P5.x items), as a checklist |
