@@ -2,40 +2,63 @@
 
 A benchmark for distributed online learning over a graph: $N$ agents on a
 communication graph, each receiving a few labelled samples per time step, learning
-one shared classifier online without a fusion centre. Establishes centralized and
-diffusion-SGD baselines, and lays the groundwork for a diffusion extended Kalman
-filter (Diff-EKF).
+one shared model online without a fusion centre, while the data drift. It holds the
+centralised and diffusion-SGD/AdamW baselines and the diffusion extended Kalman
+filter (diff-EKF, called D-BOLT in the paper) in its local-adapt and one-hop
+variants, with mean-only or full covariance sharing, and an offline-trained codec
+that prices every message in bits.
+
+There are two tasks, on two branches until they are merged (`docs/schedule.md`,
+"After A and B"):
+
+| branch | task | model |
+|---|---|---|
+| `main` | rotated MNIST, $14\times14$, categorical likelihood | MLP, $p=2908$ |
+| `mg-task` | Mackey–Glass prediction, Gaussian likelihood | causal Transformer, $p=2273$ |
 
 ## Documentation
 
 | File | What it answers |
 |---|---|
-| [`docs/experiments.md`](docs/experiments.md) | **X0–X18: what each asks, the command that runs it, and in what order** |
-| [`docs/phase5_plan.md`](docs/phase5_plan.md) | What the diffusion filter still has to be tested on, as a checklist |
+| [`docs/schedule.md`](docs/schedule.md) | **Where everything stands: the four tracks, each item's status and the design note behind it** |
+| [`docs/experiments.md`](docs/experiments.md) | **X0–X28: what each asks, the command that runs it, and in what order** |
+| [`docs/phase5_plan.md`](docs/phase5_plan.md) | What the diffusion filter had to be tested on (the P5.x items), as a checklist |
 | [`docs/howto.md`](docs/howto.md) | **"How do I…?" — change a parameter, add a learner, compare methods fairly** |
+| [`docs/communication_plan.md`](docs/communication_plan.md) | Track C: the bits ledger, public copies and difference coding, the codec |
+| [`docs/mackey_glass_plan.md`](docs/mackey_glass_plan.md) | Track B: the Mackey–Glass task, its 25 decisions and the M0–M14 battery |
 | [`docs/WORKPLAN.md`](docs/WORKPLAN.md) | The research plan: questions, methods, experiments, validity checks |
 | [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md) | The repository specification: layout, interfaces, build order |
 | [`docs/environment.md`](docs/environment.md) | What each agent observes, and the guarantees the benchmark rests on |
 | [`docs/learners.md`](docs/learners.md) | Every method, the exactness checks, and what each transmits |
-| [`docs/results.md`](docs/results.md) | Measured numbers, the settings behind them, and what they support |
+| [`docs/results.md`](docs/results.md) | Measured numbers for X0–X28 and P5.3, the settings behind them, and what they support |
 | [`docs/figures.md`](docs/figures.md) | What each figure shows, how to read it, and the cached figure data |
 | [`docs/configs.md`](docs/configs.md) | Every config file and field, with legal values |
-| [`docs/design_notes.md`](docs/design_notes.md) | Decisions log: what was chosen, over what, and why |
+| [`docs/design_notes.md`](docs/design_notes.md) | Decisions log: what was chosen, over what, and why — and the write-up of every run since X26 |
 | [`docs/filter.md`](docs/filter.md) | The filter derivation, both centralised and diffusion, and what each choice costs |
 
-**Status:** phases 0–4 complete. Phase 5 has begun: the diffusion filter is
-**implemented and gated, not yet measured** — both combine variants exist and
-the complete-graph exactness identity holds to 1e-10, but no experiment has
-been run on it. What is still owed is [`docs/phase5_plan.md`](docs/phase5_plan.md).
+**Status.** Phases 0–4 are complete, and so is phase 5's measurement of the
+diffusion filter on MNIST (Track A): X19–X28, the P5.x items, network size, and an
+AdamW arm in every cell the paper draws on. The Mackey–Glass battery M0–M14 is done
+on `mg-task` (Track B). The communication codec is built and measured on both tasks
+(Track C). Four extensions decided before the writing (Track D: $K$ inner steps and
+the iterated EKF, subtractive dither, a block-diagonal covariance, a GNN on a coupled
+Mackey–Glass network) are built and smoked, and their GPU runs are queued.
+`docs/schedule.md` holds each item's status.
 
-X0 passes at 1.7e-15. Every method is tuned on a held-out grid before any
-comparison (`docs/results.md` §2) — a fixed learning rate produced a headline
-that was an optimizer artefact, so this is now a standing rule rather than a
-convenience. Damage is compared only across learners whose stationary levels
-are comparable, which is a rule a mis-tuned baseline taught us the hard way
-(design note D77).
+**Where results are written up.** X0–X28 and P5.3 have sections in
+[`docs/results.md`](docs/results.md); everything after them is written up in its
+design note (D99 onwards), which `docs/schedule.md` links item by item. Each claim
+carries a tier: **confirmatory** if it was named before its run, **exploratory**
+otherwise, and only confirmatory claims rest on $p_\text{holm}$ (D118).
 
-### Results so far
+Two standing rules came out of mistakes. Every method is tuned on a held-out grid
+before any comparison (`docs/results.md` §2): a fixed learning rate once produced a
+headline that was an optimiser artefact. And damage is compared only across learners
+whose stationary levels are comparable, which a mis-tuned baseline taught us the hard
+way (D77). X0 passes at 1.7e-15, and the diffusion filter's complete-graph identity
+holds to 1e-10.
+
+### Results so far: the baselines (X0–X12)
 
 | | |
 |---|---|
@@ -48,11 +71,19 @@ are comparable, which is a rule a mis-tuned baseline taught us the hard way
 | **Halving the message costs little** | Dropping momentum to send $p$ scalars per link instead of $2p$ costs 0.007–0.046, worst in the sparsest corner and **flat across label skew** — the second half of the message pays under sparsity, not under heterogeneity. |
 | **Nobody forgets; the lone agent lags** | X7's sinusoidal schedule revisits earlier rotations, the only regime where forgetting is well-posed. No cooperative method shows measurable forgetting (1.1–1.6 σ); `local_only` is *better* on a state it left than on the current one, at 10 σ — lag, not retention. |
 
-**What this sets up for phase 5.** There is no headroom left on stationary
-accuracy, so Diff-EKF's case has to come from tracking under drift, from
-communication efficiency, or from calibrated uncertainty. Its competitor on the
-communication axis is `diffusion_sgd_atc_plain` at 0.0902 — not the stronger
-momentum variant — because the filter sends one $p$-vector per link.
+### Results so far: the diffusion filter (X19 onwards)
+
+| | |
+|---|---|
+| **One-hop is the decentralised method to beat** | Under abrupt rotation (15° every 25 steps) one-hop settles at 0.107 against the centralised filter's 0.093, local adapt's 0.119, and ATC with momentum and with AdamW at 0.131 and 0.151. One-hop beats ATC AdamW in nine of twelve backfilled conditions (D127) and at every $N$ (D119). |
+| **It beats ATC while sending less** | One-hop linearises a neighbour's batch at the **receiver's** own estimate (X27, D99: never worse, better where agents disagree) and sends $\psi$ plus the raw batch, 3 696 scalars per link, against momentum ATC's 5 816. At exactly matched bandwidth, mean-only local adapt beats `atc_plain` by 0.012–0.025 ($t$ = 10–24; X26). |
+| **Covariance sharing buys nothing once one-hop is used** | Full minus mean-only is null at both ends of the skew axis at the receiver point (X28, D100) and on every topology (P5.3, D103), so the deployable variant sends $p$ scalars, not $p^2$. |
+| **Size: local adapt falls behind, one-hop does not** | At a fixed mixing gap, local adapt's gap to the centralised filter grows with $N\in\{10,20,30\}$; one-hop's growth is not detected (bounded below 0.005). The same holds on Mackey–Glass (D117, D129). |
+| **Label skew** | At $\beta_{\mathrm{dir}}=0.1$ local adapt drops to 0.111, behind the gradient baselines; one-hop, which adapts on its neighbours' labels too, reaches 0.078 and stays the most accurate decentralised method at every skew (X25, X27). |
+| **Heterogeneity does not let beliefs personalise** | Per-agent drift (P5.7, D115) costs every shared model about the same, and label shift (P5.8, D124) is absorbed by cooperation in every family, with nothing extra for the filter. Per-agent delays on Mackey–Glass (M8, D111) cost the filters 0.002–0.005 and AdamW nothing, yet both D-BOLT variants stay about 0.02 below ATC AdamW. The agents converge to each other, not to the centralised filter's weights, and weight distance does not track accuracy (P5.12, D134). |
+| **The bound is tight, the covariance is not a predictive** | `lem:conservative` is tight (shown covariance-free on Mackey–Glass, shrink 0.985–0.995), but the filter's belief scores worse than the plug-in prediction on MNIST and is far too wide on Mackey–Glass (P5.11/P5.14, D120). |
+| **Compression is nearly free for the filter** | The offline-trained codec (quantised differences on public copies, run lengths, canonical Huffman) sends local adapt at 4.3 bits per parameter on MNIST and 1.5 on Mackey–Glass, against 64, at a cost within ±0.0002 error and +0.0013 RMSE of the uncompressed twins; on Mackey–Glass every baseline needs a step ten times finer (D138). |
+| **float32 is safe, float64 stays** | Single precision is numerically safe for every filter on both tasks and about halves the MNIST GPU time, but every experiment already run is float64, so the benchmark stays there rather than mix precisions across the paper (D133). |
 
 ## Setup
 
@@ -71,20 +102,28 @@ pip install -e ".[dev]"
 On a CPU-only machine, drop the `+cu126` local version and use the
 `https://download.pytorch.org/whl/cpu` index instead.
 
+The Mackey–Glass task lives on `mg-task`; a second worktree keeps both checked out
+at once (`git worktree add ../DistributedOnlineLearning-mg mg-task`). Its tests must
+run with `PYTHONPATH=src`, or pytest imports `main`'s installed package instead.
+
 ### What you need to reproduce which results
 
 | | hardware | notes |
 |---|---|---|
 | The SGD baselines (X0–X12) | laptop CPU | sized for it deliberately |
-| Every EKF result (X13 onwards) | **CUDA GPU** | a dense $p\times p$ covariance per agent |
-| The test suite | laptop CPU | 1328 tests, about 90 s |
+| Every EKF result (X13 onwards), and every AdamW arm beside one | **CUDA GPU** | a dense $p\times p$ covariance per agent |
+| The test suite | laptop CPU | 1517 tests on `main` |
 
 ⚠ **The filter results were produced on CUDA and cannot be reproduced on CPU in
 reasonable time.** Each agent carries a dense $2908\times2908$ covariance in
 float64 — 64.5 MiB, ten of them, with a Cholesky solve per agent per step. The
 reference machine is an RTX 4070 Laptop (8 GiB), where a 1500-step run at five
-seeds takes about 20 minutes; a sweep is hours. `--device cpu` works and is what
-the tests use, but it is for debugging, not for reproducing a published cell.
+seeds takes about 20 minutes; a sweep is hours, and the larger ones run as
+unattended GPU queues over several days. `--device cpu` works and is what the tests
+and the runners' `--smoke` modes use, but it is for debugging, not for reproducing a
+published cell. On the same hardware and software a re-run is bitwise identical
+(X25+ reproduced X27 to 0.0e+00, D101); across GPU models and library versions it
+is not.
 
 ⚠ **CI is CPU-only and is not a reproduction.** GitHub Actions has no GPU, so CI
 installs the CPU build from a different index than the development machine uses.
@@ -98,11 +137,12 @@ the claim. If you are below 3.13 and something breaks, that is why.
 
 ## Running things
 
-**Start with [`docs/experiments.md`](docs/experiments.md).** It is the index of
-every experiment the benchmark has run — X0 through X23 — giving for each one the
-question it answers, the exact command, the measured runtime where we have it,
-and which experiments must run before which. `WORKPLAN.md` §6 states the *design*
-of X0–X7 and why each exists; `docs/experiments.md` is what to type.
+**Start with [`docs/experiments.md`](docs/experiments.md)** for X0–X28 — for each,
+the question it answers, the exact command, the measured runtime where we have it,
+and which experiments must run before which — and with
+[`docs/schedule.md`](docs/schedule.md) for everything after (P5.x, N>10, the AdamW
+pass, the codec, Track D). Each runner's docstring carries its design and the command
+lines; they are worth reading before running anything expensive.
 
 Every algorithmic entry point is a plain script. The run knobs are flags —
 `--horizon`, `--seeds`, `--device`, `--dtype`, `--dataset`, `--fresh`, and
@@ -116,6 +156,7 @@ python scripts/check_environment.py              # graph stats, sample streams, 
 python scripts/check_data.py                     # cache MNIST, once
 python scripts/train_reference.py                # the offline reference, once
 
+# the baselines and the centralised filter
 python scripts/run_experiment.py x1_stationary   # x0..x2, x5, x7..x10; --fresh to restart
 python scripts/run_topology_sweep.py             # X3
 python scripts/run_sparsity_sweep.py             # X4 and X6
@@ -129,24 +170,58 @@ python scripts/run_ekf_ramp.py                   # X16, the filter on X9's ramp
 python scripts/run_ekf_skew.py --lr              # X17, the filter under label skew
 python scripts/run_sawtooth.py --lr              # X18, sawtooth drift
 
+# the diffusion filter
 python scripts/run_diffusion_ekf.py --lr         # X19, the diffusion filter's first measurement
 python scripts/run_diffusion_tuning.py --tune    # X20, re-tuning it on its own grid
 python scripts/run_diffusion_gamma.py            # X21, gamma jointly with q
 python scripts/run_diffusion_extrapolation.py    # X22, how far an agent may extrapolate
 python scripts/run_diffusion_joint.py            # X23, all three axes at once
+python scripts/run_diffusion_combine.py          # X24, alpha x beta under full sharing
+python scripts/run_diffusion_skew.py --lr        # X25, Dirichlet label skew
+python scripts/run_atc_plain.py --lr             # X26, the bandwidth-matched baseline
+python scripts/run_linearization_point.py        # X27, sender against receiver point
+python scripts/run_skew_topup.py                 # X25+, the skew cells at five seeds
+python scripts/run_receiver_full.py              # X28, full sharing at the receiver point
+python scripts/run_diffusion_topology.py --lr    # P5.3, topology and the spectral gap
+python scripts/run_network_size.py --probe-only  # N>10: the memory smoke, then --lr, then cells
+python scripts/run_p57_heterogeneous_drift.py --lr  # P5.7, heterogeneous drift
+python scripts/run_belief_calibration.py --lr    # P5.11 / P5.14, the belief and the bound
+python scripts/run_disagreement.py               # P5.12, agreement against the centralised filter
+python scripts/run_label_sparsity.py --lr        # P5.4, sparse labels
+python scripts/run_break_rate.py --lr            # P5.5, the break rate
+python scripts/run_label_shift.py --lr           # P5.8, label shift
+python scripts/run_midtransient_shift.py --lr    # P5.23, a second shift mid-transient
+python scripts/run_adamw_pass.py --lr            # AdamW arms for the earlier experiments
+
+# communication and precision
+python scripts/run_float32_probe.py --device cuda        # can the filters run in float32?
+python scripts/run_delta_entropy_probe.py --device cuda  # what would differences cost in bits?
+python scripts/run_codec.py --calibrate --device cuda    # the codec: --calibrate, --validate,
+                                                         # --report-runs; --dither for D2
+
+# Track D (queued)
+python scripts/run_inner_steps.py --lr           # D1, K inner steps and the iterated EKF
+python scripts/run_covariance_blocks.py          # D3a, the block-diagonal covariance
 ```
 
-Several take a `--lr` pass first and **refuse to start without it**, rather than
-carrying a learning rate chosen for another condition. That is not caution: doing
-it wrong once put a baseline at chance and inverted a damage ordering, and the
-result read as a finding until the stationary column was looked at (D77).
+On `mg-task` the battery is `run_m2_references.py` through `run_m14b_break_rate.py`,
+plus that branch's copies of the shared runners (`run_codec.py`,
+`run_inner_steps.py`, `run_covariance_blocks.py`, `run_float32_probe.py`) and
+`run_gnn.py` for D3c.
+
+Most runners take a `--lr` pass first and **refuse to start without it**, rather
+than carrying a learning rate chosen for another condition. That is not caution:
+doing it wrong once put a baseline at chance and inverted a damage ordering, and the
+result read as a finding until the stationary column was looked at (D77). The larger
+ones also run a pre-flight (memory, data budget) before any cell.
 
 Runs and sweeps are **resumable and exact**: the loop consumes no randomness, so
 a resumed run reproduces an uninterrupted one bit-for-bit, and re-running a sweep
 skips cells already on disk.
 
-Each sweep has a matching reader that turns its parquet into the numbers the
-design notes quote:
+Every runner from X23 on has a `--report-only` mode that turns its cells back into
+the tables its design note quotes, with paired $t$, intervals and Holm correction
+from `dekf_bench.metrics.paired`. The earlier sweeps have separate readers:
 
 ```bash
 python scripts/report_ekf_sweep.py               # the tuning grid, ranked
@@ -168,8 +243,10 @@ DEKF_FIGURES_DIR="/path/to/a/shared/folder" python scripts/run_experiment.py x1_
 repository.** They draw the PNGs and write the `.docx`/`.pptx` for our own
 progress reviews, so they answer "what should the slide look like" rather than
 "does the benchmark run" or "is this number right". Everything needed to
-reproduce a result is here: the runners above regenerate the runs, and the
-readers above turn them back into numbers.
+reproduce a result is here: the runners above regenerate the runs, and their
+`--report-only` modes and the readers turn them back into numbers. The paper's
+figures will get public builders in `scripts/figures/` as part of the reproduction
+package (`docs/schedule.md`, "The reproduction package").
 
 ## Tasks
 
@@ -199,7 +276,8 @@ filter is dominated by dense covariance operations, where CUDA is a 14x win
 
 ```
 src/dekf_bench/     the package: env, data, models, learners, metrics,
-                    evaluation, runner, recording, utils
+                    evaluation, runner, recording, utils; codec.py and
+                    compression.py hold the communication channel
 configs/            composable YAML; every swept quantity is a config field
 scripts/            runnable entry points: experiments, sweeps, and the readers
                     that turn their output back into numbers
