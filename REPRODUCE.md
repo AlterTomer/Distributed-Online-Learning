@@ -9,8 +9,9 @@ This document has two parts.
   check a result, change one knob and see what moves, or debug a cell that looks
   wrong.
 - **Part II, reproducing the results**, gives the stages that regenerate every number
-  and figure the paper reports, in dependency order. It has not been written yet;
-  its outline is at the end.
+  and figure the paper reports, in dependency order: every runner on both branches,
+  with its commands, what it needs on disk, its recorded hours and the headline it
+  must reproduce.
 
 Every code block in Part I was run on a laptop CPU against the current `main` (the
 Mackey–Glass block against `mg-task`). Each is short enough to run there in about a
@@ -492,23 +493,323 @@ print(model.num_params, current.inputs.shape, float(rmse))
 
 # Part II — reproducing the results
 
-*To be written.* The plan (`docs/schedule.md`, "The reproduction package") is a
-driver, `scripts/reproduce.py`, that walks these stages in dependency order. Each
-stage states its command, its inputs and outputs, its measured GPU-hours, and the
-numbers it must reproduce.
+This part lists every experiment the repository has run, runner by runner, in the
+order the runners depend on each other. For each one it gives the commands, what must
+already be on disk, the hours it took on the reference machine, and the headline
+result it must reproduce. The full tables are in the runner's `--report-only` output
+and in the write-up the entry names: `docs/results.md` for X0–X28 and P5.3, and the
+design note (D-number) for everything after.
 
-1. **Environment.** Section 1 above, with the versions recorded.
-2. **Tests.** The full suite.
-3. **Smoke.** Every runner's `--smoke` on CPU: every code path proven before GPU
-   time is spent.
-4. **Calibration.** The offline references, every `--lr` pass, and every filter
-   selection (the X-series re-tunes on MNIST, M3–M5 on Mackey–Glass).
-5. **Experiments.** Every claim in the paper, traced to its runner, its cells and
-   its tier (D118).
-6. **Reports.** Each runner's `--report-only`, checked against the expected values
-   within a stated tolerance.
-7. **Figures.** The paper's figures only.
+For now this is a recipe to follow by hand. The driver that will walk it,
+`scripts/reproduce.py`, and the expected-value files it will check against,
+`reproduce/expected/*.json`, come after the two branches merge (`docs/schedule.md`,
+"The reproduction package"). Until then, the Mackey–Glass entries run from the
+`mg-task` worktree.
 
-There are three tiers, so that checking one table does not cost the full budget:
-**smoke** (CPU, about an hour), **one claim** (only that claim's dependencies), and
-**full**.
+## 13. Read this first
+
+**Hours are as recorded.** They are wall-clock hours on the reference machine (RTX
+4070 Laptop, 8 GiB; Python 3.13.5; torch 2.8.0+cu126), with the GPU otherwise idle.
+Each figure is the sum over an experiment's runs, taken from the result folders'
+timestamps or from the GPU queue logs. Where both exist they agree to within 0.1 h.
+X0–X12 ran on the CPU, as did M2–M4 on `mg-task`; everything else ran on the GPU. The
+first filter sweeps (X13, X14) also paid two overheads that have since been fixed, a
+checkpoint per agent (D68) and a flush that grew quadratically with the horizon
+(D69). Their hours are therefore an upper bound.
+
+**Devices.** The commands below omit `--device`. Pass `--device cuda` to every
+filter runner, as the GPU queues did. M2–M4 ran on the CPU, which is their default.
+
+**Order is enforced, but follow it anyway.** A runner with a `--lr` pass refuses its
+main pass until the rates are on disk (D77). A runner that reads another
+experiment's cells refuses until those cells exist. The "needs" column below gives
+that order. Follow it instead of discovering it through refusals.
+
+**Every run is cached by name.** A finished run has a `_complete` marker and is
+skipped. An interrupted run resumes exactly from its checkpoint. `--fresh` discards
+a run and redoes it. `--smoke` adds `_smoke` to every run name, so a smoke run never
+collides with a real cell.
+
+**What "reproduce" means.** On the same GPU model, driver and library versions, a
+re-run is bitwise identical: the merge gates print `0.0e+00`, and X25+ reproduced
+X27 exactly (D101). On other hardware or versions it is not. There, check each claim
+through its statistics:
+
+- the sign of each confirmatory contrast;
+- whether its interval excludes zero;
+- its $p_\text{holm}$ (D118);
+- that each level lies within a few standard errors of the recorded one.
+
+The expected-value files will state a tolerance per number.
+
+**Disk.** `results/` holds 12 GB on `main` and 15 GB on `mg-task`.
+
+## 14. The tiers
+
+| tier | what runs | cost |
+|---|---|---|
+| **smoke** | stages 1–3: the environment, the tests, and every runner's `--smoke` | CPU only, minutes per runner (the driver will time the whole tier) |
+| **one claim** | one row of stage 5, the rows in its "needs" column, then its report | from the tables: P5.4, for instance, needs only the reference classifier and costs 27 GPU-h |
+| **full** | everything | as recorded: about 126 CPU-h and 550 GPU-h on `main`, and 11 CPU-h and 280 GPU-h on `mg-task`, plus about 250 GPU-h still running or queued (§20) |
+
+## 15. Stage 1 — the environment
+
+Install as in section 1, then record what you are running on:
+
+```bash
+python scripts/check_environment.py
+python -c "import sys, torch; print(sys.version, torch.__version__, torch.version.cuda, torch.cuda.get_device_name(0))"
+nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv
+pip freeze > environment.txt
+```
+
+`requirements.txt` pins the exact runtime versions. Every run also writes its git
+SHA, its Python, torch and CUDA versions, and its package versions into
+`results/<run>/metadata.json`. To compare against a recorded run, start from that
+file.
+
+MNIST is downloaded once, by `check_data.py`. Mackey–Glass needs no download: each run
+integrates its series from its seed.
+
+## 16. Stage 2 — the tests
+
+```bash
+python tasks.py test                          # main: 1 517 tests
+cd ../Distributed-Online-Learning-mg
+PYTHONPATH=src python -m pytest               # mg-task: 1 667 tests
+```
+
+`python tasks.py test-fast` skips the tests marked slow. The suite includes the
+identities the results rest on:
+
+- ATC reproduces centralised SGD on a complete graph (X0's identity);
+- the diffusion filter's complete-graph identity holds;
+- the codec's encoder reproduces its counted bits exactly.
+
+CI runs the suite on a CPU. A green CI shows that the code runs and its identities
+hold, not that a published cell reproduces on CUDA.
+
+## 17. Stage 3 — smoke
+
+The runners below have a `--smoke` mode: a short horizon at one seed, on the CPU,
+through every code path the real pass takes. Its numbers mean nothing. Where a
+runner has a `--lr` pass, smoke that pass first, exactly as for a real run.
+
+On `main`:
+
+- **`--lr --smoke`, then `--smoke`:** `run_network_size.py`,
+  `run_p57_heterogeneous_drift.py`, `run_belief_calibration.py`, `run_break_rate.py`,
+  `run_label_shift.py`, `run_label_sparsity.py`, `run_midtransient_shift.py`,
+  `run_adamw_pass.py`, `run_inner_steps.py`.
+- **`--smoke` alone:** `run_disagreement.py`, `run_float32_probe.py`,
+  `run_delta_entropy_probe.py`, `run_covariance_blocks.py`.
+- **`run_codec.py`:** `--calibrate --smoke`, then `--validate --smoke`, then
+  `--report-runs --smoke`.
+
+On `mg-task`:
+
+- **`--lr --smoke`, then `--smoke`:** `run_m9_topology.py`,
+  `run_m10_network_size.py`, `run_m13_data_rate.py`, `run_m14_break_rate.py`,
+  `run_m2o_readout.py`, `run_inner_steps.py`.
+- **`--smoke` alone:** `run_m6_comparison.py` (about 30 minutes),
+  `run_m7_combine_exponent.py`, `run_m8_tau_heterogeneity.py`,
+  `run_m11_sensor_drift.py`, `run_m12_combined_drift.py`,
+  `run_m12b_abrupt_coupling.py`, `run_mg_belief_calibration.py`,
+  `run_covariance_blocks.py`, `run_float32_probe.py`, `run_delta_entropy_probe.py`.
+- **`run_m14b_break_rate.py`:** `--pilot --smoke`.
+- **`run_codec.py`:** as on `main`.
+- **`run_gnn.py`:** `--smoke --reference`, `--smoke --tune-filters`, `--smoke --lr`,
+  then `--smoke`; and the same four with `--twin`.
+
+The other runners (X0–X28 and P5.3; on `mg-task`, M2–M5 and M6's isolated and
+shift-cycle follow-ups) have no smoke mode. Do not imitate one by shortening a
+horizon. Runs are cached by name, so a short run under a real name would be found
+complete by the real pass. Part I's loop proves the code those runners use.
+
+## 18. Stage 4 — calibration
+
+Calibration means the runs whose output other experiments read:
+
+- the offline references;
+- the learning rates the phase-4 baselines carry;
+- the filter settings every later filter cell carries.
+
+Each experiment's own `--lr` pass is calibration too, but it belongs to that
+experiment's row in stage 5.
+
+**How the filter settings travel differs by branch.**
+
+- **`main`.** X13's selection is read from X13's cells on disk by X14–X19
+  (`tuned_settings()`), so X13 has to be on disk before any of them run. From X20 on,
+  the settings are constants: `FILTER` and `CENTRALIZED` in `run_diffusion_skew.py`,
+  imported by every later runner. X20–X23 chose those values. Re-running X20–X23
+  therefore checks the constants; it does not feed them.
+- **`mg-task`.** The selections are files: `results/m3_rates.json`,
+  `results/m4_selection.json` and `results/m5_selection.json`. M3, M4 and M5's
+  tie-break write them, and every later runner reads them. Re-running M3–M5
+  rewrites them.
+
+On `main`:
+
+| | runner and passes | writes | hours | must reproduce | write-up |
+|---|---|---|---|---|---|
+| reference classifier | `train_reference.py`, once | `data/reference/`: $e^\star$ per rotation | CPU | $e^\star$ at every rotation the drift visits; experiments read the cache and never rebuild it | D33 |
+| phase-4 tuning | `sweep_hyperparameters.py`; `--report` | `results/sweep/cells.jsonl` | CPU | each method's rate, $n$ and optimiser; the selections are carried as constants in the configs and runners | results.md §2 |
+| X13, the centralised filter | `run_ekf_sweep.py`, then `--baselines`, then `--full`; read with `report_ekf_sweep.py` with the same flag | `x13_*` | 89.5 | best cell $\gamma=0.9995$, $q=6\times10^{-5}$, $\sigma_0^2=0.01$: 0.0630 ± 0.0006, against re-tuned centralised SGD 0.0918 and ATC 0.0952 | D64, D70–D72 |
+
+On `mg-task`:
+
+| | runner and passes | writes | hours | must reproduce | write-up |
+|---|---|---|---|---|---|
+| M2, the references | `run_m2_references.py`; `--levels 0.22 --seeds 0 1 2 3 4` for $e^\star$'s error bar | `m2_references.json`, `m2_reference_seeds.json` | 0.2 CPU | $e^\star(0.22)=0.1432\pm0.0013$ over five seeds | D97, D116 |
+| M3, the baselines' rates | `run_m3_rates.py` | `m3_rates.json` | 5.2 CPU | one rate per learner per condition, stable across conditions | D98 |
+| M4, the centralised filter | `run_m4_centralised.py` | `m4_selection.json` | 5.6 CPU | $\gamma=1$, $q=6\times10^{-6}$, $\sigma_0^2=0.01$, $\boldsymbol R\times1$, settled RMSE 0.1429 | D102 |
+| M5, the diffusion filter | `run_m5_diffusion.py`, then `--tie-break` (only the tie-break writes the selection) | `m5_selection.json` | 5.1 | $\gamma=1$, $q=6\times10^{-7}$, $\sigma_0^2=0.01$, settled RMSE 0.1458 | D105 |
+| M5's linear probe | `run_m5_linear_probe.py` | nothing: it informs a decision | 0.8 | on `m_linear`, $q=6\times10^{-7}$ against $6\times10^{-6}$: one-hop tied (+0.0008), local adapt prefers the smaller by 0.0088; the selection stands | D105 |
+
+## 19. Stage 5 — the experiments
+
+Every MNIST experiment also needs the reference classifier from stage 4. The tables
+give each runner's passes in order. A *bare* pass is the command with no flag.
+
+### 19.1 `main`: the gradient baselines (phase 4, CPU)
+
+| | runner and passes | needs | hours (CPU) | must reproduce | write-up |
+|---|---|---|---|---|---|
+| X0 | `run_experiment.py x0_exactness` | — | minutes | ATC equals centralised SGD on a complete graph, to 1.7e-15 | results.md §1 |
+| X1 | `run_experiment.py x1_stationary` | — | 0.3 | on a ring, ATC is 0.0014 behind centralised SGD, against a seed s.d. of 0.0035 | §3.1 |
+| X1b | `run_experiment.py x1b_atc_vs_cta` | — | 0.3 | ATC 0.0768 against CTA 0.0774: indistinguishable | §3.2 |
+| X2 | `run_experiment.py x2_rotating` | — | 0.3 | drift cost +0.016 for centralised and ATC, +0.022 payload-matched, +0.032 local | §3.3 |
+| X3 | `run_topology_sweep.py` | — | 12.5 | worst settled penalty 0.008 (star); the graph-blind learners identical across topologies | §7 |
+| X4, X6 | `run_sparsity_sweep.py` (`x4` or `x6` for one) | — | 12.0, 8.7 | cooperation worth 0.047–0.527; under $\beta_{\mathrm{dir}}=0.1$ local only 0.630 against ATC 0.102 | §9, §10 |
+| X5 | `run_experiment.py x5_abrupt_shift` | — | 2.1 | one 15° shift costs every method 0.073–0.081 | §3.4 |
+| X7 | `run_experiment.py x7_sinusoidal` | — | 0.3 | no cooperative method forgets measurably (1.1–1.6σ) | §11 |
+| X8 | `run_experiment.py x8_global`, then `x8_per_node_drift`; `report_cooperation.py` | — | 3.2 | ⚠ confounded: its control drifted more than the treatment's mean (D53). P5.7 is the corrected measurement | §14.1 |
+| X9 | `run_experiment.py x9_rate_ramp`, then `x9_control`; `report_breaks.py` | — | about 4 | the gradient methods break at 0.038–0.044 °/step (ring) | §12 |
+| X10 | `run_experiment.py x10_prior_drift`, then `x10_control`; `report_cooperation.py` | — | 1.2 | under label shift the cooperation gap widens by +0.0445 | §14.2 |
+| X11 | `run_recurring_sweep.py`; `run_experiment.py x11_control`; `report_recurring.py` | — | 65.3 | longer intervals between shifts produce bigger wounds | §13 |
+| X12 | `run_linear_sweep.py`; `report_abrupt_vs_smooth.py` | — (its report reads X11) | 14.3 | abrupt drift is mostly cheaper than smooth drift at the same average speed | §13.2 |
+
+### 19.2 `main`: the centralised filter (X14–X18)
+
+| | runner and passes | needs | GPU-h | must reproduce | write-up |
+|---|---|---|---|---|---|
+| X14 | `run_ekf_generalization.py --lr`, then bare (`--only <condition>` runs it in instalments); `report_ekf_generalization.py` | X13 | 69.8 | one setting, tuned at linear 0.025 °/step, beats a tuned ATC in every drift condition | D67, D73, D74 |
+| X15 | `run_ekf_retune.py` | X13, X14 | 4.6 | $\gamma<1$ still wins with both families re-tuned at `every2_jump5`: multiplicative forgetting is rejected on mechanism | D76 |
+| X16 | `run_ekf_ramp.py` | X9, X13 | about 1 | on a shared noise bar the filter breaks at 0.0639 °/step against 0.0381–0.0399; at 0.10 °/step its damage is 0.021 against ATC's 0.036 | D123 (reproduced there) |
+| X17 | `run_ekf_skew.py --lr`, then bare | X13 | 30.3 | label skew barely reaches the pooled filter | D77 |
+| X18 | `run_sawtooth.py --lr`, then bare (ten seeds; raising a cached cell's seed count needs `--fresh`) | X13 | 9.4 | `atc_plain` does not gain on momentum ATC as the reset period shortens: the mechanism is dead | D78 |
+
+### 19.3 `main`: the diffusion filter (X19–X28, P5.3)
+
+X20–X23 select the setting every later filter cell carries (§18).
+
+| | runner and passes | needs | GPU-h | must reproduce | write-up |
+|---|---|---|---|---|---|
+| X19 | `run_diffusion_ekf.py --lr`, then bare | X13 | 14.4 | full sharing buys +0.0002 to +0.0007 over mean-only, for 2 909× the bandwidth | D79, D80 |
+| X20 | `run_diffusion_tuning.py --tune`, then bare | X19's `--lr` | 24.5 | re-tuning moves every cell: −0.0066, −0.0122, −0.0178 from stationary to abrupt; the filter beats tuned ATC at half its bandwidth | D81 |
+| X21 | `run_diffusion_gamma.py` | — | 3.1 | the $q=6\times10^{-3}$ column is destroyed at every $\gamma$ (error 0.43–0.89) | D82 |
+| X22 | `run_diffusion_extrapolation.py` | — | 3.2 | $\alpha>0$ is rejected monotonically on both adapt scopes | D87 |
+| X23 | `run_diffusion_joint.py`, then `--tie-break` | — | 11.1 | a flat plateau; the carried setting $\gamma=0.9995$, $q=6\times10^{-4}$, $\sigma_0^2=10^{-3}$ | D82, D83 |
+| X24 | `run_diffusion_combine.py` | — | 6.3 | $\beta=1$ beats $\beta=2$ everywhere: the conservative bound is approximately tight | D88 |
+| X25 | `run_diffusion_skew.py --lr`, then bare | — | 11.7 | under severe skew, full sharing is worth −0.0314 ($t=-4.61$) to the local-adapt filter | D89 |
+| X26 | `run_atc_plain.py --lr`, then bare | X20, X25 | 2.0 | `atc_plain` selects $\eta=0.05$ in all eight conditions; mean-only local adapt still beats it at equal bandwidth by 0.012–0.025 | D90, D91 |
+| X27 | `run_linearization_point.py` | X25 | 10.5 | the receiver point is never worse (−0.0012 to −0.0091); the sender arm reproduces X25 exactly | D99 |
+| X25+ | `run_skew_topup.py` | X25, X26, X27 | 3.9 | the sender arm reproduces X27 to 0.0e+00; at five seeds, local adapt's loss to `atc_plain` under severe skew is +0.0068 ($p=0.07$), not established | D101 |
+| X28 | `run_receiver_full.py` | X27 | 2.0 | at the receiver point full sharing is null at both ends of the skew axis | D100 |
+| P5.3 | `run_diffusion_topology.py --lr`, then bare | — | 17.3 | the sharing gap does not widen as connectivity falls; one-hop − local is −0.0028 at ER 0.3 and +0.0031 (ns) on the complete graph; graph-blind spread 0.0e+00 | D103 |
+
+### 19.4 `main`: phase 5, network size and the AdamW pass
+
+From here on, every runner has `--report-only` and a pre-registered confirmatory
+family (D118).
+
+| | runner and passes | needs | GPU-h | must reproduce | write-up |
+|---|---|---|---|---|---|
+| P5.7 | `run_p57_heterogeneous_drift.py --lr`, then bare | — | 6.4 | heterogeneous drift costs every shared model the same; diffusion does not personalise | D115 |
+| N>10 | `run_network_size.py --probe-only` (GPU otherwise idle), `--lr`, then bare; `--full-sharing` for $N=20,30$ | — | 11.7 | from $N=10$ to 30, local adapt − centralised filter grows by +0.0069 and +0.0134 in the two conditions; one-hop's growth is not detected | D114, D117, D119 |
+| AdamW backfill | `run_adamw_pass.py --lr`, then bare | X20, X25, X25+, P5.3, P5.7 | 10.7 | all twelve merge gates reproduce to 0.0e+00; one-hop beats ATC AdamW in nine of twelve conditions | D127 |
+| P5.11 / P5.14 | `run_belief_calibration.py --lr`, then bare | — | 14.7 | merge gate 0.0e+00; scoring the belief is worse than the plug-in prediction for every filter (Q1 refuted) | D120 |
+| P5.23 | `run_midtransient_shift.py --lr`, then bare | — | 7.2 | a mid-transient second shift costs more for all three filters: +4.07, +5.31 and +3.18 error-steps ($p_\text{holm}\le0.001$); nothing diverges | D125 |
+| P5.5 | `run_break_rate.py --lr`, then bare | — | 8.1 | one-hop tolerates fast drift as well as the centralised filter; Adam pays a diffusion cost SGD does not | D123 |
+| P5.8 | `run_label_shift.py --lr`, then bare | — | 3.8 | diffusion does not close its gap to the centralised filter (Q1); cooperation pays more under shift (Q2) | D124 |
+| P5.4 | `run_label_sparsity.py --lr`, then bare | — | 27.4 | merge gate 0.0e+00 in all nine cells; one-hop's lead holds at $n=1,4$ and fails at $n=2$ (+0.009, $p_\text{holm}$ 0.044) | D122 |
+| P5.12 | `run_disagreement.py` | P5.3, P5.7 | 8.7 | the gate reproduces every source cell; the agents converge to each other, not to the centralised filter (Q1, all six rows) | D134 |
+
+### 19.5 `main`: communication and the Track D extensions
+
+| | runner and passes | needs | GPU-h | must reproduce | write-up |
+|---|---|---|---|---|---|
+| float32 probe | `run_float32_probe.py` (lockstep, GPU otherwise idle), then `--cells` | P5.3 | 1.7 | single precision is numerically safe for every filter, and about halves the GPU time | D133 |
+| delta probe | `run_delta_entropy_probe.py` | P5.3, X20 | 0.8 | the filter's differences are not cheaper to code than the baselines' (H1 refuted); no rate rise after a jump (H2) | D136 |
+| codec | `run_codec.py --calibrate`, `--validate`, then `--report-runs` | P5.3, X20, X25+ | 91.6 | local adapt at 4.3 bits per parameter against 64, within ±0.0002 error of its uncompressed twin | D137, D138 |
+| D1, $K$ inner steps | `run_inner_steps.py --lr`, then bare | P5.4 ($K=1$, stationary) | 45.4 | ⏳ run, not yet analysed | D139 |
+| D2, dither | `run_codec.py --dither --calibrate`, `--validate`, `--report-runs` | codec | ~31 (est.) | ⏳ queued | D139 |
+| D3a, block covariance | `run_covariance_blocks.py` | P5.4, D1 | ~3 (est.) | ⏳ queued | D139 |
+
+### 19.6 `mg-task`: the main comparison and what is built on it
+
+Every row here needs M3–M5 (§18).
+
+| | runner and passes | needs | GPU-h | must reproduce | write-up |
+|---|---|---|---|---|---|
+| M6 | `run_m6_comparison.py` | M3–M5 | 11.9 | stationary settled RMSE: centralised filter 0.1391, one-hop 0.1408. Against $e^\star=0.1432\pm0.0013$ the filters match the offline reference rather than beat it | D106, D116 |
+| M6, isolated | `run_m6_isolated.py` | M6 | 1.1 | the filter's own cooperation gain, +0.0038 / +0.0031 / +0.0028, and the whole deployable design +0.0073 / +0.0083 / +0.0085, exactly additive with the adapt-scope gap | D106 (amended) |
+| M6, shift cycles | `run_m6_shift_cycles.py` (`--eval-every 1` for every step) | M3–M5 | 2.3 | the shift transient, phase by phase | D107 |
+| M7 | `run_m7_combine_exponent.py` | M6 | 3.7 | $\beta_c=2$ loses: +0.0864 to +0.0951 for local full sharing, +0.0534 to +0.0606 for one-hop full sharing | D132 |
+| M8 | `run_m8_tau_heterogeneity.py` | M6 | 3.1 | per-agent delays cost the filters (+0.0045 centralised, +0.0040 one-hop, +0.0023 local) and the gradient methods nothing | D111 |
+| M9 | `run_m9_topology.py --lr`, then bare | M6 | 13.8 | one-hop's leads hold on every graph; its gap to the centralised filter closes as the graph densifies | D128 |
+| M10 | `run_m10_network_size.py --lr`, then bare; then `--lr --abrupt` and `--abrupt` | M6 | 49.8 | local adapt falls behind as $N$ grows and one-hop does not, stationary and abrupt | D129 |
+| M11 | `run_m11_sensor_drift.py` | M6 | 6.2 | drift depends on what changed, not by how much: bias < gain < $\beta$ | D108 |
+| M12 | `run_m12_combined_drift.py` | M6, M11 | 18.5 | drifts interact only when they contend for the same observable: $\beta$+gain anti − correlated is −0.0037 to −0.0146 | D109 |
+| M12b | `run_m12b_abrupt_coupling.py`, then `--topup` (seeds 5–9) | M12 | 19.2 | M12's ordering holds on the abrupt schedule; nothing clears the pre-registered level at ten seeds | D121 |
+| M13 | `run_m13_data_rate.py --lr`, then bare | M6 | 25.4 | one-hop keeps pace with the centralised filter; local adapt is the filter that pays (Q1 −0.0051, $p_\text{holm}$ 0.004, at $n_b=1$) | D131 |
+| M14 | `run_m14_break_rate.py --lr`, then bare | M6 | 10.9 | nothing detected at the matched rate: the ramp is too gentle | D130 |
+| M14b | `run_m14b_break_rate.py --pilot` | M14 | 9.9 | no break at any speed; closed as a null | D140 |
+| M2O | `run_m2o_readout.py --lr`, then bare, then `--extend-sgd` | M3–M5 | 15.4 | no difference detected at full context; the filter's lead shrinks but holds under many-to-one | D126 |
+| P5.11 / P5.14 | `run_mg_belief_calibration.py` | M3–M5 | 9.5 | `lem:conservative` is tight without the covariance: shrink 0.985–0.995 | D120 |
+
+### 19.7 `mg-task`: communication and the Track D extensions
+
+| | runner and passes | needs | GPU-h | must reproduce | write-up |
+|---|---|---|---|---|---|
+| float32 probe | `run_float32_probe.py`, then `--cells` | M6 | 2.2 | settled RMSE within 3×10⁻⁵ of float64 | D133 |
+| delta probe | `run_delta_entropy_probe.py` | M6 | 0.9 | as on MNIST | D136 |
+| codec | `run_codec.py --calibrate`, `--validate`, then `--report-runs` | M6 | about 65 | local adapt at 1.5 bits per parameter, within +0.0013 RMSE of its twin; every baseline needs a step ten times finer | D138 |
+| D1, $K$ inner steps | `run_inner_steps.py --lr`, then bare | M6 ($K=1$) | ~120 (est.) | ⏳ running | D139 |
+| D2, dither | `run_codec.py --dither …`, as on MNIST | codec | ~31 (est.) | ⏳ queued | D139 |
+| D3a, block covariance | `run_covariance_blocks.py` | M6, D1 | ~6 (est.) | ⏳ queued | D139 |
+| D3c, the GNN | `run_coupling_smoke.py` (CPU, chooses $\kappa$); `run_gnn.py --twin --reference`, `--twin --tune-filters`, `--twin`; then `--reference`, `--tune-filters`, `--lr`, bare | — | ~65 (est.) | ⏳ queued; $\kappa=0.6$ was chosen | D139 |
+
+## 20. Still running
+
+Queue 5 (D1, D2, D3a) is running. Queue 6 (the GNN) starts after it. Their estimates
+come from CPU step timings and are ±50%. Each row above marked ⏳ gets its recorded
+hours and its headline once it is analysed.
+
+## 21. Stage 6 — the reports
+
+Each runner turns its cells back into the numbers its write-up quotes:
+
+- **From X23 on:** `--report-only`. It reads the cells from disk and runs no
+  learner, so it costs seconds to minutes on a CPU.
+- **X9–X14:** `report_breaks.py`, `report_recurring.py`,
+  `report_abrupt_vs_smooth.py`, `report_cooperation.py`, `report_ekf_sweep.py` and
+  `report_ekf_generalization.py`.
+- **Before X23:** the main pass prints its tables as it ends. Re-running it on a
+  complete set of cells runs nothing and prints them again.
+
+A report checks its own preconditions before it prints a confirmatory table:
+
+- the pairing gates (`assert_paired_runs`);
+- the merge gates against a source cell (D119);
+- the graph-blind gates across topologies.
+
+A gate that fails withholds the tables it guards, so read the gate lines first.
+
+## 22. Stage 7 — the figures
+
+*To come.* The paper's figures will be rebuilt by a public `scripts/figures/`,
+holding only the paper's figures and reading only `results/`. It is built once the
+paper's figure set is final. `docs/figures.md` describes every figure drawn so far
+and the data behind it.
