@@ -34,19 +34,52 @@ $N\in\{20,30\}$ below.
 
 | item | what | GPU | status |
 |---|---|---|---|
-| X27 | Sender vs receiver linearisation point, 5 seeds; picks the headline one-hop variant | ~12 h | ⏳ running |
-| X25+ | X25's still skew cells, full-sharing cells at $\beta=1$, and `atc_plain`, topped up to 5 seeds. The equal-bandwidth loss at $\beta_{\mathrm{dir}}=0.1$ is $t=1.66$ on 3 | ~7 h | queued |
-| P5.3 | Topology and spectral gap (X3 analogue): ring and a sparser ER beside the existing ER 0.3 and complete graphs, baselines re-tuned per topology. One-hop's value should scale with degree | ~14 h | queued |
-| N>10 | $N\in\{20,30\}$, stationary and abrupt, all variants | ~16 h | queued |
-| P5.7 | Heterogeneous drift (X8 analogue) — one of the two rows where per-agent beliefs could **beat** the centralised filter | ~8 h | queued |
-| P5.11, P5.14 | Calibration, and whether `lem:conservative` is conservative in practice: new evaluation metrics, then a re-run of X20's ER cells | 1–2 days code, ~6 h | open |
-| P5.12 | $E_{\text{agree}}$, $E_{\text{cent}}$ over time — already recorded, analysis only | — | open |
+| X27 | Sender vs receiver linearisation point, 5 seeds; picks the headline one-hop variant | 9 h | ✅ done — receiver adopted ([[D99]]) |
+| X28 | Does full sharing still buy nothing once one-hop linearises at the **receiver** point? Two cells at the ends of the skew axis, paired against X27's mean-only cells | 2 h | ✅ done — it does not, at either end ([[D100]]) |
+| X25+ | X25's still skew cells, full-sharing cells at $\beta=1$, and `atc_plain`, topped up to 5 seeds. The equal-bandwidth loss at $\beta_{\mathrm{dir}}=0.1$ is $t=1.66$ on 3 | 3.9 h | ✅ done — the loss firms to $t=2.43$ on five seeds, and `atc_plain` under skew is no longer unmeasured ([[D101]]) |
+| P5.3 | Topology and spectral gap (X3 analogue): path, ring, the existing ER 0.3 and complete, baselines re-tuned per topology. (A sparser ER was the original plan; at $N=10$ it sits below the $\ln(n)/n=0.230$ connectivity threshold, so `path` supplies the sparse end instead.) One-hop's value should scale with degree | ~14 h | ✅ done — and **both hypotheses are refuted**: the covariance-sharing gap does *not* widen as connectivity falls (flat across the axis, nominally largest on the complete graph), and one-hop's value is non-monotone in degree, peaking at intermediate connectivity. D100's null holds at every topology ([[D103]]) |
+| N>10 | $N\in\{10,20,30\}$ at a common $T=500$, $n=4$, ER $p$ matched to the $N=10$ mixing gap and each seed's draw conditioned into $0.119\pm0.02$ (≤3 draws); stationary and abrupt; every diffusion filter in its own process. Full sharing at $N=10$ by default, at $N=20,30$ only with `--full-sharing` ([[D114]]). `scripts/run_network_size.py` | ~16 h (est.); 7.2 h actual | ✅ done 2026-09-26 — **established**: local-adapt diff-EKF falls behind the centralised filter as $N$ grows ($+0.007$, $+0.013$, $N=10\to30$); one-hop's growth not detected. **Exploratory** ([[D118]]): the same holds for ATC against centralised SGD, one-hop's growth is bounded below 0.005 ($p\le0.024$), and its lead over local adapt widens. Not the mixing-gap drift. AdamW arms being added, the pass's first experiment ([[D119]]); full sharing at $N=20,30$ awaits memory ([[D117]]) |
+| P5.7 | Heterogeneous drift (X8 analogue) — one of the two rows where per-agent beliefs could **beat** the centralised filter | ~8 h | ✅ done — **refuted**: diffusion does not close its gap (all four changes null). Heterogeneity costs every shared model ~0.009, entirely as misfit, and the ordering is unchanged; diffusion agents never leave consensus, so they cannot personalise ([[D115]]) |
+| P5.11, P5.14 | Calibration, and whether `lem:conservative` is conservative in practice: new evaluation metrics, then a re-run of X20's ER cells | 1–2 days code, ~6 h | ✅ done 2026-10-10 ([[D120]]). **MNIST**: Q1 refuted (the belief scores worse than the plug-in for every filter); Q2, Q3 undecidable ($\kappa^\star$ at 0); figure 47. **Mackey–Glass**: covariance-free Q1 shows the bound **tight** in all 12 rows (shrink 0.985–0.995, TOST $p_\text{holm}<0.001$; independence would be ≈0.26); Q2, Q3 undecidable; HPHᵀ ~3000× too wide as a predictive; figure MG26. With D132 and D134: the agents' errors coincide, so sharing P adds nothing |
+| P5.12 | $E_{\text{agree}}$, $E_{\text{cent}}$ over time. **Not** analysis only: $E_{\text{cent}}$ was measured against centralised SGD for every learner, so `e_cent_filter` was added ([[D134]]) | ~8 h | ✅ done 2026-10-09 ([[D134]], figure 54): gate 0.0e+00. **Q1 confirmed**: agents agree to ~10⁻³ of ‖θ_C‖² while their consensus sits 0.4–1.0 ‖θ_C‖² from the centralised filter's weights; **Q2 refuted, opposite established**: one-hop's offset is ~2× local adapt's, yet one-hop is the more accurate; Q3 not detected. Weight distance does not track accuracy; the paper's convergence claim is functional |
 | P5.24 | Mis-tuned arm: the number is in hand (+0.0161, $t=6.3$); carry it in the figures | — | open |
 | figures | Diff-EKF folder builder with a computed `SUMMARY.md` | — | open |
+| AdamW | Add AdamW arms to the main MNIST cells, **horizontally** — see below | ~20–30 h (est.) | **N>10 done** 2026-09-28: the merge gate reproduces to 0.0e+00; one-hop beats ATC AdamW at every N in both conditions (**established**, $p_\text{holm}\le0.022$); ATC AdamW's own scaling not resolved at five seeds ([[D119]]). **Backfill done** 2026-09-29: gates to 0.0e+00; one-hop beats ATC AdamW in nine of twelve conditions (**established**), and under label skew only the receiver point does (exploratory) ([[D127]]); figures 37–39 and 46. The later runs carry AdamW from the start |
 
-About 63 GPU-hours. At one sweep launched a day, with scripts, pre-flights and
-write-ups done while the previous sweep runs: **about ten days, to roughly 27
-September.**
+About 63 GPU-hours, plus the AdamW pass. At one sweep launched a day, with
+scripts, pre-flights and write-ups done while the previous sweep runs: **about ten
+days, to roughly 27 September.**
+
+**The AdamW pass** (added 2026-09-25). Mackey--Glass added AdamW as a baseline
+family (decision 19) and it is the *strongest* gradient baseline there — centralised
+AdamW 0.1628 against centralised SGD's 0.1750 (D106). MNIST has no AdamW arm at all,
+so the two tasks are compared against different baseline sets, which is the first
+thing a reviewer will notice. It is a **config change, not a port**: the image
+branch already validates `optimizer: "adamw"` (`OPTIMIZERS` in `utils/config.py`)
+and `optim_state.py` knows the kind.
+
+Three constraints, in the order they bite:
+
+1. **Its own rate grid.** The existing sweeps use $[0.2, 0.05, 0.01, 0.005, 0.001]$,
+   which is SGD-shaped; AdamW wants roughly $10^{-4}$ to $10^{-2}$. So each
+   experiment needs a second `--lr` grid, not an extra row in the current one.
+2. **Moments must be mixed.** `optimizer != "sgd"` with
+   `mix_optimizer_state: "none"` raises — unmixed adaptive state diverges across
+   agents. That puts a diffusion AdamW arm at $3p$ per link against momentum ATC's
+   $2p$, which Track C's bandwidth column has to carry.
+3. **Do it horizontally, one experiment at a time**, merging each run's `json` and
+   `parquet` into the existing outputs so the figures redraw over the union. Adding
+   AdamW to one experiment first would leave the baseline set differing *between*
+   experiments — a new asymmetry in place of the one the pass removes. P5.7 and
+   N>10 ship without AdamW for exactly this reason and join the pass with the others.
+   N>10 needs its AdamW grid swept per $(N,\text{condition})$, as its SGD baselines were.
+
+⚠ **Gate the merge.** A rerun must differ from the recorded cells in the learner
+list and nothing else. Include one *existing* SGD arm in each AdamW run as a
+reproduction check: if it does not reproduce its recorded numbers, something is
+learner-dependent and the outputs are not poolable. Seeds derive by keyed hash of
+stream name (D8) precisely so this holds, but D102 is the standing reminder that a
+model-level setting can split cells and destroy seed-pairing silently.
 
 **Tier 2 — cheap and informative** (~12 GPU-hours, about three days):
 P5.4 sparse labels $n\times\pi_{\text{lab}}$ (X4 analogue — an unlabelled agent
@@ -54,12 +87,27 @@ still combines, untested for a filter); P5.5 break rate (X9/X16 analogue — the
 only place the filter's advantage is a *rate*: the centralised filter survives to
 0.064°/step against 0.038–0.044 for gradient methods).
 
+**P5.4 done** 2026-10-02 (27.5 h): the gap to the centralised filter widens as labels
+thin (three of six established), one-hop's lead over local adapt holds at $n$ = 1 and 4 and
+fails at 2, local adapt − ATC not detected ([[D122]]); figures 52–53. **P5.4 runner ready** 2026-09-27 (`scripts/run_label_sparsity.py`, [[D122]]):
+$n\in\{1,2,4\}\times\pi_{\text{lab}}\in\{0.25,0.5,1\}$ at $T=750$, AdamW included,
+three questions named in advance; ~12–14 GPU-h plus tuning — more than this tier's
+original estimate, because every diffusion variant and the AdamW cell now run in each
+of nine cells. **P5.5 runner ready** too (`scripts/run_break_rate.py`, [[D123]]): the
+ramp and its stationary twin on ER 0.3, baselines tuned on the ramp, damage at 0.10
+°/step as the named reading; ~8–10 GPU-h. The filter's 0.0639 °/step target was
+reproduced from X16 before it was built on. **P5.5 done** 2026-09-30 (8.1 h): one-hop
+takes less damage than ATC (−0.020) and ATC AdamW (−0.040), and no detectably more than
+the centralised filter (−0.004, predicted positive); local adapt more than the
+centralised filter (+0.009) ([[D123]]); figure 49. Adam's extra damage is ~40% the
+optimiser's and ~60% a diffusion cost SGD does not pay; its mechanism is C5.
+
 **Tier 3 — decided 2026-09-15:**
 
 | item | analogue of | what it asks | GPU | decision |
 |---|---|---|---|---|
-| P5.8 | X10 | Prior drift / label shift instead of covariate shift — the other row where per-agent beliefs could win | ~8 h | **kept** |
-| P5.23 | — | One `piecewise` cell placing a shift mid-transient, as an adversarial probe | ~3 h | **kept** |
+| P5.8 | X10 | Prior drift / label shift instead of covariate shift — the other row where per-agent beliefs could win | ~8 h | **Done** 2026-10-01 (3.8 h): diffusion does not close its gap to the centralised filter (as predicted); cooperation pays +0.063–0.066 more under shift, and just as much for ATC ([[D124]]); figures 50–51 |
+| P5.23 | — | One `piecewise` cell placing a shift mid-transient, as an adversarial probe | ~3 h | **Done** 2026-09-30 (7.2 h): the mid placement costs all three filters more ($p_\text{holm}\le0.001$, on a floor corrected for late's unfinished recovery), nothing diverges, one-hop pays least ([[D125]]); figure 48 |
 | P5.6 | X11 | Repeated abrupt shifts on a $J\times t'$ grid. X11 found longer intervals leave *bigger* wounds (0.209 at $J=30$, $t'=200$) | ~3 days | deferred |
 | P5.9 | X14 | The generalisation grid: 21 conditions ($t'\in\{2,\dots,200\}\times J\in\{5,15,20,30\}$, three linear rates, a low-sample block). X14 found the centralised filter less damaged than ATC in 21 of 21 | ~4 days | deferred |
 | P5.10 | X7, X12, X18 | The remaining shapes: sinusoidal (the only schedule that revisits states, so the only one where forgetting is well-posed), linear at several rates, sawtooth | ~10 h | deferred |
@@ -74,6 +122,10 @@ about 86 GPU-hours, **finishing about 3 October**, or about 7 October if a sweep
 has to be re-run.
 
 ## Track B — Mackey–Glass regression (P5.25)
+
+**Planned in full in `docs/mackey_glass_plan.md`** (D95): 25 decisions, eight work
+packages, the M-series battery M0–M14 at about 90 GPU-hours. The table below is the
+original sketch and is kept for the record.
 
 Configuration as settled in the design doc (v3): one realisation per agent of the
 same law, blockwise causal many-to-many on non-overlapping blocks, $L=32$,
@@ -97,6 +149,79 @@ $p=2273$, Gaussian observations at a chosen $\sigma$, drift in $\beta_t$.
 Carried over without re-running: $\alpha$ (X22), rejected monotonically on both
 adapt scopes. **About four to five weeks**: one and a half to two of build, the
 rest runs. B0 can extend it if the task proves too easy.
+
+**The many-to-one comparison** (added 2026-09-25). A reviewer will ask why the task
+predicts at every causal position instead of reading 31 samples and predicting the
+32nd. First raised in the 2026-09-23 review of `diff_ekf_summary.pdf` (point 2) and
+never recorded until now. The comparison has to answer two separate questions, and
+they need different arms:
+
+| item | what | answers | cost | status |
+|---|---|---|---|---|
+| M2O-a | Score the **last position alone** ($\hat x_L$, full 31-sample context) of a many-to-many run | "is the headline inflated by the short-context positions?" | one metric (`rmse_last`) + a run that records it | **done** with M2O-b ([[D126]]) |
+| M2O-b | **Supervision-matched** many-to-one: windows strided by **1**, only the last position scored, so each step still consumes 31 fresh targets | "why not many-to-one?" — the honest version | build 1–2 days (est.); GPU sized at pre-flight | **Done** 2026-10-03 with M2O-a and M2O-c (mg, `run_m2o_readout.py`, [[D126]]): M2O-b − m2m's last position not detected (the comparator scores 1/31 of the targets; underpowered); against m2m's 16+ positions many-to-one is ~6% better for the filters and 15–20% for the gradient methods, so the filter's lead shrinks (~0.025 → 0.013 against ATC AdamW) but holds. The SGD extension exposed a NaN-skipping bug in `settled()`, fixed; figure MG22 |
+| M2O-c | **Sample-matched** many-to-one: windows strided by $L$, one target per block | the rank-1 starvation that motivated the design | small, on M2O-b's plumbing | **done** with M2O-b ([[D126]]) |
+
+⚠ **M2O-a is not free from existing results.** The series runs record `rmse` (every
+position) and `rmse_full_context` (positions $\ge16$, a whole delay of context), not
+the last position alone. `rmse_full_context` already answers the question in its
+weaker form and should be quoted meanwhile. The proper answer needs `rmse_last` added
+and a run that records it: the cheapest is a fresh many-to-many reference cell run
+**alongside M2O-b**, at the same seeds, which M2O-b needs as its comparator anyway.
+
+**M2O-b is the experiment for reviewers; M2O-c is not.** Striding by $L$ with one
+target per block cuts supervision from 31 to 1 and the information increment to rank
+one per block, so its loss is foregone and a reviewer would call it a strawman. Keep it
+only as a labelled illustration. Striding by 1 is the fair competitor, for three
+reasons:
+
+1. **No temporal data incest.** Every sample is still a target exactly once. The
+   incest the non-overlap rule guards against (`phase5_plan.md`, P5.25) arises only
+   when *every* position of an overlapping window is scored.
+2. **The same information per step.** 31 targets, rank at most 31, and the same
+   Woodbury width $m=31$.
+3. **It may be more accurate.** Every target is predicted from a full 31-sample
+   context, where many-to-many's position $i$ sees only $i$ samples.
+
+The design also removes the confound flagged on 2026-09-23. All of M2O-b's targets
+sit at one position, so the filter's per-position $\boldsymbol R$ profile (which
+spans 3.69×) has nothing to exploit, and neither design carries a filter-specific
+advantage the other lacks.
+
+**What decides it is compute, and the resource note prices it.** With
+`Diff_EKF_Resource_Complexity.pdf` §4.6 (the Diff-EKF folder), stride 1 costs the
+filter $31(2C_F+C_B)\approx124\,C_F$ against $2C_F+31\,C_B\approx64\,C_F$ in $C_J$
+(about 2×), **nothing extra in $C_W$**, and the gradient baselines about 31× in
+forward and backward passes. So if M2O-b matches or beats many-to-many on accuracy,
+the paper's case for many-to-many is its cost: decisive for the baselines, modest
+for the filter. That is still a defensible argument, but it must be found out here
+rather than from a reviewer.
+
+**Order.** Stationary first, at the main law. Add an abrupt-$\beta$ cell only if the
+stationary comparison separates the designs.
+
+**M12b — the coupling contrast on the abrupt schedule** (added 2026-09-26). M12's
+three `independent` cells ran abrupt (a linear ramp cannot express independence), so
+nothing could be subtracted from them, and their only instrument, the additivity
+residual, was withdrawn for both bias pairs because it subtracts D108's withdrawn
+D(bias, abrupt) ([[D109]]). M12b adds `correlated` and `anti` for the three pairs on the
+same `recurring` schedule — six cells, each its pair's `independent` config with only
+the coupling overridden — so **independent − correlated** and **anti − correlated
+(abrupt)** become cell-minus-cell contrasts with no twin and no withdrawn term. The
+primary channel's jumps come from their own seed sub-stream under every coupling, and
+the report checks that path is identical per seed rather than assuming it.
+
+| item | cells | GPU | status |
+|---|---|---|---|
+| M12b | 3 pairs × {correlated, anti}, abrupt, 5 seeds | ~9 h (6/9 of M12's 13.75 h) | five seeds done 2026-09-27: gate passed; β+gain anti − correlated and independent − correlated negative for all six learners, as predicted, but **not detected at five seeds** (smallest $p_\text{holm}$ 0.123, 0.49); β+bias unexpectedly negative too, exploratory ([[D121]]) |
+| M12b top-up | seeds 5–9 for all nine cells the contrasts read, M12's independent cells included; the one extension, read at $\alpha=0.025$ ([[D121]]) | ~13.75 h | ✅ done 2026-09-28: gate holds on ten seeds; **nothing established** at $\alpha=0.025$. Local adapt, anti − correlated, misses by $10^{-4}$ ($p_\text{holm}=0.02510$), and the rule allows no further seeds. Suggestive: all twelve β+gain rows negative, ordering as predicted ([[D121]]) |
+
+⚠ Abrupt has returned nulls five times at five seeds. These contrasts avoid the reason
+(each seed's twin wandering on its own excursion), so they should resolve better — a
+prediction, not a guarantee. Implementation touches the series data
+layer (a window stride), the model output (the last position only, i.e. the
+selection $\boldsymbol C_{u,t}=\boldsymbol e_q^{\mathsf T}$ of the Diff-EKF note), and
+$\boldsymbol R$ (one variance, the last position's).
 
 ## Track C — reduce communication
 
@@ -153,13 +278,174 @@ cumulative bits.
 
 | step | what | cost |
 |---|---|---|
-| C0 | Design note: CHOCO, ACTC; compressor interface; bits ledger; the full-sharing option | 2 days |
-| C1 | Bits ledger; $\boldsymbol\psi$ in float32/float16 | 1 day |
+| C0 | Design note: CHOCO, ACTC; compressor interface; bits ledger; the full-sharing option — **drafted 2026-09-27** (`communication_plan.md`), nine decisions open for the user | 2 days |
+| C1 | Bits ledger; $\boldsymbol\psi$ in float32/float16 — **built** 2026-09-27 on main ([[D135]]): the channel inside every learner's mix, four compressors, `cum_bits_tx` priced by kind | 1 day |
 | C2 | Public copies and difference transmission with a pluggable $Q$, error feedback; also for ATC | 4–5 days |
 | C3 | Event trigger and periodic-$K$ baseline | 2 days |
 | C4 | Error against bits on MNIST (IID and severe skew), then on Mackey–Glass | ~3 days GPU |
+| C2a | **The differences themselves**, before the codec is trained (added 2026-10-03): re-run the extended delta probe (`run_delta_entropy_probe.py`, both tasks, ~50 min GPU) for trend curves and histograms of the per-step change per layer, its persistence (successive-change cosine) and, for the filters, its scale against $\sqrt{P_{ii}}$. **Done** (queue 4, 2026-10-08), analysed 2026-10-16 ([[D136]]): no filter-specific gain. At a matched step the filters' $\boldsymbol\psi$ costs the most bits (MNIST 3.8–4.3 against 1.7–3.2 at $\varepsilon=10^{-2}$), but per message they undercut the baselines that mix their moments; no burst after a jump (1.00–1.05); the $\sqrt{P}$ rule saves ≤ 0.06 bits. MNIST has no AdamW (its source cells predate it; not pursued) | ~1 h GPU |
+| C2b | **The offline codec**, built to [[D137]] and [[D138]]: module-level $\Delta_\ell=c\,s_\ell$, RLE + canonical Huffman with EOB and Elias-gamma ESC, the exact combine on public copies, re-tuning at every $c$ on seeds 100–104 | **built and smoked** 2026-10-03 (`codec.py`, `CodecChannel`, `scripts/run_codec.py`; [[D138]]); MNIST ~48 GPU-h (calibrate ~27, validate ~7, report ~14), then the mg port. **MNIST done** (queue 4), analysed 2026-10-16, reported as is: D-BOLT at $\mathcal C^\star=0.01$, the grid's coarsest; local adapt 4.28 bits/param, one-hop 5.27 + 2.2 for its raw batch = 7.4, cost within ±0.0002 of the uncompressed twin, carried to linear, abrupt and skew 0.1 with no escapes. **MG done** (queue 4), analysed 2026-10-16: D-BOLT at $\mathcal C^\star=0.01$, local adapt 1.50 bits/param (cost +0.0013 RMSE, inside ε), one-hop 1.58 + 0.90 raw = 2.5; at $c=0.003$ 3.2 bits and no cost; every baseline needs $c=0.001$ |
+| C2c | **A coarser grid for D-BOLT** (added 2026-10-16): C2b put both filters at $c=0.01$, the grid's coarsest, at a cost of ~0.0001, so the frontier stops before D-BOLT's does. $c\in\{0.03, 0.1, 0.3\}$ for local adapt and one-hop only: calibrate → validate → report, and transfer at the new $\mathcal C^\star$. Needs a filters-only, custom-grid option in `run_codec.py`, smoked on CPU first | ~12–16 GPU-h per task (estimate); **after queue 6** |
+| C5 | **Why Adam tracks drift worse than SGD** (added 2026-10-02, [[D123]]): log each agent's step norm, its $\sqrt{\boldsymbol v}$, and the step's projection on the pooled gradient, for centralised, ATC and local Adam and SGD under P5.5's ramp. Tests (a) the per-agent normaliser inflated by 4-sample noise before the combine, and (b) Adam's step not scaling with its error | ~1 day code, ~8 GPU-h |
 
-About **two and a half to three weeks.**
+About **two and a half to three weeks**, plus C5.
+
+---
+
+## Track D — before the writing (added 2026-10-06, [[D139]])
+
+The supervisor asked that writing start alongside the experiments, with four
+extensions added first. All are options on the existing learners and modes of the
+existing runners, not new modules. Built in this order:
+
+| | work | cost |
+|---|---|---|
+| D1 | **$K$ inner steps and the iterated EKF**: $K\in\{2,5,8\}$ against $K=1$ (decided 2026-10-07), LR re-tuned per $K$, every method; MNIST stationary / skew 0.1 / abrupt, MG stationary / linear $\beta$ / $\tau$ spread; five seeds. $K=1$ reused where it exists exactly (P5.4's stationary cell, M6's stationary and linear), run only for MNIST skew and abrupt and MG's $\tau$ spread. `scripts/run_inner_steps.py` on each branch | **built and smoked** 2026-10-06/07 ([[D139]]); ~75 GPU-h MNIST, ~120 MG (from CPU cost ratios, ±50%) |
+| D1b | **$K=10$** (added 2026-10-07, the user: "we'll look into K=10 again later"): the fourth point of D1's curve, decided once $K\in\{2,5,8\}$ is read. Adding `10` to `KS` in both runners is the whole change; every other cell is cached | ~+80 GPU-h if run on both tasks |
+| D2 | **Subtractive dither** in the codec, judged on the frontier against queue 4's deterministic one: every mixed kind dithered, frontier only (calibrate, validate, stationary report frontier), reusing the plain arm's uncompressed point, scales and twins. `scripts/run_codec.py --dither` | **built and smoked** 2026-10-07 ([[D139]]); ~30 GPU-h per task, after queue 4 |
+| D2b | Dither's C* carried to drift and skew / the $\tau$ spread, **only if dither wins** the frontier | as queue 4's report transfer, if run |
+| D3 | **Block-diagonal covariance** (per-neuron main; per-layer and full ablations) **together with a coupled-MG GNN** larger than the MLP and the Transformer: two layers, truncated Jacobian with an exact depth-2 ablation, forward messages counted apart from the codec | build ~1–2 weeks; coupling smoke first |
+| D3a | **The block covariance** (`covariance_blocks`) and its ablation against the full one: neuron and layer blocks, every filter, MNIST stationary + abrupt and MG stationary + linear, full reused. `scripts/run_covariance_blocks.py` on each branch | **built and smoked** 2026-10-07 ([[D139]]); ~3 GPU-h MNIST, ~6 MG |
+| D3b | The coupled Mackey–Glass network: a joint integrator (mixed delayed input over the communication graph, M8's delays), and a smoke choosing the coupling | **done** 2026-10-07: $\kappa=0.6$ ([[D139]]) |
+| D3c | The GNN ($p=20\,001$, FP32) on the coupled network, its forward-pass ledger, the truncated and exact arms, and its FP64 twin's ablations. `scripts/run_gnn.py` (mg): `--reference`, `--tune-filters`, `--lr`, cells; `--twin` likewise | **built and smoked** 2026-10-09 ([[D139]]); ~60–70 GPU-h with the twin (±50%) |
+
+---
+
+## After A and B — one codebase
+
+Decided 2026-09-19, and **gated: this starts only once both MNIST and
+Mackey–Glass are finished**, not before. The two tracks grew on separate
+branches and the point is to end with one codebase rather than two that share a
+name.
+
+**Re-gated 2026-10-19: the merge starts after queues 5 and 6 have both ended**,
+not alongside them (the user: no rush). It could have been done in a third
+worktree without touching the live ones, but the queues run from both worktrees,
+each step starts a fresh process that imports the code as it is on disk, and the
+shared venv's editable install points at `main`'s `src`. A merge there mid-queue
+would change the code under D1 MG, D2, D3a and the GNN, and their results would
+no longer belong to the commit they are recorded against. So the merge waits,
+and the queue analyses that land on either branch meanwhile come across with it.
+
+The git half is no longer free. A trial merge on 2026-10-19 (`git merge-tree`,
+nothing written): `main` 106 commits past the merge base (`f379326`), `mg-task`
+56, and 13 files that do not merge on their own:
+
+- **docs** (6): `.gitignore`, `configs.md`, `experiments.md`, `figures.md`,
+  `filter.md`, `schedule.md` — mostly sections each branch added in the same
+  place (`figures.md` has two `## 15.`: MG1–MG8 against the diffusion figures
+  36–39);
+- **created on both** (3): `scripts/run_covariance_blocks.py`,
+  `scripts/run_inner_steps.py` and `evaluation/belief.py`;
+- **core code** (4): `learners/ekf.py`, `learners/sgd.py`, `runner/simulate.py`
+  and `utils/config.py`. Any conflict there that is really a choice between two
+  algorithms goes to the user with numbers before it is resolved.
+
+The check: both test suites (1 517 on `main`, 1 667 on `mg-task`) and the
+exactness tests on CPU in the merged tree, then a few recorded cells per branch
+rerun on the GPU, which must reproduce to 0.0e+00.
+
+The real work is the redundancy afterwards. Candidates, best first:
+
+1. **The model wrappers.** `mlp.py`, `linear_ar.py` and `transformer.py` each
+   repeat the same nine delegations to `models/functional.py` — `names`,
+   `shapes`, `flatten`, `unflatten`, `param_groups`, `vjp`, `jvp`, `jacobian`,
+   `per_sample_jacobian` — with identical bodies. They belong in `models/base.py`
+   once, leaving each class only its `_build_module`, `init_params` and
+   `summary`.
+2. **Classification against regression.** `metrics/classification.py` beside
+   `metrics/regression.py`, and `evaluation/evalsets.py` and `reference.py`
+   beside their `series_` counterparts. Measure how much of each series pair is
+   genuinely series-specific before merging them — the split may be load-bearing.
+3. **The four registries** (`data`, `models`, `learners`, `likelihoods`) share a
+   shape. Whether that is worth abstracting is a judgement call, not an obvious
+   win, and it is listed last for that reason.
+
+Two constraints. The D104 device contract — `init_params` is CPU-only, modules
+carry their own buffers — arrived on `mg-task` but touches `mlp.py`, so it lands
+on the MNIST path too; `tests/test_model_device.py` guards it and must come
+across with it. And the figure builders stay untracked: the merge must not add
+any `scripts/make_*.py` or `scripts/plot_*.py` to the public repo.
+
+---
+
+## The reproduction package
+
+Added 2026-09-26. **The goal: a reviewer or an external user recreates the paper's
+work from a fresh clone, end to end** — checks the environment, runs the tests,
+calibrates (every reference, every `--lr` pass, every selection a main pass reads),
+runs every experiment, and regenerates every reported number and every paper figure.
+
+**What it is.** One entry document, `REPRODUCE.md` at the repository root, and one
+driver, `scripts/reproduce.py`, that walks a dependency graph of stages. Each stage
+states its command, what it reads, what it writes, its GPU-hours as measured on the
+RTX 4070 laptop, and the numbers it must reproduce.
+
+1. **Environment** — `check_environment.py`, the pinned `requirements.txt`, and the
+   Python/torch/CUDA/driver versions recorded; `check_data.py` caches MNIST;
+   Mackey–Glass is generated from its seed.
+2. **Tests** — the full suite.
+3. **Smoke** — every runner's `--smoke` on CPU, minutes each: every code path proven
+   before any GPU time is spent.
+4. **Calibration** — the offline references (`train_reference.py`,
+   `run_m2_references.py`), then every `--lr` pass and every filter selection (the
+   X-series re-tunes, M3–M5) in dependency order. Main passes already refuse to run
+   without their calibration (D77); the driver follows the same order rather than
+   relying on the refusal.
+5. **Experiments** — every claim the paper makes, traced to its runner and cells,
+   and to its D118 tier.
+6. **Reports** — each runner's `--report-only`, compared with committed expected
+   values (`reproduce/expected/*.json`) within a stated tolerance.
+7. **Figures** — the paper's figures only.
+
+**Three tiers**, because nobody should have to spend the full budget to check one
+table: **smoke** (CPU, about an hour: stages 1–3); **one claim** (the driver resolves
+only that claim's dependencies — N>10, for instance, is its `--lr` pass plus
+~7 GPU-hours); and **full**, with its total GPU-hours stated up front, summed from the
+recorded runs.
+
+**Decisions it forces**, flagged now and settled when the package is built:
+
+1. **Public figure builders.** The paper's figures need builders a reviewer can run;
+   the user agreed on 2026-09-26 that plotting code may be pushed for this. Proposed:
+   a new public `scripts/figures/` holding only the paper's figures, rebuilt from the
+   private builders without OneDrive paths, `--publish` or slide code. The deck and
+   document builders (`make_*_presentation.py`, `make_*_docx.py`) stay private, and
+   the `/scripts/plot_*.py` and `/scripts/make_*.py` ignore rules stay as they are,
+   so nothing private leaks through them. The one-codebase merge check above must then
+   allow `scripts/figures/`.
+2. **What "exactly" means.** `set_determinism` enables deterministic algorithms and
+   fixes the cuBLAS workspace, and on the same hardware and software a re-run is
+   bitwise identical (X25+ reproduced X27 to 0.0e+00, D101). Across GPU models and
+   library versions it is not. The package therefore states a tolerance per reported
+   number, checks each claim through its statistics (sign, interval, $p_\text{holm}$)
+   rather than its last digits, and records hardware and versions in every
+   expected-values file.
+3. **One tree.** The package is built after the mg-task merge above; it cannot span
+   two branches.
+4. **Anonymity.** Review is double-blind, and the public GitHub URL and commit
+   history both carry the author. Reviewers get an anonymised snapshot without
+   history (an anonymous-repository service, or an archive in the supplementary); the
+   public repository is linked at camera-ready. History itself stays untouched.
+5. **Scope.** Only what the paper cites. Withdrawn results stay recorded in the
+   design notes, which remain the provenance record, but get no stage in the driver.
+
+**When.** Code attached to a submission *is* visible to reviewers — ICML takes
+supplementary material with the paper or shortly after it (check the 2027 call for
+the date) — so the package comes in two stages rather than after review:
+
+- **Stage 1, by the supplementary deadline:** the anonymised snapshot,
+  `REPRODUCE.md`, and the driver with the smoke and one-claim tiers, plus the command
+  for every stage. Stages 1–3 of the driver depend on no result and can be written
+  any time; the claim map needs the final claim list, so it is built alongside
+  writing once experiments freeze.
+- **Stage 2, before the rebuttal and camera-ready:** a fresh-clone, fresh-environment
+  dry run of every stage — smoke for all, a full re-run of at least one claim per
+  track — with the expected-values files checked and the public builders reproducing
+  every paper figure.
+
+Cost: stage 1 is about a week of work and little GPU; stage 2's cost is the
+verification re-runs.
 
 ---
 
@@ -170,11 +456,14 @@ About **two and a half to three weeks.**
 | **Sep 15–27** | A, tier 1 |
 | **Sep 28–Oct 3** | A, tier 2, then P5.8 and P5.23 — **MNIST done** |
 | **Oct 4–Nov 7** | B: pilot, build, battery |
-| mid-Oct | **writing starts, from the theory** — experiments continue |
+| **week of Oct 5** | **writing starts** (moved forward from mid-Oct, 2026-10-03), from the theory and the settled MNIST results; the analysis of queues 3 and 4 interleaves with it |
+| **after queue 6 ends** | the `mg-task` merge (one codebase, above): the 13 conflicts, CPU tests, then the GPU reproduction check; gated on queues 5 and 6 both ending (2026-10-19) |
 | **Nov 8–Nov 28** | C |
-| **Nov 29–Dec 27** | buffer: seed top-ups, gaps the draft exposes, supervisor's requests, then deferred tier-3 items |
+| **Nov 29–Dec 27** | buffer: seed top-ups, gaps the draft exposes, supervisor's requests, then deferred tier-3 items, then M10's abrupt condition (`run_m10_network_size.py --abrupt`, ~17 GPU-h; [[D129]]), then — last, if time allows — compressing full sharing's covariance (C-8; a separate design: $\boldsymbol P$ is $p\times p$; [[D138]]) |
 | **Dec 27** | experiment freeze |
-| **Jan 22, 2027** | ICML deadline |
+| **Dec 28–Jan 22** | alongside writing: reproduction package stage 1 — claim map, driver tiers, anonymised snapshot |
+| **Jan 22, 2027** | ICML deadline; supplementary deadline per the call |
+| **after submission** | reproduction package stage 2: fresh-clone dry run, verification re-runs |
 
 **C goes last** — decided 2026-09-15, to push on the regression task first. The
 alternative considered was C's MNIST half right after A, which would have moved B
