@@ -318,11 +318,32 @@ Mackey–Glass are finished**, not before. The two tracks grew on separate
 branches and the point is to end with one codebase rather than two that share a
 name.
 
-The git half is nearly free. Since the merge base (`f379326`) the only file both
-branches have touched is `docs/figures.md`, where each added a `## 15.` — MG1–MG8
-on `mg-task`, the diffusion figures 36–39 on `x15-state-model-settled`. Those two
-sections have to be interleaved by hand. Nothing else conflicts: the MG work
-added modules and edited shared ones the MNIST branch has left alone.
+**Re-gated 2026-10-19: the merge starts after queues 5 and 6 have both ended**,
+not alongside them (the user: no rush). It could have been done in a third
+worktree without touching the live ones, but the queues run from both worktrees,
+each step starts a fresh process that imports the code as it is on disk, and the
+shared venv's editable install points at `main`'s `src`. A merge there mid-queue
+would change the code under D1 MG, D2, D3a and the GNN, and their results would
+no longer belong to the commit they are recorded against. So the merge waits,
+and the queue analyses that land on either branch meanwhile come across with it.
+
+The git half is no longer free. A trial merge on 2026-10-19 (`git merge-tree`,
+nothing written): `main` 106 commits past the merge base (`f379326`), `mg-task`
+56, and 13 files that do not merge on their own:
+
+- **docs** (6): `.gitignore`, `configs.md`, `experiments.md`, `figures.md`,
+  `filter.md`, `schedule.md` — mostly sections each branch added in the same
+  place (`figures.md` has two `## 15.`: MG1–MG8 against the diffusion figures
+  36–39);
+- **created on both** (3): `scripts/run_covariance_blocks.py`,
+  `scripts/run_inner_steps.py` and `evaluation/belief.py`;
+- **core code** (4): `learners/ekf.py`, `learners/sgd.py`, `runner/simulate.py`
+  and `utils/config.py`. Any conflict there that is really a choice between two
+  algorithms goes to the user with numbers before it is resolved.
+
+The check: both test suites (1 517 on `main`, 1 667 on `mg-task`) and the
+exactness tests on CPU in the merged tree, then a few recorded cells per branch
+rerun on the GPU, which must reproduce to 0.0e+00.
 
 The real work is the redundancy afterwards. Candidates, best first:
 
@@ -436,6 +457,7 @@ verification re-runs.
 | **Sep 28–Oct 3** | A, tier 2, then P5.8 and P5.23 — **MNIST done** |
 | **Oct 4–Nov 7** | B: pilot, build, battery |
 | **week of Oct 5** | **writing starts** (moved forward from mid-Oct, 2026-10-03), from the theory and the settled MNIST results; the analysis of queues 3 and 4 interleaves with it |
+| **after queue 6 ends** | the `mg-task` merge (one codebase, above): the 13 conflicts, CPU tests, then the GPU reproduction check; gated on queues 5 and 6 both ending (2026-10-19) |
 | **Nov 8–Nov 28** | C |
 | **Nov 29–Dec 27** | buffer: seed top-ups, gaps the draft exposes, supervisor's requests, then deferred tier-3 items, then M10's abrupt condition (`run_m10_network_size.py --abrupt`, ~17 GPU-h; [[D129]]), then — last, if time allows — compressing full sharing's covariance (C-8; a separate design: $\boldsymbol P$ is $p\times p$; [[D138]]) |
 | **Dec 27** | experiment freeze |
