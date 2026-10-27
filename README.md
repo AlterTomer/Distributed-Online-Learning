@@ -126,11 +126,11 @@ published cell. On the same hardware and software a re-run is bitwise identical
 (X25+ reproduced X27 to 0.0e+00, D101); across GPU models and library versions it
 is not.
 
-⚠ **CI is CPU-only and is not a reproduction.** GitHub Actions has no GPU, so CI
-installs the CPU build from a different index than the development machine uses.
-It checks that the code *runs* and that its identities hold; it does not exercise
-the path every published number came from. A green CI is not evidence that the
-CUDA path still reproduces a result — re-run the cell for that.
+⚠ **There is no CI, and a green suite is not a reproduction.** The repository has no
+workflow (design note Q4 is still open), so the tests run only when someone runs them.
+A CPU run of the suite checks that the code *runs* and that its identities hold; it
+does not exercise the CUDA path every published number came from. A green suite is
+not evidence that a result still reproduces — re-run the cell for that.
 
 ⚠ **The stated floor of Python 3.11 is not enforced anywhere.** mypy is pinned to
 3.13 locally because `scipy-stubs` fails to parse under 3.11, so nothing checks

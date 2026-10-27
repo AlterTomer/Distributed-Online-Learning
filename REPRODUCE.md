@@ -586,8 +586,10 @@ identities the results rest on:
 - the diffusion filter's complete-graph identity holds;
 - the codec's encoder reproduces its counted bits exactly.
 
-CI runs the suite on a CPU. A green CI shows that the code runs and its identities
-hold, not that a published cell reproduces on CUDA.
+There is no CI: the repository has no workflow, and the suite runs only when someone
+runs it (design note Q4 is still open). Wherever it runs, a green suite shows that the
+code runs and its identities hold on that machine, not that a published cell
+reproduces on CUDA.
 
 ## 17. Stage 3 — smoke
 

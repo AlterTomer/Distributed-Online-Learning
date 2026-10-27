@@ -473,6 +473,9 @@ This catches weight normalization, initialization mismatch, batch partition, and
 
 **CI.** Run the fast suite plus `ruff` and `black --check` on every push. The exactness test runs on every push too — it is worth the seconds.
 
+⚠ **Not built.** The repository has no workflow; the suite runs only when someone runs
+it. What CI should install and check is design note Q4, still open.
+
 ---
 
 ## 10. Tooling and dependencies
@@ -518,7 +521,7 @@ Everything fits on a laptop CPU. Parallelize sweeps across seeds with a process 
 
 | Phase | Modules to write | Gate | Status |
 |---|---|---|---|
-| **0** | `utils/config.py`, `utils/determinism.py`, `runner/seeding.py`, `data/mnist.py`, repo scaffolding, CI | `make test` green; MNIST loads | ✅ done |
+| **0** | `utils/config.py`, `utils/determinism.py`, `runner/seeding.py`, `data/mnist.py`, repo scaffolding, CI | `make test` green; MNIST loads | ✅ done, except CI: never built (design note Q4) |
 | **1** | `env/graph.py`, `env/partition.py`, `env/drift.py`, `env/stream.py`, `env/environment.py`, `data/transforms.py`, `scripts/check_environment.py` | `test_graph`, `test_partition`, `test_stream`, `test_drift`, `test_transforms` pass; stream visualisation renders | ✅ done |
 | **2** | `models/*`, `likelihoods/*`, `metrics/*`, `evaluation/*`, `scripts/train_reference.py` | `test_models` passes; all 16 rotation-level $e^\star$ cached, each at expected MNIST accuracy for a $196$–$14$–$10$ MLP | ✅ done |
 | **3** ✅ | `learners/*`, `learners/optim_state.py`, `runner/simulate.py`, `recording/*`, `scripts/run_experiment.py`, `scripts/sweep_hyperparameters.py` | **`test_exactness` passes** (1.7e-15); `test_simulate` passes; X0, X1, X1b, X2, X5 produce F1, F2, F5, F8 |
