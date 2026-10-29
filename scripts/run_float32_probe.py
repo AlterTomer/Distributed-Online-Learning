@@ -5,6 +5,10 @@ r"""The float32 probe: can the filters run in single precision, and what would i
     python scripts/run_float32_probe.py --report-only
     python scripts/run_float32_probe.py --smoke                  # the path, on CPU, in minutes
 
+``--smoke`` is built from P5.3's smoke cells (`p53_er030_a_smoke`, `..._b_smoke`: run
+`run_diffusion_topology.py --lr --smoke`, then `--smoke`), so it runs on a fresh
+clone. It runs on the CPU unless `--device` is given explicitly.
+
 Run with the GPU otherwise idle: the lockstep's timings are the point, and a second
 process on the card makes every one of them wrong.
 
@@ -85,7 +89,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import torch  # noqa: E402
 import yaml  # noqa: E402
-from _args import sweep_parser  # noqa: E402
+from _args import smoke_device, sweep_parser  # noqa: E402
 from run_ekf_generalization import run_one  # noqa: E402
 
 from dekf_bench.evaluation import protocol  # noqa: E402
@@ -121,6 +125,11 @@ def task_of() -> str:
     return "mackey_glass" if (ROOT / "results" / SOURCES["mackey_glass"]["a"]).exists() else "mnist"
 
 
+def source_of(task: str, group: str, suffix: str = "") -> str:
+    """The source cell, or under a smoke the producer's smoke twin of it."""
+    return SOURCES[task][group] + suffix
+
+
 def source_path(cell: str) -> Path:
     return ROOT / "results" / cell / "config.yaml"
 
@@ -129,20 +138,22 @@ def is_filter(entry: dict, task: str) -> bool:
     return "ekf" in entry["name"] and entry["name"] not in DROPPED[task]
 
 
-def filter_entries(groups: list[str], task: str) -> list[dict]:
+def filter_entries(groups: list[str], task: str, suffix: str = "") -> list[dict]:
     out = []
     for group in groups:
-        recorded = yaml.safe_load(source_path(SOURCES[task][group]).read_text(encoding="utf-8"))
+        recorded = yaml.safe_load(source_path(source_of(task, group, suffix))
+                                  .read_text(encoding="utf-8"))
         out += [dict(e) for e in recorded["learners"] if is_filter(e, task)]
     return out
 
 
 def config_at(task: str, dtype: str, entries: list[dict], args, seed: int,
-              horizon: int | None = None, name: str = "f32_probe_lockstep"):
+              horizon: int | None = None, name: str = "f32_probe_lockstep", suffix: str = ""):
     run = {"name": name, "dtype": dtype, "device": args.device, "seeds": [seed]}
     if horizon:
         run["horizon"] = horizon
-    return load_config(source_path(SOURCES[task]["a"]), overrides={"run": run, "learners": entries})
+    return load_config(source_path(source_of(task, "a", suffix)),
+                       overrides={"run": run, "learners": entries})
 
 
 def splits(config):
@@ -279,12 +290,13 @@ def scores(evalsets, learner, likelihood, config, step: int, nodes: list[int],
     return {metric: sum(values) / len(values) for metric, values in totals.items()}
 
 
-def lockstep_seed(task: str, args, seed: int, smoke: bool) -> dict:
+def lockstep_seed(task: str, args, seed: int, suffix: str) -> dict:
+    smoke = bool(suffix)
     groups = ["a", "b"] if args.full_sharing else ["a"]
-    entries = filter_entries(groups, task)
+    entries = filter_entries(groups, task, suffix)
     horizon = SMOKE_HORIZON if smoke else None
-    high_config = config_at(task, "float64", entries, args, seed, horizon)
-    low_config = config_at(task, "float32", entries, args, seed, horizon)
+    high_config = config_at(task, "float64", entries, args, seed, horizon, suffix=suffix)
+    low_config = config_at(task, "float32", entries, args, seed, horizon, suffix=suffix)
     train, test = splits(high_config)
     environment, evalsets, high, likelihood, theta0 = assemble(high_config, train, test, seed)
     # One theta_0 for both: drawn once in float64, cast. The float32 build's own
@@ -359,7 +371,8 @@ def run_cells(args, task: str, suffix: str) -> None:
                "device": args.device, "seeds": CELL_SEEDS}
         if suffix:
             run.update({"horizon": SMOKE_HORIZON, "eval_every": 5, "seeds": [0]})
-        config = load_config(source_path(SOURCES[task][group]), overrides={"run": run})
+        config = load_config(source_path(source_of(task, group, suffix)),
+                             overrides={"run": run})
         train, test = splits(config)
         started = time.time()
         note = run_one(config, train, test, args.fresh)
@@ -440,18 +453,19 @@ def report(task: str, suffix: str) -> None:
         ours = cell_name(group, task, suffix)
         if not (ROOT / "results" / ours).exists():
             continue
-        recorded = yaml.safe_load(source_path(SOURCES[task][group]).read_text(encoding="utf-8"))
+        source = source_of(task, group, suffix)
+        recorded = yaml.safe_load(source_path(source).read_text(encoding="utf-8"))
         for entry in recorded["learners"]:
             name = entry["name"]
             f32 = settled_by_seed(ours, name, metric)
-            f64 = settled_by_seed(SOURCES[task][group], name, metric)
+            f64 = settled_by_seed(source, name, metric)
             if not f32:
                 continue
             print(f"    {name:<44} float32 {' '.join(f'{v:.4f}' for v in f32.values())}"
                   f"   float64 range {min(f64.values()):.4f}-{max(f64.values()):.4f}")
 
     if suffix:
-        print("\n  SMOKE: 30 rounds on CPU. The verdict below means nothing; the path is checked.")
+        print("\n  SMOKE: 30 rounds. The verdict below means nothing; the path is checked.")
     print("\n  VERDICT (criteria named in the docstring):")
     if not verdicts:
         print("    every criterion measured so far holds")
@@ -472,21 +486,25 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     suffix = "_smoke" if args.smoke else ""
     if args.smoke:
-        args.device, args.seeds = "cpu", [0]
+        args.device, args.seeds = smoke_device(args, argv), [0]
     task = task_of()
     if args.report_only:
         report(task, suffix)
         return 0
-    missing = [c for c in SOURCES[task].values() if not (ROOT / "results" / c / "_complete").exists()]
+    missing = [source_of(task, g, suffix) for g in SOURCES[task]
+               if not (ROOT / "results" / source_of(task, g, suffix) / "_complete").exists()]
     if missing:
         print(f"  REFUSED: the probe is built from {missing}, which is not finished.")
+        if suffix:
+            print("  A smoke reads P5.3's smoke cells: run run_diffusion_topology.py --lr --smoke, "
+                  "then --smoke (scripts/reproduce.py does it in order).")
         return 1
     if args.cells:
         run_cells(args, task, suffix)
     else:
         print(f"float32 probe, lockstep: {task}, seeds {args.seeds}\n", flush=True)
         result = {"task": task, "device": args.device,
-                  "seeds": {str(s): lockstep_seed(task, args, s, bool(suffix)) for s in args.seeds}}
+                  "seeds": {str(s): lockstep_seed(task, args, s, suffix) for s in args.seeds}}
         out_file(task, suffix).write_text(json.dumps(result, indent=2), encoding="utf-8")
     report(task, suffix)
     return 0

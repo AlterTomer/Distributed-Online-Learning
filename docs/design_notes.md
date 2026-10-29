@@ -4126,6 +4126,70 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D141. The reproduction driver, stages 1–3, and a smoke tier that runs on a fresh clone
+
+Decided 2026-10-27, question by question, before the driver was written
+(`scripts/reproduce.py`, `REPRODUCE.md` §14–§17). Stages 1–3 are the environment, the
+tests and every runner's `--smoke`; stages 4–7 follow the merge of the two branches.
+
+**What the probe found.** Every smoke was run once, by hand, before the driver existed.
+All of them ran on this machine, but five read real cells written by other experiments:
+the AdamW pass (X20, X25, X25+, P5.3, P5.7), P5.12 (P5.3, P5.7), the float32 probe
+(P5.3), the delta-entropy probe (P5.3, X20) and the codec (P5.3, X20, X25+). Nineteen
+source cells in all, 172 MB with their parquets. On a fresh clone none exist, so those
+five refused, and the codec crashed on a missing `TRANSFER` cell instead of refusing.
+
+| question | decided |
+|---|---|
+| the dependents' sources | **chain smoke sources, the full producer chain**: the six producers gain a `--smoke`, and under `--smoke` a dependent reads `<source>_smoke`. Declined: shipping the 19 cells' configs frozen (72 KB, but a smoke would then test a path no real run takes), and a chain of P5.3 and P5.7 only (it leaves the X20/X25 sources out) |
+| caching | **every smoke runs with `--fresh`**: runs are cached by name, so a repeated smoke would otherwise find its cells complete and test nothing |
+| on failure | **continue, then summarise**: every step runs, the summary says what passed, refused or failed, and the exit code is nonzero if anything did not pass |
+| output | **`reproduce/out/<timestamp>/`**, git-ignored: `environment.json`, `pip_freeze.txt`, a log per step, `summary.txt` |
+| device | **the CPU by default, `--device cuda` on request**, and the user: "make it clear in a way that no one will miss". A boxed banner at the start and end of every CPU run, and a bold blockquote in `REPRODUCE.md` |
+| the smoke gates | **a gate that fails is a failed step.** With the sources chained, the AdamW pass and P5.12 rebuild cells at the same horizon, cadence and seed as their smoke sources, so their merge gates compare like with like and must hold |
+| `mg-task` | **at the merge**: its smokes and their chain join the driver then; until then they read the real source cells |
+
+**What changed in the runners.**
+
+- **The producers** (X19 `--lr` only, X20, X25, X26, X25+, P5.3) take `--smoke`: horizon
+  20, one seed, a `_smoke` suffix threaded through every run and cell name, P5.7's
+  pattern. X20 writes its selection to `x20_selected_smoke.json`, so a smoke never
+  overwrites the real one. **X25+ smokes at seed 3**, its own first seed: the AdamW
+  pass pools X25 (seed 0) with X25+, and the pooled seeds must stay disjoint.
+- **The dependents** read `<source>_smoke` under `--smoke`, and a refusal for missing
+  sources names the smoke to run first. P5.12 no longer overrides horizon, cadence or
+  seeds in its smoke (it had, so its gate could not hold); its sources now set them.
+- **`_args.smoke_device`**: a smoke runs on the CPU unless `--device` is given
+  explicitly, which is what lets the driver pass `--device cuda` through.
+- **The codec refuses cleanly** when a source is missing (`TRANSFER` is checked only for
+  `--report-runs`), where it had crashed.
+
+**The test count.** `main`'s public suite is **1 505** tests (one slow). The dev machine
+shows 1 517: `tests/test_figures.py` tests the private builders and is git-ignored.
+
+**Validated 2026-10-29**, in a detached worktree with no real cells (`main` at 5d3ff47
+plus these changes), on the CPU of an i7-13620H laptop with 32 GB of RAM, while queue 5
+ran on its GPU. The run was killed once for low memory, during step 24
+(midtransient_shift), and resumed there with `--from`.
+
+| stage | steps | result | time |
+|---|---|---|---|
+| 1, the environment | 2 | passed | 0.1 min |
+| 2, the tests | 1 | 1 503 passed, 1 skipped, **1 failed** | 4.4 min |
+| 3, smoke: the producers | 10 | passed | 37.9 min |
+| 3, smoke: §17's runners | 18 | passed | 144.0 min |
+| 3, smoke: P5.12, the probes, the codec | 7 | passed | 16.2 min |
+| **all** | 38 | | **≈ 3.4 h** |
+
+The one failure is the worktree's, not the code's: `test_package_resolves_to_src_layout`
+checks that the package imports from this checkout's `src/`, and the shared venv's
+editable install points at the main checkout. A clone with its own install passes it.
+
+Every merge gate held at **0.0** difference: the AdamW pass on all 12 learner × condition
+rows, P5.12 on all 12, midtransient_shift's and inner_steps' rows likewise. The slowest
+steps are inner_steps (36 min, then 12 for its lr pass), midtransient_shift (21 + 17)
+and label_sparsity (11 + 6). A GPU run of the tier is still to be timed.
+
 ### ✅ D140. M14b: a triangle wave on two channels — the pilot finds no break at any speed, closed as a null
 
 Decided 2026-10-11, question by question, before any code. M14 ([[D130]]) found nothing

@@ -48,3 +48,17 @@ def sweep_parser(
     parser.add_argument("--fresh", action="store_true",
                         help="discard completed cells and redo them")
     return parser
+
+
+def smoke_device(args: argparse.Namespace, argv: Sequence[str] | None) -> str:
+    """The device a smoke runs on: the CPU, unless ``--device`` was given explicitly.
+
+    A runner's default device is what its real pass wants, often `cuda`; a smoke
+    must run anywhere, so it ignores that default -- but not a device the caller
+    named, which is how `scripts/reproduce.py --device cuda` reaches every smoke.
+    """
+    import sys  # noqa: PLC0415
+
+    given = sys.argv[1:] if argv is None else list(argv)
+    named = any(a == "--device" or a.startswith("--device=") for a in given)
+    return args.device if named else "cpu"

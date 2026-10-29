@@ -113,7 +113,7 @@ run with `PYTHONPATH=src`, or pytest imports `main`'s installed package instead.
 |---|---|---|
 | The SGD baselines (X0–X12) | laptop CPU | sized for it deliberately |
 | Every EKF result (X13 onwards), and every AdamW arm beside one | **CUDA GPU** | a dense $p\times p$ covariance per agent |
-| The test suite | laptop CPU | 1517 tests on `main` |
+| The test suite | laptop CPU | 1505 tests on `main` |
 
 ⚠ **The filter results were produced on CUDA and cannot be reproduced on CPU in
 reasonable time.** Each agent carries a dense $2908\times2908$ covariance in

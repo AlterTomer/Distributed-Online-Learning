@@ -7,6 +7,11 @@ r"""The offline-trained codec, end to end: calibrate, validate, report (C2, D137
     python scripts/run_codec.py --calibrate --smoke            # then --validate / --report-runs
                                                                #   --smoke: the path, on CPU
 
+``--smoke`` is built from the producers' smoke cells (P5.3's `p53_er030_a_smoke`; for the
+transfer conditions X20's and X25+'s), so it runs on a fresh clone. It runs on the CPU
+unless `--device` is given explicitly. Every stage refuses, naming the cells, when a
+source it reads is not on disk.
+
 ## The protocol (D137, as decided in D138)
 
 The codec sends each vector as a quantised difference against a public copy, per module
@@ -74,7 +79,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import yaml  # noqa: E402
-from _args import sweep_parser  # noqa: E402
+from _args import smoke_device, sweep_parser  # noqa: E402
 from run_ekf_generalization import run_one  # noqa: E402
 
 from dekf_bench.codec import LayerCode  # noqa: E402
@@ -154,6 +159,9 @@ DATA_ROOT = ROOT / "data"
 #: The arm: False is the plain codec (queue 4), True the dithered one (D2). Set once,
 #: in main, before any name or path is formed.
 DITHER = False
+#: What the source cells' names carry: "_smoke" under --smoke, where they are the
+#: producers' smoke cells. Set once, in main, like DITHER.
+SOURCE_SUFFIX = ""
 
 
 # --------------------------------------------------------------------------- #
@@ -222,9 +230,20 @@ def recorded(run: str) -> dict:
     return yaml.safe_load((ROOT / "results" / run / "config.yaml").read_text(encoding="utf-8"))
 
 
+def source_cell(cell: str) -> str:
+    """A source cell, or under a smoke the producer's smoke twin of it."""
+    return cell + SOURCE_SUFFIX
+
+
+def missing_sources(conditions) -> list[str]:
+    """The source cells a stage reads that are not finished on disk."""
+    cells = [SOURCE] + [TRANSFER[c][1] for c in conditions]
+    return [source_cell(c) for c in cells if not complete(source_cell(c))]
+
+
 def filter_entries() -> list[dict]:
     """The filters exactly as the source cell recorded them: they carry their selections."""
-    return [dict(e) for e in recorded(SOURCE)["learners"] if e["name"] in FILTERS]
+    return [dict(e) for e in recorded(source_cell(SOURCE))["learners"] if e["name"] in FILTERS]
 
 
 def baseline_entries(rates: dict[str, float], names=None) -> list[dict]:
@@ -247,7 +266,7 @@ def condition_env(condition: str) -> dict:
     if condition == "stationary":
         return {}
     section, source = TRANSFER[condition]
-    return {section: recorded(source)["env"][section]}
+    return {section: recorded(source_cell(source))["env"][section]}
 
 
 def config_for(args, name: str, learners: list[dict], seeds: list[int], comm: dict,
@@ -258,7 +277,8 @@ def config_for(args, name: str, learners: list[dict], seeds: list[int], comm: di
     env = condition_env(condition)
     if env:
         overrides["env"] = env
-    return load_config(ROOT / "results" / SOURCE / "config.yaml", overrides=overrides)
+    return load_config(ROOT / "results" / source_cell(SOURCE) / "config.yaml",
+                       overrides=overrides)
 
 
 def run(args, train, test, name: str, learners: list[dict], seeds: list[int], comm: dict,
@@ -630,7 +650,7 @@ def compare_arms(suffix: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    global DITHER
+    global DITHER, SOURCE_SUFFIX
     parser = sweep_parser(__doc__.split("\n")[0], horizon=1500, seeds=REPORT)
     stage = parser.add_mutually_exclusive_group(required=True)
     stage.add_argument("--calibrate", action="store_true")
@@ -644,11 +664,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     DITHER = args.dither
     suffix = "_smoke" if args.smoke else ""
+    SOURCE_SUFFIX = suffix
     if args.smoke:
-        args.horizon, args.device = SMOKE_HORIZON, "cpu"
+        args.horizon, args.device = SMOKE_HORIZON, smoke_device(args, argv)
     if args.report_only:
         report(suffix)
         return 0
+    missing = missing_sources(TRANSFER if args.report_runs else [])
+    if missing:
+        print(f"  REFUSED: the codec is built from {missing}, which is not finished.")
+        if suffix:
+            print("  A smoke reads the producers' smoke cells: run P5.3, X20 and X25+ with "
+                  "--smoke first (scripts/reproduce.py does it in order).")
+        return 1
     train = test = None
     if TASKS[TASK]["data"]:
         from dekf_bench.data.registry import dataset_is_cached, load_dataset  # noqa: PLC0415

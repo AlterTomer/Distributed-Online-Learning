@@ -2,6 +2,10 @@ r"""X26 -- `atc_plain` at its own learning rate, which it has never had.
 
     python scripts/run_atc_plain.py --lr    # select a rate per condition, first
     python scripts/run_atc_plain.py         # the cells themselves
+    python scripts/run_atc_plain.py --lr --smoke   # then --smoke: 20 steps, one seed
+
+``--smoke`` writes `_smoke`-suffixed runs, and its report reads X20's and X25's
+smoke cells; X25+'s smoke reads its rates.
 
 ## Why
 
@@ -93,12 +97,12 @@ DATA_ROOT = ROOT / "data"
 STATUS = ROOT / "results" / "x26_status.json"
 
 
-def lr_run_name(condition: str, rate: float) -> str:
-    return f"x26_lr_{condition}_lr{rate:g}".replace(".", "p")
+def lr_run_name(condition: str, rate: float, suffix: str = "") -> str:
+    return f"x26_lr_{condition}_lr{rate:g}".replace(".", "p") + suffix
 
 
-def cell_name(condition: str) -> str:
-    return f"x26_{condition}"
+def cell_name(condition: str, suffix: str = "") -> str:
+    return f"x26_{condition}{suffix}"
 
 
 def settled(run: str, learner: str = PLAIN["name"]) -> float:
@@ -117,8 +121,8 @@ def settled(run: str, learner: str = PLAIN["name"]) -> float:
     return float(rows["value"].mean()) if len(rows) else float("inf")
 
 
-def selected_rate(condition: str) -> float | None:
-    scored = [(settled(lr_run_name(condition, r)), r) for r in LEARNING_RATES]
+def selected_rate(condition: str, suffix: str = "") -> float | None:
+    scored = [(settled(lr_run_name(condition, r, suffix)), r) for r in LEARNING_RATES]
     scored = [(v, r) for v, r in scored if v != float("inf")]
     return min(scored)[1] if scored else None
 
@@ -150,18 +154,19 @@ def save_status(status: dict) -> None:
     STATUS.write_text(json.dumps(status, indent=2), encoding="utf-8")
 
 
-def tune(args, train, test) -> int:
+def tune(args, train, test, suffix: str = "") -> int:
     status = load_status()
+    lr_seeds = [0] if suffix else LR_SEEDS
     total = len(CONDITIONS) * len(LEARNING_RATES)
-    print(f"X26 lr: {len(CONDITIONS)} conditions x {len(LEARNING_RATES)} rates "
-          f"at {len(LR_SEEDS)} seeds\n", flush=True)
+    print(f"X26{' SMOKE' if suffix else ''} lr: {len(CONDITIONS)} conditions x "
+          f"{len(LEARNING_RATES)} rates at {len(lr_seeds)} seeds\n", flush=True)
     started, index = time.time(), 0
     for condition, partition, drift, _seeds in CONDITIONS:
         for rate in LEARNING_RATES:
             index += 1
-            name = lr_run_name(condition, rate)
+            name = lr_run_name(condition, rate, suffix)
             note = run_one(config_for(args, name, partition, drift,
-                                      [{**PLAIN, "lr": rate}], LR_SEEDS),
+                                      [{**PLAIN, "lr": rate}], lr_seeds),
                            train, test, args.fresh)
             status[name] = note
             save_status(status)
@@ -171,7 +176,7 @@ def tune(args, train, test) -> int:
     print(f"\nlr complete in {(time.time() - started) / 60:.1f} min\n")
     print(f"  {'condition':>16}{'selected':>10}{'X20 gave it':>14}")
     for condition, _p, _d, _s in CONDITIONS:
-        rate = selected_rate(condition)
+        rate = selected_rate(condition, suffix)
         note = "0.01 (momentum arm's)" if not condition.startswith("skew") else "-"
         print(f"  {condition:>16}{rate if rate else '-':>10}   {note}")
     return 0
@@ -183,50 +188,59 @@ def main(argv: list[str] | None = None) -> int:
                         help="select a rate per condition instead of running the cells")
     parser.add_argument("--report-only", action="store_true",
                         help="print what is already on disk")
+    parser.add_argument("--smoke", action="store_true",
+                        help="20 steps at one seed, into _smoke-suffixed runs")
     args = parser.parse_args(argv)
+    suffix = "_smoke" if args.smoke else ""
+    if args.smoke:
+        args.horizon = 20
 
     if args.report_only:
-        report()
+        report(suffix)
         return 0
     if not dataset_is_cached(args.dataset, DATA_ROOT):
         print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
         return 1
     train, test = load_dataset(args.dataset, DATA_ROOT, download=False)
     if args.lr:
-        return tune(args, train, test)
+        return tune(args, train, test, suffix)
 
-    rates = {c: selected_rate(c) for c, _p, _d, _s in CONDITIONS}
+    rates = {c: selected_rate(c, suffix) for c, _p, _d, _s in CONDITIONS}
     missing = sorted(c for c, r in rates.items() if r is None)
     if missing:
         print(f"\nNo rate selected for {missing}. Giving this arm a rate chosen for a\n"
               "method with ten times its effective step is the defect it exists to\n"
-              "correct (D90).\n  python scripts/run_atc_plain.py --lr\n")
+              "correct (D90).\n"
+              f"  python scripts/run_atc_plain.py --lr{' --smoke' if suffix else ''}\n")
         return 1
 
     status = load_status()
-    print(f"\nX26: {len(CONDITIONS)} cells, `atc_plain` alone at its own rate")
+    print(f"\nX26{' SMOKE' if suffix else ''}: {len(CONDITIONS)} cells, "
+          "`atc_plain` alone at its own rate")
     for condition, _p, _d, seeds in CONDITIONS:
-        print(f"  {cell_name(condition):<26} lr {rates[condition]:<8g} "
-              f"{len(seeds)} seeds")
+        print(f"  {cell_name(condition, suffix):<32} lr {rates[condition]:<8g} "
+              f"{1 if suffix else len(seeds)} seeds")
     print(flush=True)
 
     started = time.time()
     for index, (condition, partition, drift, seeds) in enumerate(CONDITIONS, start=1):
-        name = cell_name(condition)
+        name = cell_name(condition, suffix)
         note = run_one(config_for(args, name, partition, drift,
-                                  [{**PLAIN, "lr": rates[condition]}], seeds),
+                                  [{**PLAIN, "lr": rates[condition]}],
+                                  [0] if suffix else seeds),
                        train, test, args.fresh)
         status[name] = note
         save_status(status)
-        print(f"[{index}/{len(CONDITIONS)}] {name:<26} {note:<14} "
+        print(f"[{index}/{len(CONDITIONS)}] {name:<32} {note:<14} "
               f"{(time.time() - started) / 60:.0f} min", flush=True)
 
-    print(f"\nX26 complete in {(time.time() - started) / 60:.1f} min\n")
-    report()
+    print(f"\nX26{' smoke' if suffix else ''} complete in "
+          f"{(time.time() - started) / 60:.1f} min\n")
+    report(suffix)
     return 0
 
 
-def report() -> None:
+def report(suffix: str = "") -> None:
     r"""Tuned against mis-tuned, and the matched-bandwidth comparison it unlocks."""
     print(f"  {'condition':>16}{'rate':>7}{'tuned':>10}{'X20 mis-tuned':>15}"
           f"{'diffusion_ekf':>15}{'matched gap':>13}")
@@ -242,11 +256,12 @@ def report() -> None:
         "skew_smooth": (None, "x25_smooth"),
     }
     for condition, _p, _d, _s in CONDITIONS:
-        rate = selected_rate(condition)
-        tuned = settled(cell_name(condition))
+        rate = selected_rate(condition, suffix)
+        tuned = settled(cell_name(condition, suffix))
         old_run, filter_run = paired[condition]
-        old = settled(old_run, PLAIN["name"]) if old_run else float("inf")
-        filt = settled(filter_run, "diffusion_ekf") if filter_run else float("inf")
+        old = settled(old_run + suffix, PLAIN["name"]) if old_run else float("inf")
+        filt = (settled(filter_run + suffix, "diffusion_ekf") if filter_run
+                else float("inf"))
         gap = filt - tuned if tuned != float("inf") and filt != float("inf") else float("nan")
         print(f"  {condition:>16}{rate if rate else 0:>7g}{tuned:>10.4f}"
               + (f"{old:>15.4f}" if old != float("inf") else f"{'-':>15}")

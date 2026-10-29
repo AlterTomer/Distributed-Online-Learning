@@ -447,6 +447,16 @@ the date) — so the package comes in two stages rather than after review:
 Cost: stage 1 is about a week of work and little GPU; stage 2's cost is the
 verification re-runs.
 
+**Status, 2026-10-27.** The driver's stages 1–3 are built on `main` (D141). The smoke
+tier runs on a fresh clone: the six runners whose cells other smokes read (X19's lr
+pass, X20, X25, X26, X25+, P5.3) gained a `--smoke`, and the five that read them
+(the AdamW pass, P5.12, the float32 and delta probes, the codec) read `_smoke`
+sources under `--smoke`. `mg-task`'s smokes, and the same chain for its dependents,
+join at the merge.
+
+**Validated, 2026-10-29.** All three stages on a clean worktree, on the CPU: every
+smoke passed and every merge gate held at 0.0 difference; about 3.4 h in all (D141).
+
 ---
 
 ## Calendar

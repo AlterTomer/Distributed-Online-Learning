@@ -4,8 +4,13 @@ connectivity falls?
     python scripts/run_diffusion_topology.py --lr   # re-tune the baselines, first
     python scripts/run_diffusion_topology.py        # the cells themselves
     python scripts/run_diffusion_topology.py --report-only
+    python scripts/run_diffusion_topology.py --lr --smoke   # then --smoke
 
 `--lr` must run first and the main pass refuses without it (D77).
+
+``--smoke`` runs 20 steps at one seed into `_smoke`-suffixed runs. The AdamW pass,
+P5.12, the float32 and delta probes and the codec read these cells in their own
+smokes.
 
 ## The question
 
@@ -120,12 +125,12 @@ SCALARS = {"diffusion_ekf_onehop_mean_receiver": 3696, "diffusion_ekf": 2908,
            "diffusion_sgd_atc": 5816, PLAIN["name"]: 2908}
 
 
-def lr_run_name(label: str, rate: float) -> str:
-    return f"p53_lr_{label}_lr{rate:g}".replace(".", "p")
+def lr_run_name(label: str, rate: float, suffix: str = "") -> str:
+    return f"p53_lr_{label}_lr{rate:g}".replace(".", "p") + suffix
 
 
-def cell_name(label: str, group: str) -> str:
-    return f"p53_{label}_{group}"
+def cell_name(label: str, group: str, suffix: str = "") -> str:
+    return f"p53_{label}_{group}{suffix}"
 
 
 def tuned_baselines() -> dict[str, dict]:
@@ -133,11 +138,11 @@ def tuned_baselines() -> dict[str, dict]:
     return {**BASELINES, PLAIN["name"]: {k: v for k, v in PLAIN.items() if k != "name"}}
 
 
-def selected_rates(label: str) -> dict[str, float] | None:
+def selected_rates(label: str, suffix: str = "") -> dict[str, float] | None:
     """Each baseline's own argmin at this topology, or None when it is unswept."""
     rates: dict[str, float] = {}
     for name in tuned_baselines():
-        scored = [(settled(lr_run_name(label, r), name), r) for r in LEARNING_RATES]
+        scored = [(settled(lr_run_name(label, r, suffix), name), r) for r in LEARNING_RATES]
         scored = [(v, r) for v, r in scored if v != float("inf")]
         if not scored:
             return None
@@ -180,19 +185,20 @@ def save_status(status: dict) -> None:
     STATUS.write_text(json.dumps(status, indent=2), encoding="utf-8")
 
 
-def tune(args, train, test) -> int:
+def tune(args, train, test, suffix: str = "") -> int:
     """The gradient baselines only; the filter carries its own selection by design."""
     status = load_status()
+    lr_seeds = [0] if suffix else LR_SEEDS
     total = len(TOPOLOGIES) * len(LEARNING_RATES)
-    print(f"P5.3 lr: {len(TOPOLOGIES)} topologies x {len(LEARNING_RATES)} rates at "
-          f"{len(LR_SEEDS)} seeds\n", flush=True)
+    print(f"P5.3{' SMOKE' if suffix else ''} lr: {len(TOPOLOGIES)} topologies x "
+          f"{len(LEARNING_RATES)} rates at {len(lr_seeds)} seeds\n", flush=True)
     started, index = time.time(), 0
     for label, topology, params in TOPOLOGIES:
         for rate in LEARNING_RATES:
             index += 1
-            name = lr_run_name(label, rate)
+            name = lr_run_name(label, rate, suffix)
             entries = [{"name": n, "lr": rate, **o} for n, o in tuned_baselines().items()]
-            note = run_one(config_for(args, name, topology, params, entries, seeds=LR_SEEDS),
+            note = run_one(config_for(args, name, topology, params, entries, seeds=lr_seeds),
                            train, test, args.fresh)
             status[name] = note
             save_status(status)
@@ -202,7 +208,7 @@ def tune(args, train, test) -> int:
     print(f"\nlr complete in {(time.time() - started) / 60:.1f} min\n")
     print(f"  {'topology':>10}" + "".join(f"{n:>26}" for n in tuned_baselines()))
     for label, _t, _p in TOPOLOGIES:
-        rates = selected_rates(label)
+        rates = selected_rates(label, suffix)
         if rates:
             print(f"  {label:>10}" + "".join(f"{rates[n]:>26g}" for n in tuned_baselines()))
     return 0
@@ -213,36 +219,43 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lr", action="store_true",
                         help="re-tune the gradient baselines instead of running the sweep")
     parser.add_argument("--report-only", action="store_true")
+    parser.add_argument("--smoke", action="store_true",
+                        help="20 steps at one seed, into _smoke-suffixed runs")
     args = parser.parse_args(argv)
+    suffix = "_smoke" if args.smoke else ""
+    if args.smoke:
+        args.horizon, args.seeds = 20, [0]
     if args.report_only:
-        report()
+        report(suffix)
         return 0
     if not dataset_is_cached(args.dataset, DATA_ROOT):
         print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
         return 1
     train, test = load_dataset(args.dataset, DATA_ROOT, download=False)
     if args.lr:
-        return tune(args, train, test)
+        return tune(args, train, test, suffix)
 
-    missing = [label for label, _t, _p in TOPOLOGIES if selected_rates(label) is None]
+    missing = [label for label, _t, _p in TOPOLOGIES if selected_rates(label, suffix) is None]
     if missing:
-        print(f"no selected rates for {missing}: run --lr first.\n"
+        print(f"no selected rates for {missing}: run --lr{' --smoke' if suffix else ''} "
+              "first.\n"
               "A rate carried across topologies is the mistake D77 exists to record --\n"
               "it put a baseline at chance and inverted a damage ordering.")
         return 1
 
     cells = [(label, topology, params, group)
              for label, topology, params in TOPOLOGIES for group in ("a", "b")]
-    print(f"\nP5.3: {len(cells)} cells at {len(args.seeds)} seeds, T={args.horizon}")
+    print(f"\nP5.3{' SMOKE' if suffix else ''}: {len(cells)} cells at "
+          f"{len(args.seeds)} seeds, T={args.horizon}")
     for label, _t, _p, group in cells:
-        print(f"  {cell_name(label, group):<26} group {group}")
+        print(f"  {cell_name(label, group, suffix):<32} group {group}")
     print(flush=True)
 
     status = load_status()
     started, ran = time.time(), 0
     for index, (label, topology, params, group) in enumerate(cells, start=1):
-        name = cell_name(label, group)
-        entries = entries_for(group, selected_rates(label))
+        name = cell_name(label, group, suffix)
+        entries = entries_for(group, selected_rates(label, suffix))
         note = run_one(config_for(args, name, topology, params, entries), train, test, args.fresh)
         status[name] = note
         save_status(status)
@@ -253,12 +266,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[{index}/{len(cells)}] {name:<26} {len(entries):>2} learners  {note:<26}"
               f" {elapsed:.0f} min, ~{remaining:.0f} left", flush=True)
 
-    print(f"\nP5.3 complete in {(time.time() - started) / 60:.1f} min\n")
-    report()
+    print(f"\nP5.3{' smoke' if suffix else ''} complete in "
+          f"{(time.time() - started) / 60:.1f} min\n")
+    report(suffix)
     return 0
 
 
-def report() -> None:
+def report(suffix: str = "") -> None:
     """Settled error by topology, the sharing gap, and the graph-blind check."""
     mean = lambda d: sum(d.values()) / len(d) if d else float("nan")  # noqa: E731
     labels = [label for label, _t, _p in TOPOLOGIES]
@@ -269,7 +283,7 @@ def report() -> None:
     for learner in every:
         row = f"    {learner:<36}"
         for label in labels:
-            values = [per_seed(cell_name(label, g), learner) for g in ("a", "b")]
+            values = [per_seed(cell_name(label, g, suffix), learner) for g in ("a", "b")]
             values = [v for v in values if v]
             row += f"{mean(values[0]):>12.4f}" if values else f"{'-':>12}"
         print(row)
@@ -280,28 +294,28 @@ def report() -> None:
         for full, base in (("diffusion_ekf_full", "diffusion_ekf"),
                            ("diffusion_ekf_onehop_receiver",
                             "diffusion_ekf_onehop_mean_receiver")):
-            diff, t, n = paired(per_seed(cell_name(label, "b"), full),
-                                per_seed(cell_name(label, "a"), base))
+            diff, t, n = paired(per_seed(cell_name(label, "b", suffix), full),
+                                per_seed(cell_name(label, "a", suffix), base))
             stem = full.replace("diffusion_ekf_", "")
             print(f"    {label:<10} {stem:<24} {diff:+.4f}  t={t:>6.2f}  n={n}")
 
     print("\n  one-hop minus local adapt, paired (does one-hop's value scale with degree?)")
     for label in labels:
-        diff, t, n = paired(per_seed(cell_name(label, "a"), "diffusion_ekf_onehop_mean_receiver"),
-                            per_seed(cell_name(label, "a"), "diffusion_ekf"))
+        diff, t, n = paired(per_seed(cell_name(label, "a", suffix), "diffusion_ekf_onehop_mean_receiver"),
+                            per_seed(cell_name(label, "a", suffix), "diffusion_ekf"))
         print(f"    {label:<10} {diff:+.4f}  t={t:>6.2f}  n={n}")
 
     print("\n  against the cheapest baseline, per link per step")
     print(f"    one-hop receiver {SCALARS['diffusion_ekf_onehop_mean_receiver']} scalars, "
           f"atc_plain {SCALARS[PLAIN['name']]}, momentum ATC {SCALARS['diffusion_sgd_atc']}")
     for label in labels:
-        diff, t, n = paired(per_seed(cell_name(label, "a"), "diffusion_ekf_onehop_mean_receiver"),
-                            per_seed(cell_name(label, "a"), PLAIN["name"]))
+        diff, t, n = paired(per_seed(cell_name(label, "a", suffix), "diffusion_ekf_onehop_mean_receiver"),
+                            per_seed(cell_name(label, "a", suffix), PLAIN["name"]))
         print(f"    {label:<10} one-hop minus atc_plain {diff:+.4f}  t={t:>6.2f}  n={n}")
 
     print("\n  graph-blind check: these never read the graph, so every topology must agree")
     for learner in ("centralized_ekf_gamma", "centralized_sgd", "local_only"):
-        seeds = [per_seed(cell_name(label, "a"), learner) for label in labels]
+        seeds = [per_seed(cell_name(label, "a", suffix), learner) for label in labels]
         shared = set.intersection(*[set(s) for s in seeds]) if all(seeds) else set()
         worst = max((max(s[k] for s in seeds) - min(s[k] for s in seeds) for k in shared),
                     default=float("nan"))

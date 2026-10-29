@@ -157,6 +157,7 @@ DistributedOnlineLearning/          # repo root; .venv313/ and .venv/ live here 
 │   ├── run_sweep.py
 │   ├── train_reference.py        # offline reference classifier
 │   ├── report_*.py               # readers: parquet back into the quoted numbers
+│   ├── reproduce.py              # REPRODUCE.md stages 1-3: environment, tests, every smoke (D141)
 │   └── check_environment.py      # graph stats, stream visualisation, smoke test
 │
 ├── tests/

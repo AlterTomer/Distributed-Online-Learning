@@ -2,6 +2,12 @@ r"""X25+ -- X25's skew cells topped up to five seeds, with `atc_plain` beside th
 
     python scripts/run_skew_topup.py                # seeds 3 and 4, ~4.5 h GPU
     python scripts/run_skew_topup.py --report-only  # the five-seed tables, from disk
+    python scripts/run_skew_topup.py --smoke        # 20 steps at seed 3, after X25's
+                                                    # and X26's smokes
+
+``--smoke`` writes `_smoke`-suffixed runs and reads X25's and X26's smoke rates. It
+keeps seed 3, the first top-up seed, so pooling it with X25's smoke (seed 0) still
+pools disjoint seeds, as the AdamW pass requires.
 
 Tier 1 of `docs/schedule.md`. X25 ran three seeds, and its sharpest claim sat on
 them: under severe skew the local-adapt filter loses to `atc_plain` at equal
@@ -83,19 +89,21 @@ def x26_condition(skew: float) -> str:
     return f"skew_b{skew:g}".replace(".", "p")
 
 
-def topup_cell(skew: float) -> str:
-    return f"x25p_{condition(skew)}"
+def topup_cell(skew: float, suffix: str = "") -> str:
+    return f"x25p_{condition(skew)}{suffix}"
 
 
-def topup_group_b(learner: str, skew: float) -> str:
-    return "x25p_" + group_b_name(learner, skew, 1.0).removeprefix("x25_")
+def topup_group_b(learner: str, skew: float, suffix: str = "") -> str:
+    return "x25p_" + group_b_name(learner, skew, 1.0, suffix).removeprefix("x25_")
 
 
-def still_entries(skew: float) -> list[dict]:
-    rates = selected_rates(condition(skew))
-    plain = x26_rate(x26_condition(skew))
+def still_entries(skew: float, suffix: str = "") -> list[dict]:
+    rates = selected_rates(condition(skew), suffix)
+    plain = x26_rate(x26_condition(skew), suffix)
     if rates is None or plain is None:
-        raise SystemExit(f"no selected rate on disk for {condition(skew)}: run X25 --lr and X26 --lr")
+        smoke = " --smoke" if suffix else ""
+        raise SystemExit(f"no selected rate on disk for {condition(skew)}: "
+                         f"run X25 --lr{smoke} and X26 --lr{smoke}")
     return (
         [{"name": "centralized_ekf_gamma", **CENTRALIZED}]
         + [{"name": n, **FILTER} for n in GROUP_A]
@@ -107,22 +115,28 @@ def still_entries(skew: float) -> list[dict]:
 def main(argv: list[str] | None = None) -> int:
     parser = sweep_parser(__doc__.split("\n")[0], horizon=HORIZON, seeds=SEEDS)
     parser.add_argument("--report-only", action="store_true")
+    parser.add_argument("--smoke", action="store_true",
+                        help="20 steps at seed 3, into _smoke-suffixed runs")
     args = parser.parse_args(argv)
+    suffix = "_smoke" if args.smoke else ""
+    if args.smoke:
+        args.horizon, args.seeds = 20, [SEEDS[0]]
     if args.report_only:
-        report()
+        report(suffix)
         return 0
     if not dataset_is_cached(args.dataset, DATA_ROOT):
         print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
         return 1
     train, test = load_dataset(args.dataset, DATA_ROOT, download=False)
 
-    cells = [(topup_cell(s), s, still_entries(s)) for s in SKEWS]
+    cells = [(topup_cell(s, suffix), s, still_entries(s, suffix)) for s in SKEWS]
     cells += [
-        (topup_group_b(learner, s), s, [{"name": learner, **FILTER, "combine_exponent": 1.0}])
+        (topup_group_b(learner, s, suffix), s,
+         [{"name": learner, **FILTER, "combine_exponent": 1.0}])
         for learner in GROUP_B
         for s in GROUP_B_SKEWS
     ]
-    print(f"\nX25+: {len(cells)} cells at seeds {args.seeds}, T={args.horizon}")
+    print(f"\nX25+{' SMOKE' if suffix else ''}: {len(cells)} cells at seeds {args.seeds}, T={args.horizon}")
     for name, skew, entries in cells:
         print(f"  {name:<34} skew {skew:<6g} {len(entries)} learners")
     print(flush=True)
@@ -141,8 +155,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[{index}/{len(cells)}] {name:<34} {note:<28} {elapsed:.0f} min, "
               f"~{remaining:.0f} left", flush=True)
 
-    print(f"\nX25+ complete in {(time.time() - started) / 60:.1f} min\n")
-    report()
+    print(f"\nX25+{' smoke' if suffix else ''} complete in "
+          f"{(time.time() - started) / 60:.1f} min\n")
+    report(suffix)
     return 0
 
 
@@ -154,7 +169,7 @@ def pooled(*sources: tuple[str, str]) -> dict[int, float]:
     return merged
 
 
-def report() -> None:
+def report(suffix: str = "") -> None:
     """Five-seed skew tables, the equal-bandwidth claim, and the reproduction check."""
     mean = lambda d: sum(d.values()) / len(d) if d else float("nan")  # noqa: E731
     print("  settled error by skew, seeds pooled (X25 0-2 + X25+ 3-4)")
@@ -164,36 +179,37 @@ def report() -> None:
     for skew in SKEWS:
         line = f"    {skew:>6g}"
         for learner in learners:
-            seeds = pooled((x25_cell(condition(skew)), learner), (topup_cell(skew), learner))
+            seeds = pooled((x25_cell(condition(skew), suffix=suffix), learner),
+                           (topup_cell(skew, suffix), learner))
             line += f"{mean(seeds):>20.4f} ({len(seeds)})"
-        plain = pooled((x26_cell(x26_condition(skew)), PLAIN["name"]),
-                       (topup_cell(skew), PLAIN["name"]))
+        plain = pooled((x26_cell(x26_condition(skew), suffix), PLAIN["name"]),
+                       (topup_cell(skew, suffix), PLAIN["name"]))
         line += f"{mean(plain):>8.4f} ({len(plain)})"
         print(line)
 
     print("\n  equal bandwidth: diffusion_ekf minus atc_plain, paired over pooled seeds")
     for skew in SKEWS:
-        ekf = pooled((x25_cell(condition(skew)), "diffusion_ekf"),
-                     (topup_cell(skew), "diffusion_ekf"))
-        plain = pooled((x26_cell(x26_condition(skew)), PLAIN["name"]),
-                       (topup_cell(skew), PLAIN["name"]))
+        ekf = pooled((x25_cell(condition(skew), suffix=suffix), "diffusion_ekf"),
+                     (topup_cell(skew, suffix), "diffusion_ekf"))
+        plain = pooled((x26_cell(x26_condition(skew), suffix), PLAIN["name"]),
+                       (topup_cell(skew, suffix), PLAIN["name"]))
         diff, t, n = paired(ekf, plain)
         print(f"    skew {skew:<6g} {diff:+.4f}  t={t:.2f}  n={n}")
 
     print("\n  full sharing at beta_c = 1, pooled; minus mean-only local adapt")
     for skew in GROUP_B_SKEWS:
         for learner in GROUP_B:
-            full = pooled((group_b_name(learner, skew, 1.0), learner),
-                          (topup_group_b(learner, skew), learner))
-            base = pooled((x25_cell(condition(skew)), "diffusion_ekf"),
-                          (topup_cell(skew), "diffusion_ekf"))
+            full = pooled((group_b_name(learner, skew, 1.0, suffix), learner),
+                          (topup_group_b(learner, skew, suffix), learner))
+            base = pooled((x25_cell(condition(skew), suffix=suffix), "diffusion_ekf"),
+                          (topup_cell(skew, suffix), "diffusion_ekf"))
             diff, t, n = paired(full, base)
             print(f"    {learner:<22} skew {skew:<6g} {mean(full):.4f}  vs local {diff:+.4f}"
                   f"  t={t:.2f}  n={n}")
 
     print("\n  reproduction: one-hop sender, X25+ against X27 on seeds 3-4 (must be 0)")
     for skew in SKEWS:
-        top = per_seed(topup_cell(skew), "diffusion_ekf_onehop_mean")
+        top = per_seed(topup_cell(skew, suffix), "diffusion_ekf_onehop_mean")
         x27 = per_seed(f"x27_{condition(skew)}", "diffusion_ekf_onehop_mean")
         shared = sorted(set(top) & set(x27))
         worst = max((abs(top[s] - x27[s]) for s in shared), default=float("nan"))

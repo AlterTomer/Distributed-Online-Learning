@@ -5,11 +5,17 @@ Run this file directly.
     python scripts/run_diffusion_tuning.py --tune    # the (q, sigma_0^2) grid
     python scripts/run_diffusion_tuning.py           # the corrected comparison
     python scripts/run_diffusion_tuning.py --fresh   # discard and redo
+    python scripts/run_diffusion_tuning.py --tune --smoke   # then --smoke
 
 `--tune` must run first. X19's `run_diffusion_ekf.py --lr` supplies the \ac{sgd}
 learning rates: the conditions and graphs are identical, so re-sweeping them here
 would be the same thirty runs under different names. The main pass refuses
 without either.
+
+``--smoke`` runs 20 steps at one seed into `_smoke`-suffixed runs, and reads X19's
+smoke rates (`run_diffusion_ekf.py --lr --smoke`). Its selection goes to
+`x20_selected_smoke.json`, never over the real one. Later runners' smokes read
+these cells.
 
 ## Why this exists
 
@@ -131,13 +137,17 @@ def drift_for(condition: str) -> dict | None:
     return dict(CONDITIONS)[condition]
 
 
-def tune_run_name(q: float, prior: float) -> str:
-    return f"x20_tune_q{q:g}_s{prior:g}".replace(".", "p").replace("-", "m")
+def tune_run_name(q: float, prior: float, suffix: str = "") -> str:
+    return f"x20_tune_q{q:g}_s{prior:g}".replace(".", "p").replace("-", "m") + suffix
 
 
-def cell_name(condition: str, topology: str, twin: bool = False) -> str:
+def cell_name(condition: str, topology: str, twin: bool = False, suffix: str = "") -> str:
     stem = condition_name(condition, topology)
-    return f"x20_control_{stem}" if twin else f"x20_{stem}"
+    return (f"x20_control_{stem}" if twin else f"x20_{stem}") + suffix
+
+
+def selected_path(suffix: str = "") -> Path:
+    return SELECTED.with_name(f"{SELECTED.stem}{suffix}.json")
 
 
 def settled(run: str, learner: str) -> float:
@@ -193,7 +203,7 @@ def save_status(status: dict) -> None:
     STATUS.write_text(json.dumps(status, indent=2), encoding="utf-8")
 
 
-def attempted(q: float, prior: float) -> bool:
+def attempted(q: float, prior: float, suffix: str = "") -> bool:
     """Whether this cell has been *run*, which is not the same as scoring.
 
     A diverged cell is a measurement, not a gap: `run_one` records it and the
@@ -202,18 +212,18 @@ def attempted(q: float, prior: float) -> bool:
     enough to blow the covariance up -- which the widened grid is expected to do,
     and which is the whole point of widening it.
     """
-    directory = ROOT / "results" / tune_run_name(q, prior)
+    directory = ROOT / "results" / tune_run_name(q, prior, suffix)
     return (directory / "_complete").exists() or (directory / "_diverged").exists()
 
 
-def selected_setting() -> dict | None:
+def selected_setting(suffix: str = "") -> dict | None:
     """The (q, sigma_0^2) the grid chose, or None if it has not run."""
     scored, ran = [], 0
     for q in PROCESS_NOISE:
         for prior in PRIOR_SCALES:
-            if attempted(q, prior):
+            if attempted(q, prior, suffix):
                 ran += 1
-            value = settled(tune_run_name(q, prior), "diffusion_ekf")
+            value = settled(tune_run_name(q, prior, suffix), "diffusion_ekf")
             if value != float("inf"):
                 scored.append((value, q, prior))
     if not scored:
@@ -224,19 +234,21 @@ def selected_setting() -> dict | None:
             "of": len(PROCESS_NOISE) * len(PRIOR_SCALES)}
 
 
-def tune(args, train, test) -> int:
+def tune(args, train, test, suffix: str = "") -> int:
     status = load_status()
+    tune_seeds = [0] if suffix else TUNE_SEEDS
     total = len(PROCESS_NOISE) * len(PRIOR_SCALES)
-    print(f"X20 tuning: {len(PROCESS_NOISE)} q x {len(PRIOR_SCALES)} sigma_0^2 at "
-          f"{len(TUNE_SEEDS)} seeds, on {TUNE_CONDITION}/{TUNE_TOPOLOGY}\n", flush=True)
+    print(f"X20{' SMOKE' if suffix else ''} tuning: {len(PROCESS_NOISE)} q x "
+          f"{len(PRIOR_SCALES)} sigma_0^2 at {len(tune_seeds)} seeds, on "
+          f"{TUNE_CONDITION}/{TUNE_TOPOLOGY}\n", flush=True)
     started, index = time.time(), 0
     for q in PROCESS_NOISE:
         for prior in PRIOR_SCALES:
             index += 1
-            name = tune_run_name(q, prior)
+            name = tune_run_name(q, prior, suffix)
             note = run_one(
                 config_for(args, name, drift_for(TUNE_CONDITION), TUNE_TOPOLOGY,
-                           [filter_entry("diffusion_ekf", q, prior)], seeds=TUNE_SEEDS),
+                           [filter_entry("diffusion_ekf", q, prior)], seeds=tune_seeds),
                 train, test, args.fresh)
             status[name] = note
             save_status(status)
@@ -248,24 +260,24 @@ def tune(args, train, test) -> int:
     for q in PROCESS_NOISE:
         line = f"  {q:>14g}"
         for prior in PRIOR_SCALES:
-            value = settled(tune_run_name(q, prior), "diffusion_ekf")
+            value = settled(tune_run_name(q, prior, suffix), "diffusion_ekf")
             line += f"{value:>10.4f}" if value != float("inf") else f"{'div':>10}"
         print(line)
 
-    chosen = selected_setting()
+    chosen = selected_setting(suffix)
     if chosen:
-        SELECTED.write_text(json.dumps(chosen, indent=2), encoding="utf-8")
+        selected_path(suffix).write_text(json.dumps(chosen, indent=2), encoding="utf-8")
         print(f"\n  selected q={chosen['process_noise_q']:g}, "
               f"sigma_0^2={chosen['prior_scale']:g}  ({chosen['settled']:.4f})")
         print("  X13's centralised choice was q=6e-05, sigma_0^2=0.01")
-        for axis in _truncated_axes(chosen):
+        for axis in _truncated_axes(chosen, suffix):
             print(f"\n  !! the optimum is on the {axis} GRID EDGE and that axis "
                   f"matters.\n     Widen it and re-run; an argmin at a boundary is "
                   "a truncated grid, not a selection.")
     return 0
 
 
-def _truncated_axes(chosen: dict) -> list[str]:
+def _truncated_axes(chosen: dict, suffix: str = "") -> list[str]:
     r"""Which axes are genuinely truncated, as opposed to merely flat.
 
     An argmin at a boundary means a truncated grid **only if the axis moves the
@@ -283,8 +295,8 @@ def _truncated_axes(chosen: dict) -> list[str]:
     ):
         scores = [
             settled(
-                tune_run_name(value, other[1]) if axis == "PROCESS_NOISE"
-                else tune_run_name(other[1], value),
+                tune_run_name(value, other[1], suffix) if axis == "PROCESS_NOISE"
+                else tune_run_name(other[1], value, suffix),
                 "diffusion_ekf",
             )
             for value in values
@@ -311,33 +323,39 @@ def main(argv: list[str] | None = None) -> int:
     parser = sweep_parser(__doc__.split("\n")[0], horizon=HORIZON, seeds=SEEDS)
     parser.add_argument("--tune", action="store_true",
                         help="run the (q, sigma_0^2) grid instead of the sweep")
+    parser.add_argument("--smoke", action="store_true",
+                        help="20 steps at one seed, into _smoke-suffixed runs")
     args = parser.parse_args(argv)
+    suffix = "_smoke" if args.smoke else ""
+    if args.smoke:
+        args.horizon, args.seeds = 20, [0]
+    smoke = " --smoke" if suffix else ""
 
     if not dataset_is_cached(args.dataset, DATA_ROOT):
         print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
         return 1
     train, test = load_dataset(args.dataset, DATA_ROOT, download=False)
     if args.tune:
-        return tune(args, train, test)
+        return tune(args, train, test, suffix)
 
-    chosen = selected_setting()
+    chosen = selected_setting(suffix)
     if chosen is None or chosen["cells"] < chosen["of"]:
         have = 0 if chosen is None else chosen["cells"]
         print(f"\nThe (q, sigma_0^2) grid has {have} of "
               f"{len(PROCESS_NOISE) * len(PRIOR_SCALES)} cells. Without it the filter\n"
               "would carry the centralised tuning again, which is the defect this\n"
               "experiment exists to remove (design note D79).\n"
-              "  python scripts/run_diffusion_tuning.py --tune\n")
+              f"  python scripts/run_diffusion_tuning.py --tune{smoke}\n")
         return 1
 
     from run_diffusion_ekf import selected_rates  # noqa: PLC0415
 
     wanted = [(c, t) for c, _d in CONDITIONS for t in TOPOLOGY_NAMES]
-    rates = {(c, t): selected_rates(c, t) for c, t in wanted}
+    rates = {(c, t): selected_rates(c, t, suffix) for c, t in wanted}
     missing = sorted(condition_name(c, t) for (c, t), r in rates.items() if r is None)
     if missing:
         print(f"\nX19's learning-rate sweep is needed for {missing}:\n"
-              "  python scripts/run_diffusion_ekf.py --lr\n")
+              f"  python scripts/run_diffusion_ekf.py --lr{smoke}\n")
         return 1
 
     q, prior = chosen["process_noise_q"], chosen["prior_scale"]
@@ -356,9 +374,10 @@ def main(argv: list[str] | None = None) -> int:
                 {**PLAIN, "lr": rates[(condition, topology)][BASELINE["name"]]},
                 {**LOCAL, "lr": rates[(condition, topology)][LOCAL["name"]]},
             ]
-            cells.append((cell_name(condition, topology), drift, topology, entries))
+            cells.append((cell_name(condition, topology, suffix=suffix), drift, topology,
+                          entries))
             if drift is not None:
-                cells.append((cell_name(condition, topology, twin=True), None,
+                cells.append((cell_name(condition, topology, twin=True, suffix=suffix), None,
                               topology, entries))
 
     print(f"  {len(cells)} cells at {len(args.seeds)} seeds, T={args.horizon}")
@@ -380,7 +399,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[{index}/{len(cells)}] {name:<40} {note:<28} "
               f"{elapsed:.0f} min, ~{remaining:.0f} left", flush=True)
 
-    print(f"\nX20 complete in {(time.time() - started) / 60:.1f} min")
+    print(f"\nX20{' smoke' if suffix else ''} complete in "
+          f"{(time.time() - started) / 60:.1f} min")
     return 0
 
 

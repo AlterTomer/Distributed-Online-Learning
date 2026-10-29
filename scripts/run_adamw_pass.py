@@ -8,6 +8,11 @@ r"""The AdamW pass, backfilled: AdamW arms for the finished experiments the pape
 
 `--lr` must run first and the main pass refuses without it (D77).
 
+``--smoke`` reads the producers' smoke cells (`<source>_smoke`, from X20, X25, X25+,
+P5.3 and P5.7 run with `--smoke`), so it runs on a fresh clone. Those cells carry
+the smoke's own horizon and seed 0, so the merge gate compares like with like and
+must hold there too.
+
 ## Why a separate runner, and why it cannot drift from the original cells
 
 Every figure the paper carries must include the AdamW baselines (decided
@@ -114,6 +119,11 @@ def cell_name(experiment: str, condition: str, suffix: str = "") -> str:
     return f"adw_{experiment}_{condition}".replace(".", "p") + suffix
 
 
+def sources_for(experiment: str, condition: str, suffix: str = "") -> list[str]:
+    """The source cells, or under a smoke the producers' smoke twins of them."""
+    return [cell + suffix for cell in EXPERIMENTS[experiment][1][condition]]
+
+
 def source_config(sources: list[str]) -> dict:
     import yaml  # noqa: PLC0415
 
@@ -179,9 +189,10 @@ def save_status(status: dict) -> None:
     STATUS.write_text(json.dumps(status, indent=2), encoding="utf-8")
 
 
-def _missing_sources(experiments: list[str]) -> list[str]:
-    return [cell for e in experiments for sources in EXPERIMENTS[e][1].values()
-            for cell in sources if not (ROOT / "results" / cell / "_complete").exists()]
+def _missing_sources(experiments: list[str], suffix: str = "") -> list[str]:
+    return [cell for e in experiments for c in EXPERIMENTS[e][1]
+            for cell in sources_for(e, c, suffix)
+            if not (ROOT / "results" / cell / "_complete").exists()]
 
 
 def tune(args, train, test, experiments: list[str], suffix: str) -> int:
@@ -191,7 +202,7 @@ def tune(args, train, test, experiments: list[str], suffix: str) -> int:
           f"({', '.join(experiments)}), {len(LR_SEEDS)} seeds\n", flush=True)
     started = time.time()
     for index, (experiment, condition, rate) in enumerate(cells, start=1):
-        sources = EXPERIMENTS[experiment][1][condition]
+        sources = sources_for(experiment, condition, suffix)
         name = lr_run_name(experiment, condition, rate, suffix)
         entries = [{"name": n, "lr": rate} for n in ADAMW]
         note = run_one(config_for(sources, name, entries, args, suffix, seeds=LR_SEEDS),
@@ -225,9 +236,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.report_only:
         report(args.experiment, suffix)
         return 0
-    missing = _missing_sources(args.experiment)
+    missing = _missing_sources(args.experiment, suffix)
     if missing:
         print(f"  REFUSED: source cell(s) not finished: {missing}")
+        if suffix:
+            print("  A smoke reads the producers' smoke cells: run X20, X25, X25+, P5.3 and "
+                  "P5.7 with --smoke first (scripts/reproduce.py does it in order).")
         return 1
     if not dataset_is_cached(args.dataset, DATA_ROOT):
         print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
@@ -249,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
     status = load_status()
     started = time.time()
     for index, (experiment, condition) in enumerate(cells, start=1):
-        sources = EXPERIMENTS[experiment][1][condition]
+        sources = sources_for(experiment, condition, suffix)
         rates = selected_rates(experiment, condition, suffix)
         entries = [{"name": n, "lr": rates[n]} for n in ADAMW]
         entries.append(reproduction_entry(source_config(sources)))
@@ -278,10 +292,11 @@ def _pooled(sources: list[str], learner: str) -> dict[int, float]:
 def report(experiments: list[str], suffix: str = "") -> None:
     mean = lambda d: sum(d.values()) / len(d) if d else float("nan")  # noqa: E731
     if suffix:
-        print("  SMOKE: 20 steps at one seed. The merge gate cannot hold here -- the source")
-        print("  cells ran the full horizon -- so it is reported, not trusted.\n")
+        print("  SMOKE: 20 steps at seed 0, against the producers' smoke cells. The gate")
+        print("  compares like with like, so it must hold; the statistics are one seed.\n")
     for experiment in experiments:
-        onehop, conditions = EXPERIMENTS[experiment]
+        onehop = EXPERIMENTS[experiment][0]
+        conditions = {c: sources_for(experiment, c, suffix) for c in EXPERIMENTS[experiment][1]}
         print(f"\n  ===== {experiment} =====")
         print("\n  merge gate: the recorded SGD learner, re-run in the AdamW cell, per seed")
         gates = {}

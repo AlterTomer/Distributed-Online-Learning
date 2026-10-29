@@ -2,8 +2,12 @@ r"""X25 -- the diffusion filter under Dirichlet label skew (P5.2).
 
     python scripts/run_diffusion_skew.py --lr   # re-tune the baselines, first
     python scripts/run_diffusion_skew.py        # the cells themselves
+    python scripts/run_diffusion_skew.py --lr --smoke   # then --smoke
 
 `--lr` must run first and the main pass refuses without it (D77).
+
+``--smoke`` runs 20 steps at one seed into `_smoke`-suffixed runs; X26, X25+ and the
+AdamW pass read them in their own smokes.
 
 ## Why this is the row that matters
 
@@ -122,17 +126,17 @@ CONDITIONS: list[tuple[str, float, dict | None]] = [
 ] + [(name, DRIFT_SKEW, block) for name, block in DRIFTS.items()]
 
 
-def lr_run_name(condition: str, rate: float) -> str:
-    return f"x25_lr_{condition}_lr{rate:g}".replace(".", "p")
+def lr_run_name(condition: str, rate: float, suffix: str = "") -> str:
+    return f"x25_lr_{condition}_lr{rate:g}".replace(".", "p") + suffix
 
 
-def cell_name(condition: str, twin: bool = False) -> str:
-    return f"x25_control_{condition}" if twin else f"x25_{condition}"
+def cell_name(condition: str, twin: bool = False, suffix: str = "") -> str:
+    return (f"x25_control_{condition}" if twin else f"x25_{condition}") + suffix
 
 
-def group_b_name(learner: str, skew: float, beta: float) -> str:
+def group_b_name(learner: str, skew: float, beta: float, suffix: str = "") -> str:
     stem = learner.replace("diffusion_ekf_", "")
-    return f"x25_{stem}_b{skew:g}_beta{beta:g}".replace(".", "p")
+    return f"x25_{stem}_b{skew:g}_beta{beta:g}".replace(".", "p") + suffix
 
 
 def settled(run: str, learner: str, metric: str = "error_rate") -> float:
@@ -152,11 +156,12 @@ def settled(run: str, learner: str, metric: str = "error_rate") -> float:
     return float(rows["value"].mean()) if len(rows) else float("inf")
 
 
-def selected_rates(condition: str) -> dict[str, float] | None:
+def selected_rates(condition: str, suffix: str = "") -> dict[str, float] | None:
     """Each baseline's own argmin, or None when the condition is unswept."""
     rates: dict[str, float] = {}
     for name in BASELINES:
-        scored = [(settled(lr_run_name(condition, r), name), r) for r in LEARNING_RATES]
+        scored = [(settled(lr_run_name(condition, r, suffix), name), r)
+                  for r in LEARNING_RATES]
         scored = [(v, r) for v, r in scored if v != float("inf")]
         if not scored:
             return None
@@ -193,19 +198,21 @@ def save_status(status: dict) -> None:
     STATUS.write_text(json.dumps(status, indent=2), encoding="utf-8")
 
 
-def tune(args, train, test) -> int:
+def tune(args, train, test, suffix: str = "") -> int:
     """The SGD baselines only; the filter carries its own selection by design."""
     status = load_status()
+    lr_seeds = [0] if suffix else LR_SEEDS
     total = len(CONDITIONS) * len(LEARNING_RATES)
-    print(f"X25 lr: {len(CONDITIONS)} conditions x {len(LEARNING_RATES)} rates at "
-          f"{len(LR_SEEDS)} seeds, on {TOPOLOGY[0]}\n", flush=True)
+    print(f"X25{' SMOKE' if suffix else ''} lr: {len(CONDITIONS)} conditions x "
+          f"{len(LEARNING_RATES)} rates at {len(lr_seeds)} seeds, on {TOPOLOGY[0]}\n",
+          flush=True)
     started, index = time.time(), 0
     for condition, skew, drift in CONDITIONS:
         for rate in LEARNING_RATES:
             index += 1
-            name = lr_run_name(condition, rate)
+            name = lr_run_name(condition, rate, suffix)
             entries = [{"name": n, "lr": rate, **o} for n, o in BASELINES.items()]
-            note = run_one(config_for(args, name, skew, drift, entries, seeds=LR_SEEDS),
+            note = run_one(config_for(args, name, skew, drift, entries, seeds=lr_seeds),
                            train, test, args.fresh)
             status[name] = note
             save_status(status)
@@ -215,7 +222,7 @@ def tune(args, train, test) -> int:
     print(f"\nlr complete in {(time.time() - started) / 60:.1f} min\n")
     print(f"  {'condition':>16}" + "".join(f"{n:>20}" for n in BASELINES))
     for condition, _s, _d in CONDITIONS:
-        rates = selected_rates(condition)
+        rates = selected_rates(condition, suffix)
         if rates:
             print(f"  {condition:>16}" + "".join(f"{rates[n]:>20g}" for n in BASELINES))
     return 0
@@ -227,25 +234,30 @@ def main(argv: list[str] | None = None) -> int:
                         help="re-tune the SGD baselines instead of running the sweep")
     parser.add_argument("--report-only", action="store_true",
                         help="print the surface from cells already on disk")
+    parser.add_argument("--smoke", action="store_true",
+                        help="20 steps at one seed, into _smoke-suffixed runs")
     args = parser.parse_args(argv)
+    suffix = "_smoke" if args.smoke else ""
+    if args.smoke:
+        args.horizon, args.seeds = 20, [0]
 
     if args.report_only:
-        report()
+        report(suffix)
         return 0
     if not dataset_is_cached(args.dataset, DATA_ROOT):
         print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
         return 1
     train, test = load_dataset(args.dataset, DATA_ROOT, download=False)
     if args.lr:
-        return tune(args, train, test)
+        return tune(args, train, test, suffix)
 
-    rates = {c: selected_rates(c) for c, _s, _d in CONDITIONS}
+    rates = {c: selected_rates(c, suffix) for c, _s, _d in CONDITIONS}
     missing = sorted(c for c, r in rates.items() if r is None)
     if missing:
         print(f"\nThe learning-rate sweep has not run for {missing}. Without it a\n"
               "baseline would carry a rate chosen for another condition, which put a\n"
               "baseline at chance and inverted a damage ordering once already (D77).\n"
-              "  python scripts/run_diffusion_skew.py --lr\n")
+              f"  python scripts/run_diffusion_skew.py --lr{' --smoke' if suffix else ''}\n")
         return 1
 
     cells: list[tuple[str, float, dict | None, list[dict]]] = []
@@ -255,17 +267,19 @@ def main(argv: list[str] | None = None) -> int:
             + [{"name": n, **FILTER} for n in GROUP_A]
             + [{"name": n, "lr": rates[condition][n], **o} for n, o in BASELINES.items()]
         )
-        cells.append((cell_name(condition), skew, drift, entries))
+        cells.append((cell_name(condition, suffix=suffix), skew, drift, entries))
         if drift is not None:
             # Damage needs a twin differing in the drift alone -- same skew, same
             # rates, same learners.
-            cells.append((cell_name(condition, twin=True), skew, None, entries))
+            cells.append((cell_name(condition, twin=True, suffix=suffix), skew, None,
+                          entries))
 
     for learner in GROUP_B:
         for skew in GROUP_B_SKEWS:
             for beta in COMBINE_EXPONENTS:
                 entries = [{"name": learner, **FILTER, "combine_exponent": beta}]
-                cells.append((group_b_name(learner, skew, beta), skew, None, entries))
+                cells.append((group_b_name(learner, skew, beta, suffix), skew, None,
+                              entries))
 
     print(f"\nX25: {len(cells)} cells at {len(args.seeds)} seeds, T={args.horizon}")
     for name, skew, drift, entries in cells:
@@ -286,18 +300,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[{index}/{len(cells)}] {name:<34} {note:<28} "
               f"{elapsed:.0f} min, ~{remaining:.0f} left", flush=True)
 
-    print(f"\nX25 complete in {(time.time() - started) / 60:.1f} min\n")
-    report()
+    print(f"\nX25{' smoke' if suffix else ''} complete in "
+          f"{(time.time() - started) / 60:.1f} min\n")
+    report(suffix)
     return 0
 
 
-def report() -> None:
+def report(suffix: str = "") -> None:
     r"""The skew curve, the damage pair, and whether skew makes $\beta$ live."""
     names = ["centralized_ekf_gamma", *GROUP_A, *BASELINES]
     print("  settled error by skew (still cells)")
     print(f"    {'skew':>8}" + "".join(f"{n.replace('diffusion_', 'd_'):>26}" for n in names))
     for skew in SKEWS:
-        run = cell_name(f"still_b{skew:g}")
+        run = cell_name(f"still_b{skew:g}", suffix=suffix)
         line = f"    {skew:>8g}"
         for learner in names:
             value = settled(run, learner)
@@ -306,7 +321,7 @@ def report() -> None:
 
     print("\n  spread across the skew axis (X6: pooled 0.0020, local_only 0.4882)")
     for learner in names:
-        vals = [settled(cell_name(f"still_b{s:g}"), learner) for s in SKEWS]
+        vals = [settled(cell_name(f"still_b{s:g}", suffix=suffix), learner) for s in SKEWS]
         vals = [v for v in vals if v != float("inf")]
         if len(vals) == len(SKEWS):
             print(f"    {learner:<26}{max(vals) - min(vals):.4f}")
@@ -317,8 +332,8 @@ def report() -> None:
     for condition in DRIFTS:
         line = f"    {condition:>10}"
         for learner in names:
-            drifting = settled(cell_name(condition), learner)
-            twin = settled(cell_name(condition, twin=True), learner)
+            drifting = settled(cell_name(condition, suffix=suffix), learner)
+            twin = settled(cell_name(condition, twin=True, suffix=suffix), learner)
             if drifting == float("inf") or twin == float("inf"):
                 line += f"{'-':>26}"
             else:
@@ -332,7 +347,7 @@ def report() -> None:
         for skew in GROUP_B_SKEWS:
             line = f"    {learner:>22}{skew:>8g}"
             for beta in COMBINE_EXPONENTS:
-                run = group_b_name(learner, skew, beta)
+                run = group_b_name(learner, skew, beta, suffix)
                 if (ROOT / "results" / run / "_diverged").exists():
                     line += f"{'DIV':>12}"
                     continue

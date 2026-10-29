@@ -6,6 +6,11 @@ r"""P5.12 -- do the diffusion filters' agents converge to the centralised filter
 
 No `--lr`: every learner carries its source cell's recorded entry.
 
+``--smoke`` is rebuilt from the producers' smoke cells (`<source>_smoke`: P5.3 and
+P5.7 run with `--smoke`), taking their horizon, cadence and seed unchanged, so the
+gate compares like with like and must hold. It runs on the CPU unless `--device`
+names another.
+
 ## Why this is a run and not "analysis only"
 
 `phase5_plan.md` P5.12 asks whether the filters' agents converge, and whether "to the
@@ -75,7 +80,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import yaml  # noqa: E402
-from _args import sweep_parser  # noqa: E402
+from _args import smoke_device, sweep_parser  # noqa: E402
 from run_ekf_generalization import run_one  # noqa: E402
 from run_linearization_point import per_seed  # noqa: E402
 from run_p57_heterogeneous_drift import ALPHA, STAT_HEADER, stat_columns  # noqa: E402
@@ -94,7 +99,6 @@ LOCAL, ONEHOP = "diffusion_ekf", "diffusion_ekf_onehop_mean_receiver"
 MEAN_ONLY = [LOCAL, ONEHOP]
 FULL_SHARING = ["diffusion_ekf_full", "diffusion_ekf_onehop_receiver"]
 TOLERANCE = 1e-9
-SMOKE_HORIZON, SMOKE_EVAL_EVERY = 20, 5
 DATA_ROOT = ROOT / "data"
 STATUS = ROOT / "results" / "dis_status.json"
 
@@ -103,26 +107,30 @@ def cell_name(condition: str, group: str, suffix: str = "") -> str:
     return f"dis_{condition}_{group}{suffix}"
 
 
+def source_of(condition: str, group: str, suffix: str = "") -> str:
+    """The source cell, or under a smoke the producer's smoke twin of it."""
+    return SOURCES[condition][group] + suffix
+
+
 def recorded(cell: str) -> dict:
     return yaml.safe_load((ROOT / "results" / cell / "config.yaml").read_text(encoding="utf-8"))
 
 
-def entries_for(condition: str, group: str) -> list[dict]:
+def entries_for(condition: str, group: str, suffix: str = "") -> list[dict]:
     """The source's recorded filter entries; b gains the centralised filter as its reference."""
-    a = {e["name"]: dict(e) for e in recorded(SOURCES[condition]["a"])["learners"]}
+    a = {e["name"]: dict(e) for e in recorded(source_of(condition, "a", suffix))["learners"]}
     if group == "a":
         return [a[CENTRAL], *(a[n] for n in MEAN_ONLY)]
-    b = {e["name"]: dict(e) for e in recorded(SOURCES[condition]["b"])["learners"]}
+    b = {e["name"]: dict(e) for e in recorded(source_of(condition, "b", suffix))["learners"]}
     return [a[CENTRAL], *(b[n] for n in FULL_SHARING)]
 
 
 def config_for(condition: str, group: str, args, suffix: str):
+    """The source's recorded config, renamed; a smoke's source is already a smoke."""
     run = {"name": cell_name(condition, group, suffix), "device": args.device}
-    if suffix:
-        run.update({"horizon": SMOKE_HORIZON, "eval_every": SMOKE_EVAL_EVERY, "seeds": [0]})
-    source = ROOT / "results" / SOURCES[condition][group] / "config.yaml"
+    source = ROOT / "results" / source_of(condition, group, suffix) / "config.yaml"
     return load_config(source, overrides={"run": run,
-                                          "learners": entries_for(condition, group)})
+                                          "learners": entries_for(condition, group, suffix)})
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -132,14 +140,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     suffix = "_smoke" if args.smoke else ""
     if args.smoke:
-        args.device = "cpu"
+        args.device = smoke_device(args, argv)
     if args.report_only:
         report(suffix)
         return 0
-    missing = [c for groups in SOURCES.values() for c in groups.values()
-               if not (ROOT / "results" / c / "_complete").exists()]
+    missing = [source_of(c, g, suffix) for c in SOURCES for g in ("a", "b")
+               if not (ROOT / "results" / source_of(c, g, suffix) / "_complete").exists()]
     if missing:
         print(f"  REFUSED: P5.12 is rebuilt from {missing}, which is not finished.")
+        if suffix:
+            print("  A smoke reads the producers' smoke cells: run P5.3 and P5.7 with --smoke "
+                  "first (scripts/reproduce.py does it in order).")
         return 1
     if not dataset_is_cached(args.dataset, DATA_ROOT):
         print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
@@ -231,17 +242,17 @@ def _time_course(condition: str, learner: str, suffix: str) -> list[tuple[float,
 def report(suffix: str = "") -> None:
     mean = lambda d: sum(d.values()) / len(d) if d else float("nan")  # noqa: E731
     if suffix:
-        print("  SMOKE: 20 steps at one seed, against full-horizon sources, so the gate is")
-        print("  expected to fail. The path is the check.\n")
+        print("  SMOKE: one seed, against the producers' smoke cells. The gate compares")
+        print("  like with like, so it must hold; the statistics are one seed.\n")
 
     print("  gate: each learner's settled error against its source cell, per seed")
     gated = []
     for condition in SOURCES:
         ok = True
         for group in ("a", "b"):
-            for entry in entries_for(condition, group):
+            for entry in entries_for(condition, group, suffix):
                 name = entry["name"]
-                source = SOURCES[condition]["a" if name == CENTRAL else group]
+                source = source_of(condition, "a" if name == CENTRAL else group, suffix)
                 ours = per_seed(cell_name(condition, group, suffix), name)
                 theirs = per_seed(source, name)
                 shared = sorted(set(ours) & set(theirs))
@@ -264,7 +275,7 @@ def report(suffix: str = "") -> None:
             offset = mean(_offset(condition, learner, suffix))
             # Recorded in the *source* cell, which carried centralized_sgd; the rebuilt
             # cells hold filters only. P5.3's and P5.7's b cells had no SGD reference.
-            vs_sgd = (mean(per_seed(SOURCES[condition]["a"], learner, "e_cent"))
+            vs_sgd = (mean(per_seed(source_of(condition, "a", suffix), learner, "e_cent"))
                       if learner in MEAN_ONLY else float("nan"))
             shown = f"{vs_sgd / norm:>10.2e}" if vs_sgd == vs_sgd else f"{'-':>10}"
             print(f"    {condition:<11}{learner:<36}{agree / norm:>10.2e}{offset / norm:>10.2e}"

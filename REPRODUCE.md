@@ -500,11 +500,11 @@ result it must reproduce. The full tables are in the runner's `--report-only` ou
 and in the write-up the entry names: `docs/results.md` for X0–X28 and P5.3, and the
 design note (D-number) for everything after.
 
-For now this is a recipe to follow by hand. The driver that will walk it,
-`scripts/reproduce.py`, and the expected-value files it will check against,
-`reproduce/expected/*.json`, come after the two branches merge (`docs/schedule.md`,
-"The reproduction package"). Until then, the Mackey–Glass entries run from the
-`mg-task` worktree.
+The driver, `scripts/reproduce.py`, walks stages 1–3 on `main` (D141). From stage 4
+on this is still a recipe to follow by hand: the rest of the driver, and the
+expected-value files it will check against (`reproduce/expected/*.json`), come
+after the two branches merge (`docs/schedule.md`, "The reproduction package").
+Until then, the Mackey–Glass entries run from the `mg-task` worktree.
 
 ## 13. Read this first
 
@@ -548,9 +548,29 @@ The expected-value files will state a tolerance per number.
 
 | tier | what runs | cost |
 |---|---|---|
-| **smoke** | stages 1–3: the environment, the tests, and every runner's `--smoke` | CPU only, minutes per runner (the driver will time the whole tier) |
+| **smoke** | stages 1–3: the environment, the tests, and every runner's `--smoke` | about 3.4 h on a laptop CPU (i7-13620H): 4 min of tests, then 3.3 h of smoke, the longest step 36 min (D141). A GPU is faster; that run is still to be timed |
 | **one claim** | one row of stage 5, the rows in its "needs" column, then its report | from the tables: P5.4, for instance, needs only the reference classifier and costs 27 GPU-h |
 | **full** | everything | as recorded: about 126 CPU-h and 550 GPU-h on `main`, and 11 CPU-h and 280 GPU-h on `mg-task`, plus about 250 GPU-h still running or queued (§20) |
+
+### The driver
+
+On `main`, one command runs stages 1–3:
+
+```bash
+python scripts/reproduce.py                  # on the CPU, so it runs on any machine
+python scripts/reproduce.py --device cuda    # if you have a CUDA GPU: much faster
+```
+
+> **If you have a CUDA GPU, pass `--device cuda`.** The CPU is the default only so
+> that the tier runs anywhere. Every runner honours the device it is given.
+
+`--stage 3` runs one stage; `--stage 3 --from run_adamw_pass` resumes the smoke tier
+at a step. A failure does not stop the driver: every step runs, and the summary says
+which passed, which refused and which failed. The exit code is nonzero if any did not
+pass. Everything it records goes to `reproduce/out/<timestamp>/`:
+`environment.json`, `pip_freeze.txt`, one log per step under `logs/`, and
+`summary.txt`. The sections below give the commands it runs, for running a stage by
+hand.
 
 ## 15. Stage 1 — the environment
 
@@ -574,7 +594,7 @@ integrates its series from its seed.
 ## 16. Stage 2 — the tests
 
 ```bash
-python tasks.py test                          # main: 1 517 tests
+python tasks.py test                          # main: 1 505 tests
 cd ../Distributed-Online-Learning-mg
 PYTHONPATH=src python -m pytest               # mg-task: 1 667 tests
 ```
@@ -595,10 +615,23 @@ reproduces on CUDA.
 
 The runners below have a `--smoke` mode: a short horizon at one seed, on the CPU,
 through every code path the real pass takes. Its numbers mean nothing. Where a
-runner has a `--lr` pass, smoke that pass first, exactly as for a real run.
+runner has a `--lr` pass, smoke that pass first, exactly as for a real run. Pass
+`--fresh` as well when repeating a smoke, or its cached cells make it a no-op.
 
-On `main`:
+A smoke writes `_smoke` runs, and a runner that reads another experiment's cells
+reads that experiment's `_smoke` runs under `--smoke`. So the producers smoke first,
+and the tier runs on a fresh clone with no real cells on disk (D141). The AdamW pass
+and P5.12 then rebuild cells with the same horizon, cadence and seed as their smoke
+sources, so their merge gates must hold in the smoke too, and the driver fails a
+smoke whose gate does not.
 
+On `main`, in this order:
+
+- **The producers:** `run_diffusion_ekf.py --lr --smoke` (X19; its main pass has no
+  smoke, since it reads X13's cells); `run_diffusion_tuning.py --tune --smoke`, then
+  `--smoke` (X20); `run_diffusion_skew.py` and `run_atc_plain.py` (X25, X26),
+  `--lr --smoke` then `--smoke`; `run_skew_topup.py --smoke` (X25+, at seed 3, its
+  first top-up seed); `run_diffusion_topology.py --lr --smoke`, then `--smoke` (P5.3).
 - **`--lr --smoke`, then `--smoke`:** `run_network_size.py`,
   `run_p57_heterogeneous_drift.py`, `run_belief_calibration.py`, `run_break_rate.py`,
   `run_label_shift.py`, `run_label_sparsity.py`, `run_midtransient_shift.py`,
@@ -623,8 +656,12 @@ On `mg-task`:
 - **`run_gnn.py`:** `--smoke --reference`, `--smoke --tune-filters`, `--smoke --lr`,
   then `--smoke`; and the same four with `--twin`.
 
-The other runners (X0–X28 and P5.3; on `mg-task`, M2–M5 and M6's isolated and
-shift-cycle follow-ups) have no smoke mode. Do not imitate one by shortening a
+On `mg-task` these still read the real source cells; they join the chain, and the
+driver, at the merge (D141).
+
+The other runners (X0–X28 apart from the producers above; on `mg-task`, M2–M5 and
+M6's isolated and shift-cycle follow-ups) have no smoke mode. Do not imitate one by
+shortening a
 horizon. Runs are cached by name, so a short run under a real name would be found
 complete by the real pass. Part I's loop proves the code those runners use.
 

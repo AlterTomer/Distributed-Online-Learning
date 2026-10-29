@@ -24,6 +24,8 @@ htmlcov/
 # The default figure output directory (utils/paths.py). Generated: a PNG in the
 # history goes stale the moment a run is re-tuned.
 /figures/
+# What scripts/reproduce.py records: logs, the environment, the summary. Per machine.
+/reproduce/out/
 
 # OS
 Thumbs.db

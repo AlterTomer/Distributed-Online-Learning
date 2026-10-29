@@ -5,8 +5,13 @@ Run this file directly.
     python scripts/run_diffusion_ekf.py --lr     # re-tune the SGD baseline, first
     python scripts/run_diffusion_ekf.py          # the cells themselves
     python scripts/run_diffusion_ekf.py --fresh  # discard and redo
+    python scripts/run_diffusion_ekf.py --lr --smoke   # 20 steps, one seed
 
 `--lr` must run first; the main pass refuses without it (design note D77).
+
+``--smoke`` exists for the lr pass only, into `_smoke`-suffixed runs, because X20's
+smoke reads these rates. The main pass has none: it reads X13's cells, which a
+fresh clone does not have.
 
 ## The question
 
@@ -141,9 +146,9 @@ def condition_name(condition: str, topology: str) -> str:
     return f"{condition}_{topology}"
 
 
-def lr_run_name(condition: str, topology: str, rate: float) -> str:
+def lr_run_name(condition: str, topology: str, rate: float, suffix: str = "") -> str:
     stem = condition_name(condition, topology)
-    return f"x19_lr_{stem}_lr{f'{rate:g}'.replace('.', 'p')}"
+    return f"x19_lr_{stem}_lr{f'{rate:g}'.replace('.', 'p')}" + suffix
 
 
 def settled(run: str, learner: str) -> float:
@@ -163,11 +168,15 @@ def settled(run: str, learner: str) -> float:
     return float(rows["value"].mean()) if len(rows) else float("inf")
 
 
-def selected_rates(condition: str, topology: str) -> dict[str, float] | None:
-    """One rate per SGD learner per cell, each taking its own argmin."""
+def selected_rates(condition: str, topology: str, suffix: str = "") -> dict[str, float] | None:
+    """One rate per SGD learner per cell, each taking its own argmin.
+
+    ``suffix`` keeps a smoke reading its own lr cells, never the real ones.
+    """
     rates: dict[str, float] = {}
     for entry in (BASELINE, LOCAL):
-        scored = [(settled(lr_run_name(condition, topology, rate), entry["name"]), rate)
+        scored = [(settled(lr_run_name(condition, topology, rate, suffix), entry["name"]),
+                   rate)
                   for rate in LEARNING_RATES]
         scored = [(v, r) for v, r in scored if v != float("inf")]
         if not scored:
@@ -204,23 +213,24 @@ def save_status(status: dict) -> None:
     STATUS.write_text(json.dumps(status, indent=2), encoding="utf-8")
 
 
-def tune(args, train, test) -> int:
+def tune(args, train, test, suffix: str = "") -> int:
     """The SGD baselines only. The filter carries X13's setting by design."""
     status = load_status()
+    lr_seeds = [0] if suffix else LR_SEEDS
     cells = [(c, t) for c, _d in CONDITIONS for t in TOPOLOGY_NAMES]
     total = len(cells) * len(LEARNING_RATES)
-    print(f"X19 lr re-tune: {len(cells)} cells x {len(LEARNING_RATES)} rates "
-          f"at {len(LR_SEEDS)} seeds\n", flush=True)
+    print(f"X19{' SMOKE' if suffix else ''} lr re-tune: {len(cells)} cells x "
+          f"{len(LEARNING_RATES)} rates at {len(lr_seeds)} seeds\n", flush=True)
     started, index = time.time(), 0
     drifts = dict(CONDITIONS)
     for condition, topology in cells:
         for rate in LEARNING_RATES:
             index += 1
-            name = lr_run_name(condition, topology, rate)
+            name = lr_run_name(condition, topology, rate, suffix)
             entries = [{**BASELINE, "lr": rate}, {**LOCAL, "lr": rate}]
             note = run_one(
                 config_for(args, name, drifts[condition], topology, entries,
-                           seeds=LR_SEEDS),
+                           seeds=lr_seeds),
                 train, test, args.fresh)
             status[name] = note
             save_status(status)
@@ -230,7 +240,7 @@ def tune(args, train, test) -> int:
     print(f"\nlr re-tune complete in {(time.time() - started) / 60:.1f} min\n")
     print(f"  {'cell':>24}{'atc':>10}{'local_only':>13}")
     for condition, topology in cells:
-        rates = selected_rates(condition, topology)
+        rates = selected_rates(condition, topology, suffix)
         if rates:
             print(f"  {condition_name(condition, topology):>24}"
                   f"{rates[BASELINE['name']]:>10g}{rates[LOCAL['name']]:>13g}")
@@ -241,14 +251,22 @@ def main(argv: list[str] | None = None) -> int:
     parser = sweep_parser(__doc__.split("\n")[0], horizon=HORIZON, seeds=SEEDS)
     parser.add_argument("--lr", action="store_true",
                         help="re-tune the SGD baselines instead of running the sweep")
+    parser.add_argument("--smoke", action="store_true",
+                        help="with --lr: 20 steps at one seed, into _smoke-suffixed runs")
     args = parser.parse_args(argv)
+    if args.smoke and not args.lr:
+        print("  REFUSED: --smoke exists for --lr only; the main pass reads X13's cells.")
+        return 1
+    suffix = "_smoke" if args.smoke else ""
+    if args.smoke:
+        args.horizon, args.seeds = 20, [0]
 
     if not dataset_is_cached(args.dataset, DATA_ROOT):
         print(f"{args.dataset} is not cached. Run scripts/check_data.py once, then retry.")
         return 1
     train, test = load_dataset(args.dataset, DATA_ROOT, download=False)
     if args.lr:
-        return tune(args, train, test)
+        return tune(args, train, test, suffix)
 
     print("X13's selected setting, carried here unchanged:")
     setting = next(s for s in tuned_settings() if s["name"] == "centralized_ekf_gamma")

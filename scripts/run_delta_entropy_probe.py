@@ -4,6 +4,10 @@ r"""The differential-coding probe: how many bits would each learner's messages n
     python scripts/run_delta_entropy_probe.py --report-only
     python scripts/run_delta_entropy_probe.py --smoke            # the path, on CPU, in minutes
 
+``--smoke`` is built from the producers' smoke cells (P5.3's `p53_er030_a_smoke`, X20's
+`x20_every25_jump15_erdos_renyi_smoke`), so it runs on a fresh clone. It runs on the
+CPU unless `--device` is given explicitly.
+
 The measurement that gates C2 (`docs/communication_plan.md` §4.2--4.3, D136). The
 proposal (`Diff_EKF_Huffman_Communication_Summary`) is to send each message as a
 quantised difference against a public copy $\tilde{\boldsymbol\psi}$ every neighbour
@@ -93,7 +97,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import torch  # noqa: E402
 import yaml  # noqa: E402
-from _args import sweep_parser  # noqa: E402
+from _args import smoke_device, sweep_parser  # noqa: E402
 from run_float32_probe import build, pool, splits  # noqa: E402
 
 from dekf_bench.compression import Channel  # noqa: E402
@@ -286,8 +290,14 @@ class RecordingChannel(Channel):
                 row["distortion"].append(float((x - copy).pow(2).mean().sqrt() / delta))
 
 
-def run_condition(task: str, condition: str, args, smoke: bool) -> dict:
-    source = ROOT / "results" / SOURCES[task][condition] / "config.yaml"
+def source_of(task: str, condition: str, suffix: str = "") -> str:
+    """The source cell, or under a smoke the producer's smoke twin of it."""
+    return SOURCES[task][condition] + suffix
+
+
+def run_condition(task: str, condition: str, args, suffix: str) -> dict:
+    smoke = bool(suffix)
+    source = ROOT / "results" / source_of(task, condition, suffix) / "config.yaml"
     recorded = yaml.safe_load(source.read_text(encoding="utf-8"))
     entries = [dict(e) for e in recorded["learners"] if e["name"] in PROBED]
     run = {"name": "delta_probe", "seeds": [args.seed], "device": args.device}
@@ -306,7 +316,7 @@ def run_condition(task: str, condition: str, args, smoke: bool) -> dict:
     jumps = [t for t in range(1, environment.horizon) if rotations[t] != rotations[t - 1]]
     nodes = list(range(environment.n_nodes))
     weights = environment.graph.weights
-    print(f"  {condition}: {SOURCES[task][condition]}, seed {args.seed}, T={environment.horizon}, "
+    print(f"  {condition}: {source_of(task, condition, suffix)}, seed {args.seed}, T={environment.horizon}, "
           f"{', '.join(learners)}", flush=True)
     started = time.time()
     for step in range(environment.horizon):
@@ -329,7 +339,7 @@ def run_condition(task: str, condition: str, args, smoke: bool) -> dict:
         STATS_OUT[prefix + "layers"] = [n for n, _part in channel.layers]
         STATS_OUT.update({prefix + f"scales/{k}": s for k, s in channel.layer_scales.items()})
     return {
-        "source": SOURCES[task][condition], "horizon": environment.horizon, "jumps": jumps,
+        "source": source_of(task, condition, suffix), "horizon": environment.horizon, "jumps": jumps,
         "p": p, "theta_rms": theta_rms, "data_scalars": batch,
         "series": {name: {f"{k}|{rule}|{eps:g}": dict(values)
                           for (k, rule, eps), values in channel.series.items()}
@@ -460,19 +470,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     suffix = "_smoke" if args.smoke else ""
     if args.smoke:
-        args.device = "cpu"
+        args.device = smoke_device(args, argv)
     task = task_of()
     if args.report_only:
         report(task, suffix)
         report_stats(task, suffix)
         return 0
-    missing = [c for c in SOURCES[task].values() if not (ROOT / "results" / c / "_complete").exists()]
+    missing = [source_of(task, c, suffix) for c in SOURCES[task]
+               if not (ROOT / "results" / source_of(task, c, suffix) / "_complete").exists()]
     if missing:
         print(f"  REFUSED: the probe is built from {missing}, which is not finished.")
+        if suffix:
+            print("  A smoke reads the producers' smoke cells: run P5.3 and X20 with --smoke "
+                  "first (scripts/reproduce.py does it in order).")
         return 1
     print(f"delta probe: {task}, device {args.device}\n", flush=True)
     result = {"task": task, "seed": args.seed, "epsilons": EPSILONS,
-              "conditions": {c: run_condition(task, c, args, bool(suffix)) for c in args.conditions}}
+              "conditions": {c: run_condition(task, c, args, suffix) for c in args.conditions}}
     out_file(task, suffix).write_text(json.dumps(result), encoding="utf-8")
     save_stats(task, suffix)
     report(task, suffix)
