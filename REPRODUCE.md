@@ -784,7 +784,7 @@ family (D118).
 | codec | `run_codec.py --calibrate`, `--validate`, then `--report-runs` | P5.3, X20, X25+ | 91.6 | local adapt at 4.3 bits per parameter against 64, within ±0.0002 error of its uncompressed twin | D137, D138 |
 | D1, $K$ inner steps | `run_inner_steps.py --lr`, then bare; bare again for the $K=8$ `central` re-run (D1c) | P5.4 ($K=1$, stationary) | 45.4 + ~5 | extra passes help centralised AdamW (abrupt −0.0376) and widen ATC AdamW's gap under skew (+0.0325); every filter is worse at $K>1$ | D139, D142 |
 | D2, dither | `run_codec.py --dither --calibrate`, `--validate`, `--report-runs` | codec | 36.2 | no change for D-BOLT at C\* = 0.01 (local adapt 4.33 bits); ATC AdamW rescued, +0.075 → −0.003 at c = 0.01 | D139, D144 |
-| D3a, block covariance | `run_covariance_blocks.py` | P5.4, D1 | 3.7 | ⏳ run, not yet analysed | D139 |
+| D3a, block covariance | `run_covariance_blocks.py` | P5.4, D1 | 3.7 | neuron blocks: +0.005 to +0.010 error for a covariance 15× smaller; layer blocks 1.1× smaller | D139, D146 |
 
 ### 19.6 `mg-task`: the main comparison and what is built on it
 

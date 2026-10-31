@@ -4126,6 +4126,40 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D146. D3a on MNIST: neuron blocks cost 0.005–0.010 error for a covariance 15× smaller; layer blocks save nothing
+
+Analysed 2026-10-31 (queue 5, step 11: 3.7 GPU-h, 8 cells, five seeds, $T=750$, no
+divergence). The full covariance is reused from D1's $K=1$ cells (P5.4 for still).
+Settled error, last 20%, current set:
+
+| | still: full | neuron | layer | abrupt: full | neuron | layer |
+|---|---|---|---|---|---|---|
+| centralised | 0.0650 | 0.0721 | 0.0681 | 0.1082 | 0.1136 | 0.1093 |
+| local adapt | 0.0858 | 0.0932 | 0.0905 | 0.1374 | 0.1457 | 0.1415 |
+| one-hop mean | 0.0769 | 0.0847 | 0.0822 | 0.1199 | 0.1268 | 0.1261 |
+| full sharing | 0.0852 | 0.0935 | 0.0901 | 0.1354 | 0.1457 | 0.1408 |
+| one-hop, full sharing | 0.0768 | 0.0845 | 0.0814 | 0.1202 | 0.1267 | 0.1256 |
+
+- **Q1 (confirmatory, no direction predicted, read against ε = 0.002): neuron blocks cost
+  +0.0054 to +0.0103 on all ten rows**, every one significant after Holm and every one
+  past ε. The decoupled EKF is not free on MNIST.
+- **Layer blocks cost less (+0.0011 to +0.0062, 9 of 10 significant) but buy almost
+  nothing**: on the 196–14–10 network the first layer holds 2 758 of the 2 908
+  parameters, so its block is nearly the whole covariance (3.82M stored entries against
+  4.23M, 1.1×) and a group-b cell takes as long as the full one (40.3 min against 42.8).
+- **Neuron blocks are the real saving**: 274k entries, **15.4× fewer**, and a group-b cell
+  in 15.1 min, 2.8× faster. For the full-sharing filters, which send $\boldsymbol P$, the
+  covariance message shrinks by the same 15×.
+- **D-BOLT stays ahead on neuron blocks.** One-hop with neuron blocks (0.0847 still,
+  0.1268 abrupt) still beats every decentralised gradient baseline at $K=1$ in D1's cells
+  (ATC 0.0918 / 0.1554, ATC AdamW 0.0980 / 0.1683).
+- Neuron minus layer is positive everywhere (finer blocks do worse, as they drop more
+  cross-terms), significant in one row of ten.
+
+For D3c (the ~20k-parameter GNN, queue 6) neuron blocks were decided as necessary
+(D139); the twin's full/neuron/layer ablation there is the one that decides its variant.
+No decision was needed here.
+
 ### ✅ D145. D2 on Mackey–Glass: dither moves every baseline to c = 0.01; each learner gets its best quantiser
 
 Analysed 2026-10-31 (queue 5, steps 08–10: 22.0 + 13.3 + 14.0 = 49.3 GPU-h). Every
@@ -4259,7 +4293,23 @@ Jacobians, so the filter keeps gaining information and grows over-confident. MNI
 filters shrink by $\gamma=0.9995$ a step, and degraded far less.
 
 **A third arm** (the user's choice, over reporting the mechanism and over re-tuning per
-$K$ outright): `--gamma 0.9995` on MG, $K=1$ and $K=2$. *Result pending.*
+$K$ outright): `--gamma 0.9995` on MG, $K=1$ and $K=2$ (on `centralized_ekf_gamma`: the
+walk refuses any $\gamma\neq1$ by name, D71).
+
+| step 600 | RMSE | tr P | ‖m‖ |
+|---|---|---|---|
+| $K=1$, $\gamma=1$ | 0.145 | 21.0 | 12.8 |
+| $K=2$, $\gamma=1$ | 0.255 | 11.9 | 18.3 |
+| $K=1$, $\gamma=0.9995$ | 0.146 | 13.6 | 10.6 |
+| $K=2$, $\gamma=0.9995$ | 0.203 | 8.5 | 14.1 |
+
+**Shrinkage slows the drift and does not stop it.** At $K=1$ it costs nothing; at $K=2$ the
+norm grows at ~40% of the $\gamma=1$ rate (12.05 → 14.12 between steps 100 and 600) and
+the RMSE still climbs (0.153 → 0.203). $\operatorname{tr}\bm P$ keeps falling throughout, so
+the filter grows more confident as it gets worse: the process noise, selected for one
+pass, looks too small for a filter that follows each batch fully. The mechanism stands —
+iterating pushes the mean steadily outward and the belief over-tightens — and MNIST's
+$\gamma$ explains part of its milder degradation, not all of it.
 
 ### ❓ D142. D1 on MNIST: extra passes help the gradient learners and hurt every filter; the K = 8 cells a diverged
 
