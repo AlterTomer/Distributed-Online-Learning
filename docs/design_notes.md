@@ -4126,6 +4126,46 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D147. D3a on Mackey–Glass: blocks cost more than on MNIST, local adapt most; one-hop keeps its lead on either
+
+Analysed 2026-10-31 (queue 5, step 12: 6.9 GPU-h, 8 cells, five seeds, $T=1500$, no
+divergence). Full covariance reused from M6 / D1's $K=1$ cells. The Transformer has
+$p=2273$: **neuron blocks** are 133 blocks (the largest 33 parameters) holding 24 409
+entries, **106× fewer** than the full 2 584 401; **layer blocks** are 8 (the largest 816),
+660 097 entries, **3.9× fewer**. Settled RMSE, last 20%, current set:
+
+| | stationary: full | neuron | layer | linear: full | neuron | layer |
+|---|---|---|---|---|---|---|
+| centralised | 0.1391 | 0.1499 | 0.1446 | 0.1434 | 0.1562 | 0.1497 |
+| local adapt | 0.1442 | **0.1761** | 0.1514 | 0.1507 | **0.1863** | 0.1590 |
+| one-hop mean | 0.1408 | 0.1519 | 0.1448 | 0.1455 | 0.1588 | 0.1503 |
+| full sharing | 0.1439 | 0.1760 | 0.1514 | 0.1503 | 0.1862 | 0.1590 |
+| one-hop, full sharing | 0.1408 | 0.1518 | 0.1446 | 0.1452 | 0.1586 | 0.1502 |
+
+- **Q1: neuron blocks cost +0.011 to +0.036 RMSE, all ten rows significant and past ε** —
+  2–5× MNIST's cost. **Local adapt and full sharing lose three times what one-hop and the
+  centralised filter lose** (+0.032–0.036 against +0.011–0.013): a filter that sees only its
+  own batch leans hardest on the cross-terms the blocks drop; one-hop's neighbours' batches
+  make up for part of them.
+- **Layer blocks cost +0.004 to +0.009** (all significant, eight of ten past ε) for 3.9×,
+  and neuron minus layer is positive and significant on every row: here the finer blocks
+  are clearly worse.
+- **Against the gradient baselines** (D1's $K=1$ cells, stationary / linear): one-hop on
+  neuron blocks (0.1519 / 0.1588) still beats all of them, centralised AdamW included
+  (0.1628 / 0.1694); **local adapt on neuron blocks does not** — it falls behind ATC AdamW
+  (0.1659 / 0.1722) and level with ATC (0.1779 / 0.1870). On layer blocks local adapt
+  (0.1514 / 0.1590) still beats every baseline.
+- **Time is not where the saving is at $p\approx2.3$k**: a group-b cell takes 43–45 min on
+  neuron blocks and 53–55 on layer blocks against ~79 for the full covariance (D1's τ-spread
+  $K=1$ cell b), because the Jacobians dominate; the saving is memory, and for the
+  full-sharing filters the covariance message (106× and 3.9×).
+
+**Bearing on D3c.** D139 made neuron blocks the GNN's main variant because at ~20k
+parameters the full covariance does not fit. MG's result says the price is high for local
+adapt and moderate for one-hop; the GNN twin's full/neuron/layer ablation (queue 6, running)
+is where its variant is decided, and these numbers go to that decision. No decision was
+needed here.
+
 ### ✅ D146. D3a on MNIST: neuron blocks cost 0.005–0.010 error for a covariance 15× smaller; layer blocks save nothing
 
 Analysed 2026-10-31 (queue 5, step 11: 3.7 GPU-h, 8 cells, five seeds, $T=750$, no
@@ -4310,6 +4350,31 @@ the filter grows more confident as it gets worse: the process noise, selected fo
 pass, looks too small for a filter that follows each batch fully. The mechanism stands —
 iterating pushes the mean steadily outward and the belief over-tightens — and MNIST's
 $\gamma$ explains part of its milder degradation, not all of it.
+
+**A fourth arm, $q$ ten times larger** (the user's choice; `--q 6e-5` with $\gamma=0.9995$):
+
+| step | $K=1$: RMSE, tr P, ‖m‖ | $K=2$: RMSE, tr P, ‖m‖ |
+|---|---|---|
+| 100 | 0.151, 28.0, 11.4 | 0.205, 20.2, 13.3 |
+| 300 | 0.151, 40.8, 11.6 | 0.393, 26.0, 17.0 |
+| 600 | 0.145, 53.1, 11.9 | **0.745**, 35.5, **20.1** |
+
+**The reading above was the wrong way round.** More process noise keeps $\bm P$ wide, and
+the $K=2$ filter drifts *faster* (0.745 at step 600, against 0.203 at the selected $q$),
+while $K=1$ does not notice (0.145). The tightening belief was a symptom; the cause is how
+far the Gauss–Newton mode lies from the prior mean, which $\bm P$ sets. Every iterated step
+takes the batch's full pull inside a trust region sized for one partial step, the outward
+part of that pull accumulates, and a wider $\bm P$ only lets it accumulate faster. Iterating
+needs a tighter belief, or a damped step, not a looser one.
+
+**Decided** (the user, 2026-10-31, after the four probes): **report the mechanism.** The
+paper states that at the one-pass settings iterated relinearisation helps early (MG step 0:
+0.28 against 0.53) and then drifts, because each step takes the batch's full pull inside a
+trust region sized for one partial step; that the drift scales with the width of $\bm P$
+($q\times10$: 3× worse) and that shrinkage slows it ($\gamma=0.9995$: about half). A damped
+or re-tuned iterated filter is future work. Declined: a $q/10$ arm, a damped variant, a
+per-$K$ re-tune. The gradient learners' D1 results stand as reported (D142, D143), and D1c
+still runs.
 
 ### ❓ D142. D1 on MNIST: extra passes help the gradient learners and hurt every filter; the K = 8 cells a diverged
 

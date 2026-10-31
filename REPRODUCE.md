@@ -817,7 +817,7 @@ Every row here needs M3–M5 (§18).
 | codec | `run_codec.py --calibrate`, `--validate`, then `--report-runs` | M6 | about 65 | local adapt at 1.5 bits per parameter, within +0.0013 RMSE of its twin; every baseline needs a step ten times finer | D138 |
 | D1, $K$ inner steps | `run_inner_steps.py --lr`, then bare | M6 ($K=1$) | 167.0 | centralised SGD gains −0.016 to −0.019 from $K=8$, ATC's gap grows +0.010 to +0.019; every filter worse at $K>1$ | D139, D143 |
 | D2, dither | `run_codec.py --dither …`, as on MNIST | codec | 49.3 | every baseline from C\* = 0.001 to 0.01; D-BOLT's plain 1.50 bits stays its operating point | D139, D145 |
-| D3a, block covariance | `run_covariance_blocks.py` | M6, D1 | 6.9 | ⏳ run, not yet analysed | D139 |
+| D3a, block covariance | `run_covariance_blocks.py` | M6, D1 | 6.9 | neuron blocks (106× smaller): +0.011 to +0.036 RMSE, local adapt most; layer blocks (3.9×): +0.004 to +0.009 | D139, D147 |
 | D3c, the GNN | `run_coupling_smoke.py` (CPU, chooses $\kappa$); `run_gnn.py --twin --reference`, `--twin --tune-filters`, `--twin`; then `--reference`, `--tune-filters`, `--lr`, bare | — | ~65 (est.) | ⏳ queued; $\kappa=0.6$ was chosen | D139 |
 
 ## 20. Still running
