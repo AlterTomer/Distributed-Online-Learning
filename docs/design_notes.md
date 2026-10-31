@@ -4126,6 +4126,42 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D145. D2 on Mackey–Glass: dither moves every baseline to c = 0.01; each learner gets its best quantiser
+
+Analysed 2026-10-31 (queue 5, steps 08–10: 22.0 + 13.3 + 14.0 = 49.3 GPU-h). Every
+cell completed. Dithered $\mathcal C^\star$ is 0.01 for every learner; queue 4's plain
+$\mathcal C^\star$ was 0.01 for the filters and 0.001 for every baseline.
+
+| report seeds 0–4, stationary | plain $\mathcal C^\star$ (queue 4) | dithered $\mathcal C^\star$ | RMSE |
+|---|---|---|---|
+| local adapt | 0.01: **1.50** bits, +0.0013 | 0.01: 1.90, **+0.0002** [+0.0001, +0.0004] | 0.1445 |
+| one-hop (+ 0.90 raw) | 0.01: 2.5, +0.0008 | 0.01: 2.8, +0.0002 | 0.1409 |
+| ATC with momentum (× 2) | **0.001**: 10.0, +0.0008 | **0.01**: 6.3, +0.0001 | 0.1769 |
+| plain ATC | **0.001**: 2.13, +0.0009 | **0.01**: **1.36**, +0.0000 | 0.1860 |
+| ATC AdamW (× 3) | **0.001**: 13.9, +0.0030 (past ε) | **0.01**: 9.4, +0.0018 [+0.0008, +0.0029]; 0.003: 11.7, +0.0006 | 0.1678 |
+
+- **D-BOLT: dither wins the frontier, not the rule.** At $c=0.01$ it cuts the cost from
+  +0.0013 to +0.0002 for 27% more bits; plain needs $c=0.003$ and 3.20 bits for +0.0001,
+  so at a matched near-zero cost dither saves ~40%. The $\mathcal C^\star$ rule (cheapest
+  within ε) still picks plain's 1.50.
+- **The baselines: rescued.** All three reach $c=0.01$, ten times coarser; momentum ATC
+  10.0 → 6.3 bits per message, AdamW 13.9 → 9.4 (its CI at 0.01 still reaches past ε).
+- **D138's MG claim no longer holds under a fair quantiser.** "D-BOLT is both the cheapest
+  message and the most accurate learner": dithered plain ATC sends 1.36 bits against
+  local adapt's 1.50. D-BOLT stays the most accurate by a wide margin (0.1445 against
+  0.1860), and cheaper than momentum ATC and AdamW.
+- **Open, for before the paper uses the row:** on the validation seeds ATC with momentum
+  shows 0.75–2% escapes, rising as $c$ falls, with fractions **identical** in the plain and
+  dithered arms (0.0072/0.0075, 0.0091, 0.0114, 0.0154), and none on the report seeds. Part
+  of its message seems untouched by both $c$ and dither. No $\mathcal C^\star$ depends on it.
+
+**Decided** (the user, 2026-10-31):
+
+| question | decided |
+|---|---|
+| D2b | **all five learners, both tasks**: dithered $\mathcal C^\star$ carried to MNIST's linear, abrupt and skew 0.1 and MG's linear, abrupt and τ spread, as queue 4's transfer. The baselines get their best quantiser and D-BOLT's dithered MG point its drift rows. ~6–8 GPU-h MNIST, ~10–12 MG, after queue 6. Declined: baselines only, MG only, none |
+| the paper's main communication tables | **each learner at its best arm**: the one whose $\mathcal C^\star$ message is cheapest within ε — D-BOLT plain (MG 1.50, MNIST 4.28), the baselines dithered. Declined: plain for all with dither apart (keeps D138's claim by handicapping the baselines), dithered for all (D-BOLT pays 27% more on MG) |
+
 ### ❓ D144. D2 on MNIST: dither leaves D-BOLT where it was and rescues ATC AdamW
 
 Analysed 2026-10-31, after queue 5 ended (steps 05–07: calibrate 17.1, validate 8.9,
@@ -4203,7 +4239,27 @@ the filter carries is its mean and a covariance linearised at the second-to-last
 **The trajectory probe** (the user's choice, 2026-10-31): `--trajectory ARM`, MG
 stationary, seed 0, the centralised filter, 600 steps, four arms — $K=1$; $K=2$ as run;
 $K=2$ with the covariance re-linearised at the final iterate (the textbook IEKF); the $K=2$
-mean with the first linearisation's covariance. *Result pending.*
+mean with the first linearisation's covariance.
+
+| step | $K=1$: RMSE, tr P, ‖m‖ | $K=2$ as run | $K=2$, final-iterate P | $K=2$, first P |
+|---|---|---|---|---|
+| 0 | 0.527, 22.2, 10.8 | 0.276, 22.3, 10.9 | 0.276, 22.2, 10.9 | 0.276, 22.2, 10.9 |
+| 100 | 0.151, 19.0, 11.7 | 0.155, 13.1, 12.5 | 0.153, 13.8, 12.6 | 0.151, 13.7, 12.3 |
+| 300 | 0.147, 19.4, 12.3 | 0.174, 11.5, 14.7 | 0.190, 12.2, 15.0 | 0.165, 12.2, 13.7 |
+| 600 | 0.145, 21.0, 12.8 | 0.255, 11.9, 18.3 | 0.239, 12.8, 18.6 | 0.192, 12.4, 16.3 |
+
+**The covariance choice is not the cause**: the textbook IEKF drifts as far as D1's
+variant, and the first-linearisation covariance only slows it. What every $K=2$ arm shares
+is **a mean whose norm grows almost linearly** (10.9 → 18.3 in 600 steps, against $K=1$
+levelling at 12.8) and a covariance that tightens faster (tr P 11.5–12.8 against 19–21).
+Each iterated step goes further along the batch's pull (the first probe: 1.5× the $K=1$
+distance), part of that pull points consistently outward, and MG's transition is a pure
+random walk ($\gamma=1$) with nothing to pull it back; larger weights mean larger
+Jacobians, so the filter keeps gaining information and grows over-confident. MNIST's
+filters shrink by $\gamma=0.9995$ a step, and degraded far less.
+
+**A third arm** (the user's choice, over reporting the mechanism and over re-tuning per
+$K$ outright): `--gamma 0.9995` on MG, $K=1$ and $K=2$. *Result pending.*
 
 ### ❓ D142. D1 on MNIST: extra passes help the gradient learners and hurt every filter; the K = 8 cells a diverged
 
