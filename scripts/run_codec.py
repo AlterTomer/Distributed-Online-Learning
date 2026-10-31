@@ -463,7 +463,10 @@ def frontier_rows(cell: str, twin: str, learner: str) -> dict | None:
     shared = sorted(set(error) & set(base))
     if not shared:
         return None
-    stats = summaries(cell, learner)
+    # A diverged seed has no settled score (D126), and its rate is left out with it: its
+    # coded bits stop at the divergence while its scalars run on, so it would pull R down
+    # (MG's ATC with momentum, validation seed 202: 0.17 bits against ~5.2).
+    stats = {s: d for s, d in summaries(cell, learner).items() if s in error}
     rate = {s: d["totals"].get("coded_bits", 0) / d["scalars"] for s, d in stats.items()
             if d["scalars"]}
     ideal = {s: d["totals"].get("ideal_bits", 0) / d["scalars"] for s, d in stats.items()

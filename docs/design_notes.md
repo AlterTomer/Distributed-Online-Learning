@@ -4228,6 +4228,19 @@ $\mathcal C^\star$ was 0.01 for the filters and 0.001 for every baseline.
   shows 0.75–2% escapes, rising as $c$ falls, with fractions **identical** in the plain and
   dithered arms (0.0072/0.0075, 0.0091, 0.0114, 0.0154), and none on the report seeds. Part
   of its message seems untouched by both $c$ and dither. No $\mathcal C^\star$ depends on it.
+- **Resolved, 2026-10-31: one diverged seed, and a report that averaged its rate.** ATC with
+  momentum diverges on validation seed 202 before step 25 in every cell, the uncompressed
+  twin included (RMSE 3.1 at $t=0$, NaN from $t=25$): MG's SGD rates sit at the edge of
+  stability. Its codec coded the 591k entries before the values went non-finite, 5.6% of
+  them escaped, and its rate was 0.17 bits, its coded bits stopping while its scalars ran on.
+  The cost already left the seed out (`seed_scores`, D126); **`frontier_rows` averaged its
+  rate, entropy and escapes in**, on both branches. It now keeps only seeds with a settled
+  score. Validation R for ATC with momentum: plain 2.04 → 2.52 at $c=0.01$, dithered 2.52 →
+  3.12, matching the report seeds (2.55, 3.13); escapes 0.0000–0.0005; no $\mathcal C^\star$
+  changes. A scan of every MG codec cell finds one more such seed outside the rate grids:
+  report seed 0 of the same learner under the τ spread, whose transfer row goes from 4.17
+  bits (0.0082 escapes) to **5.16**, cost +0.0006 unchanged, $n=4$. Neither deflated figure
+  was quoted anywhere.
 
 **Decided** (the user, 2026-10-31):
 
