@@ -783,7 +783,7 @@ family (D118).
 | delta probe | `run_delta_entropy_probe.py` | P5.3, X20 | 0.8 | the filter's differences are not cheaper to code than the baselines' (H1 refuted); no rate rise after a jump (H2) | D136 |
 | codec | `run_codec.py --calibrate`, `--validate`, then `--report-runs` | P5.3, X20, X25+ | 91.6 | local adapt at 4.3 bits per parameter against 64, within ±0.0002 error of its uncompressed twin | D137, D138 |
 | D1, $K$ inner steps | `run_inner_steps.py --lr`, then bare; bare again for the $K=8$ `central` re-run (D1c) | P5.4 ($K=1$, stationary) | 45.4 + ~5 | extra passes help centralised AdamW (abrupt −0.0376) and widen ATC AdamW's gap under skew (+0.0325); every filter is worse at $K>1$ | D139, D142 |
-| D2, dither | `run_codec.py --dither --calibrate`, `--validate`, `--report-runs` | codec | 36.2 | ⏳ run, not yet analysed | D139 |
+| D2, dither | `run_codec.py --dither --calibrate`, `--validate`, `--report-runs` | codec | 36.2 | no change for D-BOLT at C\* = 0.01 (local adapt 4.33 bits); ATC AdamW rescued, +0.075 → −0.003 at c = 0.01 | D139, D144 |
 | D3a, block covariance | `run_covariance_blocks.py` | P5.4, D1 | 3.7 | ⏳ run, not yet analysed | D139 |
 
 ### 19.6 `mg-task`: the main comparison and what is built on it
@@ -815,7 +815,7 @@ Every row here needs M3–M5 (§18).
 | float32 probe | `run_float32_probe.py`, then `--cells` | M6 | 2.2 | settled RMSE within 3×10⁻⁵ of float64 | D133 |
 | delta probe | `run_delta_entropy_probe.py` | M6 | 0.9 | as on MNIST | D136 |
 | codec | `run_codec.py --calibrate`, `--validate`, then `--report-runs` | M6 | about 65 | local adapt at 1.5 bits per parameter, within +0.0013 RMSE of its twin; every baseline needs a step ten times finer | D138 |
-| D1, $K$ inner steps | `run_inner_steps.py --lr`, then bare | M6 ($K=1$) | 167.0 | ⏳ run, not yet analysed | D139 |
+| D1, $K$ inner steps | `run_inner_steps.py --lr`, then bare | M6 ($K=1$) | 167.0 | centralised SGD gains −0.016 to −0.019 from $K=8$, ATC's gap grows +0.010 to +0.019; every filter worse at $K>1$ | D139, D143 |
 | D2, dither | `run_codec.py --dither …`, as on MNIST | codec | 49.3 | ⏳ run, not yet analysed | D139 |
 | D3a, block covariance | `run_covariance_blocks.py` | M6, D1 | 6.9 | ⏳ run, not yet analysed | D139 |
 | D3c, the GNN | `run_coupling_smoke.py` (CPU, chooses $\kappa$); `run_gnn.py --twin --reference`, `--twin --tune-filters`, `--twin`; then `--reference`, `--tune-filters`, `--lr`, bare | — | ~65 (est.) | ⏳ queued; $\kappa=0.6$ was chosen | D139 |

@@ -4126,6 +4126,85 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ❓ D144. D2 on MNIST: dither leaves D-BOLT where it was and rescues ATC AdamW
+
+Analysed 2026-10-31, after queue 5 ended (steps 05–07: calibrate 17.1, validate 8.9,
+report 10.3 GPU-h). All 65 calibration cells and every validation and report cell
+completed. Dither re-tuned the rates at every $c$ and found the uncompressed ones
+again; its own $\mathcal C^\star$ is 0.01, the grid's coarsest, **for every learner**.
+
+| report seeds 0–4, $c=0.01$ | plain (queue 4) | dithered | bits per message, dithered |
+|---|---|---|---|
+| local adapt | 4.28 bits, −0.0001 | 4.33, −0.0003 [−0.0011, +0.0004] | **4.3** |
+| one-hop | 5.27, +0.0002 | 5.29, −0.0001 [−0.0005, +0.0003] | 5.3 + 2.2 raw = **7.5** |
+| ATC with momentum | 5.10, **+0.0014** | 5.32, −0.0000 [−0.0001, +0.0001] | × 2 vectors = 10.6 |
+| plain ATC | 3.72, +0.0002 | 3.83, −0.0000 | 3.8 |
+| ATC AdamW | 5.68, **+0.0749** (no $\mathcal C^\star$) | **3.76, −0.0034** [−0.0089, +0.0021] | × 3 vectors = **11.3** |
+
+- **D-BOLT: nothing to fix.** At $c=0.01$ its quantisation error was already invisible,
+  so dither only pays its entropy price, ~1% more bits; at finer $c$ the two arms are
+  identical to two decimals.
+- **The baselines: dither does what it was chosen for.** Rounding's error is coherent
+  across agents near consensus, and the baselines whose state the combine averages most
+  were the ones it hurt. ATC AdamW goes from collapsing (one seed at 0.28 under plain
+  rounding) to $\mathcal C^\star=0.01$; ATC with momentum loses its +0.0014 for +0.2 bits.
+  AdamW's report CI at $c=0.01$ is ±0.006, three times ε, so its free compression is
+  only loosely established.
+- **The comparison narrows and holds.** Dithered ATC AdamW is now a working compressed
+  baseline, 11.3 bits per message at 0.0819 error: 2.6× local adapt's message (0.0732)
+  and 1.5× one-hop's (0.0706).
+
+**Decided** (the user, 2026-10-31):
+
+| question | decided |
+|---|---|
+| D2b, dithered $\mathcal C^\star$ to drift and skew | **decide after D2 on MG**: the pre-registered rule ("only if dither wins") must mean the same on both tasks, and every MG baseline needed a 10× finer step in queue 4, where dither should help most. Declined for now: the baselines only (~4–6 GPU-h), all five learners (~6–8), none |
+| C2c, the filters' coarser grid | **both arms**, plain and dithered, at $c\in\{0.03, 0.1, 0.3\}$: past $c=0.01$ the filters' quantisation error stops being negligible, which is where dither should move D-BOLT's knee. ~25–30 GPU-h per task, up from 12–16 |
+
+### ❓ D143. D1 on Mackey–Glass: the gradient learners as predicted; every filter drifts at K > 1, and a step-by-step probe acquits the single step
+
+Analysed 2026-10-31 (queue 5, steps 03–04: 64.3 + 102.8 = 167.0 GPU-h, 20 cells, five
+seeds, $T=1500$). **Nothing diverged**: the trust region never fired.
+
+**The gradient learners: confirmed, all twelve rows.** Q1, $K=8-K=1$: centralised SGD
+−0.0159, −0.0188, −0.0100 and centralised AdamW −0.0058, −0.0069, −0.0045 RMSE
+(stationary, linear, τ spread; every p_holm < 0.05). Q2: ATC's gap to centralised SGD
+grows by +0.0152, +0.0189, +0.0105, ATC AdamW's by +0.0141, +0.0156, +0.0116 (all
+p_holm < 0.05). The second half of Q2's prediction fails: the gap grows **least** under
+the τ spread and most under linear drift.
+
+**The filters: worse at every $K>1$, on every seed.** The centralised filter goes from
+0.139 RMSE at $K=1$ to 0.99 / 1.31 / 1.44 at $K=2/5/8$ (stationary), past persistence
+(0.227) on every seed; the decentralised filters to 0.30–0.57. The filters' Q2 rows
+(−1.05 to −1.42) and one-hop's loss to ATC AdamW at $K>1$ are artefacts of the
+centralised filter collapsing furthest, not evidence about decentralisation.
+
+**The formula is right.** `iterated_update` is the Gauss–Newton step on
+$J(\bm m)=\tfrac12\lVert\bm m-\bm m^-\rVert^2_{(\bm P^-)^{-1}}+s\,\mathrm{NLL}$: expanding the
+linearised objective gives exactly its `score + B̄B̄ᵀ(mᵢ − m⁻)` against the prior, and
+`woodbury_update` returns $\bm m^-+\bm P_i\,\cdot$score. `inner_steps` reaches the filters
+nowhere else.
+
+**The first probe** (`scripts/run_iterated_probe.py`, both branches; the user chose it over
+reporting, damping or re-tuning). The filters run at $K=1$; at steps 100, 200 and 300 the
+prior and the batch are held fixed and 1–8 Gauss–Newton steps taken beside the run. On
+both tasks, for the centralised filter and local adapt alike, **$J$ falls at every
+iteration** and the held-out error moves by at most 0.0013 (MNIST) and 0.0008 (MG) within a
+step, with no consistent sign. Only at MG's step 3, with $\bm P$ still broad, did local
+adapt's $J$ oscillate. **So neither overshoot nor over-fitting within a step.**
+
+**When the runs go wrong.** Seed 0, held-out, against $K=1$ on the same seed: MG's
+centralised filter at $K=2$ matches $K=1$ to step 100 (0.155 vs 0.151; at step 0 it is far
+*better*, 0.276 vs 0.527), then drifts — 0.172 at 200, 0.220 at 500, 0.740 at 1499, while
+$K=1$ reaches 0.137. MNIST's centralised filter at $K=5$ plateaus at 0.075 from step 500
+while $K=1$ reaches 0.063. The damage is carried forward over hundreds of steps, and what
+the filter carries is its mean and a covariance linearised at the second-to-last iterate.
+
+**The trajectory probe** (the user's choice, 2026-10-31): `--trajectory ARM`, MG
+stationary, seed 0, the centralised filter, 600 steps, four arms — $K=1$; $K=2$ as run;
+$K=2$ with the covariance re-linearised at the final iterate (the textbook IEKF); the $K=2$
+mean with the first linearisation's covariance. *Result pending.*
+
 ### ❓ D142. D1 on MNIST: extra passes help the gradient learners and hurt every filter; the K = 8 cells a diverged
 
 Analysed 2026-10-30, after queue 5 ended (steps 01–02: 15.1 + 30.3 = 45.4 GPU-h, 33
