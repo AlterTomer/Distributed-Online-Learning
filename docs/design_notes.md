@@ -4126,6 +4126,55 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ❓ D142. D1 on MNIST: extra passes help the gradient learners and hurt every filter; the K = 8 cells a diverged
+
+Analysed 2026-10-30, after queue 5 ended (steps 01–02: 15.1 + 30.3 = 45.4 GPU-h, 33
+cells, five seeds, $T=750$). Settled error, last 20%, current set; every merge gate
+that could run reproduces at 0.0e+00.
+
+**What did not run.** All three $K=8$ cells a stopped on D61's trust region (one-hop
+mean at steps 303–391, seed 0), and so did all three $K=8$ cells b (full sharing,
+steps 300–477) and skew $K=5$ cell b. A diverged cell keeps nothing, so at $K=8$ the
+centralised filter and the four tuned SGD learners have no row either, though none of
+them diverged. Q1 kept 3 of its 9 rows and Q2 3 of its 12, the AdamW ones; Holm ran
+within those.
+
+**The gradient learners: as predicted.**
+
+| | still | skew | abrupt |
+|---|---|---|---|
+| Q1, centralised AdamW, $K=8-K=1$ | −0.0091 (0.071) | −0.0113 (0.071) | **−0.0376 (0.004\*)** |
+| Q2, ATC AdamW's gap, $K=8-K=1$ | −0.0002 (0.955) | **+0.0325 (0.006\*)** | +0.0115 (0.066) |
+| ATC SGD's gap, $K=5-K=1$ (exploratory) | +0.0054 (0.157) | +0.0212 (0.029\*) | +0.0124 (0.029\*) |
+
+Centralised SGD gains steadily (still 0.0903 → 0.0865 → 0.0850 at $K=1,2,5$; abrupt
+0.1532 → 0.1331), and the distributed learners' gap grows most under skew: client
+drift. The two significant confirmatory rows survive Holm over their full designed
+families as well (raw p ≈ 0.0012 and 0.0020; × 9 and × 12 gives ≈ 0.011 and 0.023).
+
+**The filters: against the prediction.** The centralised filter is worse at every
+$K>1$, on every seed (still 0.065 → 0.071 → 0.074; skew 0.064 → 0.070 → 0.071;
+abrupt 0.108 → 0.123 → 0.121). The decentralised filters degrade from $K=2$ (local
+adapt, still, 0.086 → 0.108) and lose seeds to near-collapse from $K=2$ on (0.6–0.8
+error): at $K=5$, still, local adapt reads 0.160, 0.293, 0.100, 0.094, 0.683 across the
+five seeds. One-hop mean is the steadiest of them (0.095–0.106 at $K=5$, still). The
+likely mechanism is the two choices D139 made: plain, undamped Gauss–Newton, and the
+$K=1$ selection carried to every $K$. Iterating drives each step's update to the
+posterior mode of a four-sample batch, under a prior tuned for a single pass.
+
+**Decided** (the user, 2026-10-30):
+
+| question | decided |
+|---|---|
+| the $K=8$ rows lost to the shared cell | **re-run them without the decentralised filters**: the centralised filter and the four tuned SGD learners, three conditions, five seeds; ~4–5 GPU-h, after queue 6 (schedule D1c). Chosen over the SGD learners alone (~1–1.5 GPU-h, Q1's filter row stays empty), reporting as is, and waiting for MG |
+| how the runner does it | **automatically**: wherever cell a is marked `_diverged`, the cells pass runs `ins_<cond>_central` and the report reads cell a's other learners from it, and says so. Re-running step 02 is the whole queue step; finished and diverged cells are skipped. Chosen over an explicit `--central-only K` |
+| the filters at $K$ | **decide after D1 on Mackey–Glass** (schedule D1d): report as a finding, add a damped variant (Levenberg–Marquardt or a line search, ~40–60 GPU-h on MNIST), or re-tune the filters per $K$ (~30–50 GPU-h) |
+
+The `central` path was smoked by forcing a divergence marker on the smoke's still
+$K=8$ cell a: the re-run cell ran its five learners, and the merge gate at still $K=8$
+read centralised SGD from it and reproduced at 0.0e+00. `mg-task`'s runner does not
+have the path; it is added there if MG's analysis needs it.
+
 ### ✅ D141. The reproduction driver, stages 1–3, and a smoke tier that runs on a fresh clone
 
 Decided 2026-10-27, question by question, before the driver was written

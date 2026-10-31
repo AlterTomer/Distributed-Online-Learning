@@ -16,6 +16,10 @@ and the filters take $K$ Gauss--Newton relinearisations -- the iterated EKF, its
 covariance from the last linearisation, no damping (D139). One combine per time
 step either way, so communication does not change; only computation does.
 
+**Where cell a diverges** (MNIST's three $K=8$ cells did, 2026-10-30), the cells pass
+re-runs its centralised filter and tuned baselines without the decentralised filters,
+as `ins_<cond>_central`, and the report reads them from there.
+
 The supervisor's prediction, which is the user's: extra passes **help the
 centralised learners**, which see the pooled $Nn = 40$ samples a step, and
 **over-fit the distributed ones**, which see four. That is local SGD's *client
@@ -125,6 +129,13 @@ MEAN_ONLY = [LOCAL, ONEHOP]
 FULL_SHARING = ["diffusion_ekf_full", "diffusion_ekf_onehop_receiver"]
 ATC, ATC_ADAMW = "diffusion_sgd_atc", "diffusion_atc_adamw"
 GROUPS = ["a", "b", ADAMW_GROUP]
+#: A diverged cell keeps nothing, so one filter leaving its trust region costs every
+#: learner beside it its row. Wherever cell a diverges, the cells pass re-runs its
+#: learners without the decentralised filters -- the centralised filter and the tuned
+#: baselines -- and the report reads them from there (the user, 2026-10-30, after all
+#: three of MNIST's K = 8 cells a diverged). A learner's numbers do not depend on its
+#: cellmates: D119's merge gate is that fact, checked in every cell.
+CENTRAL_GROUP = "central"
 
 N_AGENTS, SAMPLES = 10, 4
 MNIST_TRAIN = 60_000
@@ -167,6 +178,10 @@ def is_reused(cell: str, k: int, suffix: str = "") -> bool:
     return not suffix and (cell, k) in REUSED
 
 
+def diverged(name: str) -> bool:
+    return (ROOT / "results" / name / "_diverged").exists()
+
+
 def selected_rates(cond: str, suffix: str = "") -> dict[str, float] | None:
     """Each tuned learner's own argmin in this (cell, K), or None when any is unswept."""
     rates: dict[str, float] = {}
@@ -202,6 +217,9 @@ def config_for(args, name: str, cell: str, entries: list[dict],
 def entries_for(group: str, rates: dict[str, float], k: int) -> list[dict]:
     if group == "b":
         learners = [{"name": n, **FILTER, "combine_exponent": 1.0} for n in FULL_SHARING]
+    elif group == CENTRAL_GROUP:
+        learners = [{"name": CENTRAL, **CENTRALIZED}]
+        learners += [{"name": n, "lr": rates[n], **o} for n, o in tuned_baselines().items()]
     elif group == ADAMW_GROUP:
         learners = [{"name": n, "lr": rates[n]} for n in ADAMW]
         learners.append({"name": REPRODUCTION_ARM, "lr": rates[REPRODUCTION_ARM],
@@ -321,8 +339,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"D1{' SMOKE' if suffix else ''}: {len(cells)} cells at {len(args.seeds)} seeds, "
           f"T={args.horizon}\n", flush=True)
     status = load_status()
-    started, ran = time.time(), 0
-    for index, (cell, k, group) in enumerate(cells, start=1):
+    started = time.time()
+
+    def run_cell(tag: str, cell: str, k: int, group: str) -> None:
         cond = label(cell, k)
         name = cell_name(cond, group, suffix)
         entries = entries_for(group, selected_rates(cond, suffix), k)
@@ -330,12 +349,21 @@ def main(argv: list[str] | None = None) -> int:
         note = run_one(config_for(args, name, cell, entries), train, test, args.fresh)
         status[name] = note
         save_status(status)
-        if note != "cached":
-            ran += 1
         elapsed = (time.time() - started) / 60
-        print(f"[{index}/{len(cells)}] {name:<26} {len(entries):>2} learners  {note:<26}"
+        print(f"[{tag}] {name:<26} {len(entries):>2} learners  {note:<26}"
               f" {(time.time() - cell_started) / 60:.1f} min this cell, {elapsed:.0f} total",
               flush=True)
+
+    for index, (cell, k, group) in enumerate(cells, start=1):
+        run_cell(f"{index}/{len(cells)}", cell, k, group)
+    rescues = [(c, k) for k in KS for c in CELLS
+               if diverged(cell_name(label(c, k), "a", suffix))]
+    if rescues:
+        print(f"\n  cell a diverged in {len(rescues)} condition(s); re-running its "
+              "centralised filter and tuned baselines without the decentralised filters\n",
+              flush=True)
+    for index, (cell, k) in enumerate(rescues, start=1):
+        run_cell(f"{CENTRAL_GROUP} {index}/{len(rescues)}", cell, k, CENTRAL_GROUP)
     print(f"\nD1{' smoke' if suffix else ''} complete in "
           f"{(time.time() - started) / 60:.1f} min\n")
     report(suffix)
@@ -351,6 +379,8 @@ def _cell_of(learner: str, cond: str, suffix: str = "") -> str:
         return cell_name(cond, "b", suffix)
     if learner in ADAMW:
         return cell_name(cond, ADAMW_GROUP, suffix)
+    if learner not in MEAN_ONLY and diverged(cell_name(cond, "a", suffix)):
+        return cell_name(cond, CENTRAL_GROUP, suffix)
     return cell_name(cond, "a", suffix)
 
 
@@ -377,11 +407,17 @@ def report(suffix: str = "") -> None:
         print("  SMOKE: 20 rounds at one seed. These numbers mean nothing; the point")
         print("  is that every code path below ran.\n")
 
+    rescued = [label(c, k) for c, k in CONDITIONS if diverged(cell_name(label(c, k), "a", suffix))]
+    if rescued:
+        print("  cell a diverged at " + ", ".join(rescued) + ": its centralised filter and")
+        print(f"  tuned baselines are read from the `{CENTRAL_GROUP}` re-run there, which")
+        print("  leaves the decentralised filters out; local adapt and one-hop have no row.\n")
+
     print("  merge gate: centralized_sgd in the AdamW cell against cell a, per seed")
     poolable = True
     for cell, k in CONDITIONS:
         cond = label(cell, k)
-        recorded = per_seed(cell_name(cond, "a", suffix), REPRODUCTION_ARM)
+        recorded = per_seed(_cell_of(REPRODUCTION_ARM, cond, suffix), REPRODUCTION_ARM)
         rerun = per_seed(cell_name(cond, ADAMW_GROUP, suffix), REPRODUCTION_ARM)
         shared = sorted(set(recorded) & set(rerun))
         worst = max((abs(recorded[s] - rerun[s]) for s in shared), default=None)
