@@ -54,6 +54,8 @@ Every `--every` steps: held-out RMSE, $\operatorname{tr}\bm P$ and $\lVert\bm m\
 `--gamma` replaces the centralised filter's $\gamma$ (MG's selection is 1, a pure random
 walk; MNIST's is 0.9995). The second probe found $\lVert\bm m\rVert$ growing steadily
 at $K=2$ under every covariance choice; a $\gamma<1$ pulls the mean back each step.
+`--q` replaces its process noise likewise: with $\gamma=0.9995$ the drift slowed but the
+belief kept tightening, which points at a $q$ selected for one pass.
 """
 
 from __future__ import annotations
@@ -111,6 +113,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--every", type=int, default=25)
     parser.add_argument("--gamma", type=float, default=None,
                         help="the centralised filter's gamma, in place of its selection")
+    parser.add_argument("--q", type=float, default=None,
+                        help="the centralised filter's process noise, in place of its selection")
     args = parser.parse_args(argv)
     if "--device" not in (argv if argv is not None else sys.argv[1:]):
         args.device = "cpu"
@@ -120,6 +124,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.gamma is not None:
         # The walk fixes gamma = 1 by name; a shrinking transition is its own learner (D71).
         name, centralised = "centralized_ekf_gamma", {**centralised, "gamma": args.gamma}
+    if args.q is not None:
+        centralised = {**centralised, "process_noise_q": args.q}
     entries = [{"name": name, **centralised, "inner_steps": 1}]
     if args.trajectory is None:
         entries.append({"name": LOCAL, **diffusion, "inner_steps": 1})
@@ -214,6 +220,7 @@ def trajectory(args, config, environment, learners, builder, model, likelihood, 
     try:
         print(f"D1d trajectory probe: MG {CELL}, seed {SEED}, the centralised filter, arm "
               f"{arm}, gamma {args.gamma if args.gamma is not None else 'as selected'}, "
+              f"q {args.q if args.q is not None else 'as selected'}, "
               f"to step {args.until}, on {args.device}\n")
         print(f"  {'arm':<9}{'step':>5}{'RMSE':>9}{'tr P':>12}{'|m|':>9}", flush=True)
         simulate.run(config, environment, learners, builder, likelihood, theta0,
