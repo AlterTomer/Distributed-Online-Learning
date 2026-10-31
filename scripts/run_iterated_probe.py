@@ -50,7 +50,10 @@ filter alone, run to `--until`, one arm per process:
 * `k2_first` -- the $K=2$ mean with the first linearisation's covariance (at $\bm m^-$).
 
 Every `--every` steps: held-out RMSE, $\operatorname{tr}\bm P$ and $\lVert\bm m\rVert$.
-Vert$.
+
+`--gamma` replaces the centralised filter's $\gamma$ (MG's selection is 1, a pure random
+walk; MNIST's is 0.9995). The second probe found $\lVert\bm m\rVert$ growing steadily
+at $K=2$ under every covariance choice; a $\gamma<1$ pulls the mean back each step.
 """
 
 from __future__ import annotations
@@ -106,12 +109,18 @@ def main(argv: list[str] | None = None) -> int:
                         help="run the centralised filter with this update instead")
     parser.add_argument("--until", type=int, default=600)
     parser.add_argument("--every", type=int, default=25)
+    parser.add_argument("--gamma", type=float, default=None,
+                        help="the centralised filter's gamma, in place of its selection")
     args = parser.parse_args(argv)
     if "--device" not in (argv if argv is not None else sys.argv[1:]):
         args.device = "cpu"
     args.smoke = False
     centralised, diffusion, _m3 = load_settings(False)
-    entries = [{"name": CENTRAL, **centralised, "inner_steps": 1}]
+    name = CENTRAL
+    if args.gamma is not None:
+        # The walk fixes gamma = 1 by name; a shrinking transition is its own learner (D71).
+        name, centralised = "centralized_ekf_gamma", {**centralised, "gamma": args.gamma}
+    entries = [{"name": name, **centralised, "inner_steps": 1}]
     if args.trajectory is None:
         entries.append({"name": LOCAL, **diffusion, "inner_steps": 1})
     config = config_for(args, "ins_iterated_probe", CELL, entries, [SEED],
@@ -204,7 +213,8 @@ def trajectory(args, config, environment, learners, builder, model, likelihood, 
     ekf.iterated_update = update
     try:
         print(f"D1d trajectory probe: MG {CELL}, seed {SEED}, the centralised filter, arm "
-              f"{arm}, to step {args.until}, on {args.device}\n")
+              f"{arm}, gamma {args.gamma if args.gamma is not None else 'as selected'}, "
+              f"to step {args.until}, on {args.device}\n")
         print(f"  {'arm':<9}{'step':>5}{'RMSE':>9}{'tr P':>12}{'|m|':>9}", flush=True)
         simulate.run(config, environment, learners, builder, likelihood, theta0,
                      verify_observations=False, stop_after=args.until)
