@@ -4126,6 +4126,41 @@ whether the Transformer is needed at all, answered offline before any online run
 it is. The two profiles differ in level by 1.5× and are recorded separately, each
 in its own model config, as the centre of its $\boldsymbol R$ grid.
 
+### ✅ D148. D3c, the GNN (queue 6): the twin matches the 20k GNN offline
+
+Queue 6 ran 2026-10-30 08:23 to 11-01 07:42, 47.3 GPU-h in seven steps (the estimate
+was ~65 ±50%), every step exit 0. Logs in `gpu_logs/queue6/`. Analysed one step at a
+time; this entry grows with each.
+
+**Step 01, the twin's reference** (`run_gnn.py --twin --reference`, 0.12 GPU-h). The
+twin has $p=1\,969$ ($d=12$, $d_{\text{ff}}=24$, two graph layers, FP64), the GNN
+$p=20\,001$. The same protocol (D139: 15 000 node-blocks over the five report graphs,
+AdamW 3e-3, patience 5, a 100-epoch ceiling) on the same held-out snapshots:
+
+| | test RMSE ($e^\star$) | persistence | best epoch | $\bar R$ |
+|---|---|---|---|---|
+| twin ($p=1\,969$, FP64) | **0.1350** | 0.2227 | 82 | 0.01822 |
+| GNN ($p=20\,001$, FP32, step 04) | **0.1352** | 0.2227 | 32 | 0.01829 |
+
+- **Ten times the parameters buy nothing offline:** the two references agree to 0.0002,
+  and their per-position R profiles agree to within −9% to +6% at every position. The
+  20k GNN is there for the covariance's sake (D139: a model where the dense covariance
+  is no longer the obvious choice), not for accuracy, and the paper must not suggest
+  it predicts better.
+- **Converged:** the twin needed 82 epochs to the GNN's 32 at the same rate, but
+  patience stopped it at 87, short of the ceiling, so its $e^\star$ is the converged
+  one D97 defines.
+- **The measured R is below the provisional one** that `mg_gnn.yaml` carried from the
+  uncoupled Transformer: mean 0.0182 against 0.0220, and 25–29% lower at positions
+  1–10, level from position 20 on. This is consistent with the neighbours' windows
+  helping most where a node's own context is short, but the two profiles come from
+  different tasks, so it is a reading, not a measurement of the neighbours' value.
+  The filters were tuned on the measured profile, R scales 1 and 2 (step 02).
+- $e^\star$ sits at M2's uncoupled level (0.1342 at $\beta=0.2$), although the coupled
+  network's persistence is higher (0.2227 against 0.2033).
+
+No decision was needed.
+
 ### ✅ D147. D3a on Mackey–Glass: blocks cost more than on MNIST, local adapt most; one-hop keeps its lead on either
 
 Analysed 2026-10-31 (queue 5, step 12: 6.9 GPU-h, 8 cells, five seeds, $T=1500$, no
