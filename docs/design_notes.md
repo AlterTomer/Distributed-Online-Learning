@@ -4244,6 +4244,21 @@ Asked and answered 2026-11-05:
 | the 20k GNN's covariance (neuron blocks cost one-hop +0.018, the centralised filter +0.034; layer blocks about half) | **decide after step 07**, once the GNN's neuron-block cells are read against $e^\star$ and the gradient baselines; meanwhile a CPU timing of a 20k layer-block step prices a layer arm (29.4M entries, ~117 MB per agent in FP32). Chosen over adding the layer arm now and over neuron blocks only |
 | local adapt's 0.037 gap | **a CPU $q$-probe** (`scripts/run_gnn_local_probe.py`, mg): local adapt alone on the twin, full covariance, seed 0, $T=1500$, $q=6\times10^{-8}$ and $6\times10^{-6}$ beside the carried $6\times10^{-7}$ as the control. Chosen over reporting as is and over a GPU re-tune, which would break the one-hop-carried discipline (D105) |
 
+**Step 04, the GNN's reference** (`run_gnn.py --reference`, 0.06 GPU-h, 3.4 min). Test RMSE
+**0.1352**, persistence 0.2227, $\bar R=0.01829$; best epoch 32, so patience stopped it at
+37, far from the ceiling: converged. It is the R every GNN cell uses (steps 05–07).
+
+- **Its profile replaces the provisional one** `mg_gnn.yaml` carried from the uncoupled
+  Transformer: 20–31% lower at positions 1–10, −7% to +11% from position 20 on, lowest at
+  position 22 (0.0139, 1.4× the noise floor's 0.01), 0.0454 at position 0, where a node
+  has one sample of its own and its neighbours' first aggregates.
+- **Against the twin's** (step 01): −6% to +3% at positions 0–20, the GNN's up to 10%
+  higher at 21–30. $\sqrt{\bar R}$ is 0.1352 against 0.1350, which is each reference's
+  test RMSE again.
+- **The larger model converged in fewer epochs** (32 against 82) at the same rate, to the
+  same error. Both references land at one level, so 0.135 reads as the task's offline
+  limit under this protocol, not either model's capacity.
+
 ### ✅ D147. D3a on Mackey–Glass: blocks cost more than on MNIST, local adapt most; one-hop keeps its lead on either
 
 Analysed 2026-10-31 (queue 5, step 12: 6.9 GPU-h, 8 cells, five seeds, $T=1500$, no
