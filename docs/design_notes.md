@@ -4328,6 +4328,58 @@ Asked and answered 2026-11-05:
 |---|---|
 | local AdamW's edge (linear, 3e-4) | **one step past it**, the filters' edge discipline applied to the baselines (D105: a search finer on one side is unfair): local AdamW alone at 1e-4 on the linear cell, 2 seeds, ~15 GPU-min. `run_gnn.py`'s `RATE_EXTENSIONS`, run by `--lr` after the 14 cached runs, which then reselects. Chosen over keeping 3e-4. If the pick moves it joins step 07's re-run question; the first rates are kept as `results/gnn_rates_first_grid.json` |
 
+**Step 07, the GNN's cells** (bare `run_gnn.py`, 9.1 GPU-h: four cells, five seeds,
+$T=1500$, every filter on neuron blocks at step 05's **edge** picks, the gradient learners
+at step 06's rates). No NaN anywhere: SGD's 3e-6 held on all five seeds. ⚠ **The filter
+rows are provisional** until D3c-q's extension is read. Settled RMSE (stationary / linear),
+$e^\star=0.1352$:
+
+| learner | stationary | linear |
+|---|---|---|
+| one-hop, full sharing | **0.1430** | **0.1522** |
+| one-hop mean | 0.1432 | 0.1527 |
+| centralised filter, exact | 0.1469 | 0.1581 |
+| centralised filter, truncated | 0.1488 | 0.1595 |
+| centralised AdamW | 0.1641 | 0.1726 |
+| local AdamW | 0.1651 | 0.1711 |
+| ATC AdamW | 0.1672 | 0.1748 |
+| centralised SGD | 0.1726 | 0.1821 |
+| full sharing | 0.1737 | 0.1879 |
+| ATC (momentum) | 0.1763 | 0.1864 |
+| local only | 0.1919 | 0.2055 |
+| ATC plain | 0.2138 | 0.2274 |
+| local adapt | 0.2270 | 0.2397 |
+
+- **Q3 (confirmatory), filter against gradient, holds as predicted:** one-hop minus ATC
+  AdamW −0.0240 / −0.0221 (t = −41.9 / −14.3), minus ATC momentum −0.0331 / −0.0337, all
+  four significant after Holm. One-hop also beats the best gradient learner, centralised
+  AdamW, by 0.021 / 0.020 (exploratory, t = −8.6 / −6.1), and settles 0.008 above $e^\star$.
+  It sends less: on seed 0's graph (11 edges) 495k scalars a step against ATC AdamW's 1.32M
+  and ATC momentum's 880k, plus the 54 560 forward-message scalars every distributed
+  learner pays (2 layers × 22 directed edges × 31 positions × 40).
+- **Q1 (confirmatory), truncation cost, not established:** +0.0020 [−0.0021, +0.0061] and
+  +0.0014 [−0.0044, +0.0072], Holm 0.51 / 0.54. The sign predicted, the size at ε, the
+  power absent: the twin's full-covariance +0.0019 again.
+- **Q2 (confirmatory), decentralisation gap:** one-hop minus the exact centralised filter
+  −0.0037 / −0.0054 (n.s.), so on neuron blocks one-hop is level with or ahead of the
+  centralised filter, as the twin's neuron cells showed (step 03) and opposite to every
+  full-covariance cell. Local adapt +0.080 / +0.082 (significant).
+- ⚠ **Local adapt fails on the GNN:** 0.2270 / 0.2397, worse than local SGD with no
+  communication (+0.035, t = 1.7, n.s.), seeds 0.191–0.303. It is not diverging: it is
+  still falling at $t=1500$ on every seed (seed 0: 0.259, 0.235, 0.217, 0.205 at $t$ = 600,
+  900, 1200, 1500), and seed 1 is the worst in both cells. Full sharing is poor too
+  (0.1737 / 0.1879). Both carry one-hop's $q=6\times10^{-8}$. On the twin, local adapt at
+  $q=6\times10^{-8}$ and $6\times10^{-7}$ reaches its plateau by $t=600$ (the probe asked at step 03), so the
+  GNN's slow descent is a different shape.
+- **The filters are under-confident:** 90% coverage 0.95–0.99, variance ratio 0.41–0.70
+  (the predictive variance exceeds the squared error). Consistent with a $q$ still too
+  large, which D3c-q tests.
+- **Local AdamW is level with ATC AdamW** at five seeds (−0.0021 / −0.0037, n.s.); the
+  tuning's lead (step 06) does not hold up. Local SGD trails ATC momentum by 0.016 / 0.019.
+- **Linear drift costs 0.006–0.014**, least for the AdamW learners, most for full sharing
+  and local SGD.
+- **Time:** cell a 202 / 209 min (11 learners), cell b 65 / 71.
+
 ### ✅ D147. D3a on Mackey–Glass: blocks cost more than on MNIST, local adapt most; one-hop keeps its lead on either
 
 Analysed 2026-10-31 (queue 5, step 12: 6.9 GPU-h, 8 cells, five seeds, $T=1500$, no
