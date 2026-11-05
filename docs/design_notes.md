@@ -4161,6 +4161,89 @@ AdamW 3e-3, patience 5, a 100-epoch ceiling) on the same held-out snapshots:
 
 No decision was needed.
 
+**Step 02, the twin's filter tuning** (`--twin --tune-filters`, 10.5 GPU-h: 52 runs at
+seeds 0–1, the stationary cell, full covariance; ~9 min a centralised run, ~17 a
+one-hop one). Every run finished and none diverged. Settled RMSE, $\gamma=1$, prior
+$\sigma_0^2=0.01$, R scale 1:
+
+| q | 6e-4 | 6e-5 | 6e-6 | 6e-7 | 6e-8 |
+|---|---|---|---|---|---|
+| centralised (exact) | 0.1982 | 0.1495 | **0.1353** | 0.1353 | — |
+| one-hop mean | 0.2033 | 0.1477 | 0.1402 | **0.1399** | 0.1412 |
+
+- **Selected:** centralised $\gamma=1$, $q=6\times10^{-6}$, $\sigma_0^2=0.01$, R×1
+  (0.13525); one-hop $\gamma=1$, $q=6\times10^{-7}$, $\sigma_0^2=0.01$ (0.13995). Both
+  $q$ are inside their grids, so lowering the grids a decade (D139) was what M4 and M5's
+  bottom-edge picks called for.
+- **The centralised pick is a tie:** $q=6\times10^{-7}$ scores 0.13527, $2\times10^{-5}$
+  behind, and the two seeds order them oppositely. The one-hop pick leads its runner-up
+  ($q=6\times10^{-6}$, 0.14016) on both seeds. Neither margin is near ε.
+- **The online centralised filter reaches the offline reference:** 0.1353 against
+  $e^\star=0.1350$ (step 01), inside the seeds' spread (0.1340–0.1366). On the
+  Transformer (M6) it settled at 0.1391 against M2's 0.1342. The two numbers are scored on
+  different snapshot sets (the run's own graph against all five pooled), so this is a
+  level, not a paired test. One-hop is 0.0047 behind.
+- **The measured R needs no scale:** R×2 wins only at $q\ge6\times10^{-5}$, where it damps
+  an update that is too large anyway; at the selected $q$ R×1 is better by 0.0008.
+  $\gamma=0.9995$ never wins (a stationary cell).
+- ⚠ **The prior sits at the top of a two-point grid:** $\sigma_0^2=0.01$ beats 0.001 at
+  every $q\le6\times10^{-6}$, by 0.001–0.008 at $\gamma=1$, and the edge check flags only grids of
+  three or more. 0.1 was never tried. The centralised filter already sits at $e^\star$,
+  so the headroom is one-hop's at most.
+
+**Step 03, the twin's cells** (`--twin`, 9.6 GPU-h: seven cells, five seeds, $T=1500$,
+the stationary cell, step 02's settings under every structure). No NaN anywhere.
+The twin's neuron blocks are 153 (the largest 25 parameters), 15 259 entries, **127× fewer**
+than the full 1 939 465; its layer blocks 14 (the largest 468), 262 933 entries, **7.4×**.
+(The 20k GNN: neuron 489 blocks, 481 501 entries, 415×; layer 14 blocks, the largest
+4 920, 29.4M entries, 6.8×.) Settled RMSE:
+
+| filter | full | neuron | layer | exact (full) |
+|---|---|---|---|---|
+| centralised, exact | **0.1329** | 0.1670 | 0.1515 | — |
+| centralised, truncated | 0.1348 | 0.1656 | 0.1504 | — |
+| local adapt | 0.1749 | 0.1718 | 0.1650 | 0.1822 |
+| one-hop mean | 0.1376 | 0.1552 | 0.1456 | 0.1367 |
+| full sharing | 0.1436 | 0.1645 | 0.1535 | — |
+| one-hop, full sharing | 0.1364 | 0.1550 | 0.1451 | — |
+
+- **Q4 (confirmatory), blocks cost:** neuron minus full is **+0.018 to +0.034** on five of
+  six filters, all significant after Holm and all past ε; local adapt −0.0031 (n.s.).
+  The centralised filter pays most (+0.034, seeds 0.154–0.178 under neuron blocks), one-hop
+  least (+0.018). Layer blocks (exploratory) cost about half: +0.008 to +0.019, local
+  adapt −0.0099 (significant: blocks *help* it). Neuron minus layer is positive on every
+  filter (one-hop +0.0095, centralised +0.0155). On the Transformer (D147) neuron blocks
+  cost the centralised filter and one-hop +0.011–0.013 and local adapt most; on the twin
+  the order turns over.
+- **Blocks erase the centralised filter's lead:** one-hop minus centralised is +0.0046
+  under the full covariance (t = 13.9, every seed), −0.0119 under neuron blocks (t = −2.61,
+  four seeds of five) and −0.0059 under layer blocks (t = −1.81). Neither is significant,
+  but the sign that every other cell showed is gone. **This bears on step 07:** the 20k
+  GNN runs every filter on neuron blocks, so its decentralisation gap (Q2) measures
+  decentralisation and the blocks' unequal cost together.
+- **Truncation is cheap** (exploratory, full covariance): centralised truncated minus
+  exact +0.0019 [+0.0002, +0.0036] (t = 3.08, Holm 0.111), just under ε; one-hop +0.0009
+  (n.s.); local adapt −0.0073 (n.s.: the exact variant is the worse one). Under blocks the
+  truncated centralised filter is level with the exact one (−0.0014, −0.0012).
+- ⚠ **Local adapt is 0.037 behind one-hop** under the full covariance (t = 15.4, every
+  seed), against 0.003 on the Transformer's τ-spread cell (0.1509 against 0.1478, the
+  same per-node delays, uncoupled). Full sharing recovers 0.031 of it (0.1436), so what
+  the local filter lacks travels in the covariance, not in the means. Its settings are
+  one-hop's, carried as on M5/M6 (D105); whether a different $q$ closes the gap was
+  never measured on the coupled task.
+- **The online centralised filter settles below $e^\star$:** 0.1329 against 0.1350 at five
+  seeds (0.1300–0.1365). $e^\star$ is one $\boldsymbol\theta$ pooled over five graphs, and
+  each run fits its own graph, so $e^\star$ is a reference line, not a bound.
+- **Time:** cell a took 112 min on the full covariance, 81 on neuron blocks and 89 on
+  layer blocks; the exact cell, local adapt and one-hop alone, took 95 min.
+
+Asked and answered 2026-11-05:
+
+| question | decided |
+|---|---|
+| the 20k GNN's covariance (neuron blocks cost one-hop +0.018, the centralised filter +0.034; layer blocks about half) | **decide after step 07**, once the GNN's neuron-block cells are read against $e^\star$ and the gradient baselines; meanwhile a CPU timing of a 20k layer-block step prices a layer arm (29.4M entries, ~117 MB per agent in FP32). Chosen over adding the layer arm now and over neuron blocks only |
+| local adapt's 0.037 gap | **a CPU $q$-probe** (`scripts/run_gnn_local_probe.py`, mg): local adapt alone on the twin, full covariance, seed 0, $T=1500$, $q=6\times10^{-8}$ and $6\times10^{-6}$ beside the carried $6\times10^{-7}$ as the control. Chosen over reporting as is and over a GPU re-tune, which would break the one-hop-carried discipline (D105) |
+
 ### ✅ D147. D3a on Mackey–Glass: blocks cost more than on MNIST, local adapt most; one-hop keeps its lead on either
 
 Analysed 2026-10-31 (queue 5, step 12: 6.9 GPU-h, 8 cells, five seeds, $T=1500$, no
