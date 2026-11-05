@@ -4290,6 +4290,44 @@ cell name, so a bare `run_gnn.py` would report the old cells under the new selec
 Re-running them is a separate question, asked when the extension's result is in. The first
 selection is kept as `results/gnn_filters_first_grid.json`.
 
+**Step 06, the gradient learners' rates** (`--lr`, 10.1 GPU-h: 14 runs, each every
+learner at one grid index, two cells, seeds 0–1, ~43 min a run). Settled RMSE at the pick
+(stationary / linear):
+
+| learner | rate | stationary | linear |
+|---|---|---|---|
+| centralised AdamW | 1e-3 | 0.1622 | 0.1694 |
+| local AdamW | 3e-3 / **3e-4 (edge)** | 0.1654 | 0.1723 |
+| centralised SGD | 3e-6 | 0.1675 | 0.1765 |
+| ATC (momentum) | 3e-6 | 0.1680 | 0.1770 |
+| ATC AdamW | 1e-3 | 0.1691 | 0.1769 |
+| local only | 3e-6 | 0.1833 | 0.1940 |
+| ATC plain | 3e-6 | 0.1978 | 0.2113 |
+
+- **Every SGD learner picks 3e-6, the last stable rate:** 1e-5 is NaN for all four by the
+  first evaluation (step 25), and the score still falls into 3e-6 (−0.008 from 1e-6 for
+  the centralised one, both seeds). The same as M3 on the Transformer, where centralised
+  SGD's 3e-5 sat under a diverging 1e-4 (D133), and accepted on that precedent. Step 07's
+  five seeds show whether 3e-6 holds.
+- **The AdamW learners have clean minima at 1e-3**, centralised and ATC alike, in both
+  cells; 3e-2 and up blow up (RMSE 1 to $10^4$, finite, so not NaN).
+- ⚠ **Local AdamW's curve is flat within seed noise:** 0.1683 / 0.1712 / 0.1654 at 3e-4 /
+  1e-3 / 3e-3 on stationary, 0.1723 / 0.1768 / 0.1764 on linear, where 3e-4 is the grid's
+  bottom; the seeds scatter by 0.005–0.009.
+- **Local AdamW beats ATC AdamW** at tuning (0.1654 against 0.1691, 0.1723 against 0.1769):
+  on the GNN a local learner still receives its neighbours' aggregates, so it is not
+  isolated as on the Transformer, where ATC AdamW led local AdamW by 0.014 (τ spread). Two
+  seeds; step 07 tests it at five.
+- **The filters lead already:** one-hop at its edge-tuned $q$ (0.1455, step 05) is 0.017
+  ahead of the best gradient learner (centralised AdamW, 0.1622) and 0.024 ahead of ATC
+  AdamW, before the $q$ extension.
+
+Asked and answered 2026-11-05:
+
+| question | decided |
+|---|---|
+| local AdamW's edge (linear, 3e-4) | **one step past it**, the filters' edge discipline applied to the baselines (D105: a search finer on one side is unfair): local AdamW alone at 1e-4 on the linear cell, 2 seeds, ~15 GPU-min. `run_gnn.py`'s `RATE_EXTENSIONS`, run by `--lr` after the 14 cached runs, which then reselects. Chosen over keeping 3e-4. If the pick moves it joins step 07's re-run question; the first rates are kept as `results/gnn_rates_first_grid.json` |
+
 ### ✅ D147. D3a on Mackey–Glass: blocks cost more than on MNIST, local adapt most; one-hop keeps its lead on either
 
 Analysed 2026-10-31 (queue 5, step 12: 6.9 GPU-h, 8 cells, five seeds, $T=1500$, no
