@@ -4259,6 +4259,37 @@ Asked and answered 2026-11-05:
   same error. Both references land at one level, so 0.135 reads as the task's offline
   limit under this protocol, not either model's capacity.
 
+**Step 05, the GNN's filter tuning** (`--tune-filters`, 7.9 GPU-h: 52 runs, seeds 0–1, the
+stationary cell, neuron blocks; ~7 min a centralised run, ~11.5 a one-hop one). Every run
+finished. Settled RMSE at $\gamma=1$, $\sigma_0^2=0.01$:
+
+| q | 6e-4 | 6e-5 | 6e-6 | 6e-7 | 6e-8 |
+|---|---|---|---|---|---|
+| centralised, R×1 | 0.3027 | 0.2167 | 0.1752 | 0.1475 | — |
+| centralised, R×2 | 0.2752 | 0.2105 | 0.1728 | **0.1466** | — |
+| one-hop mean | 0.4648 | 0.2651 | 0.1939 | 0.1585 | **0.1455** |
+
+- ⚠ **Both picks sit on the grid's bottom edge, still falling:** centralised $\gamma=1$,
+  $q=6\times10^{-7}$, $\sigma_0^2=0.01$, R×2 (0.1466; the last decade gained −0.026);
+  one-hop $q=6\times10^{-8}$, $\sigma_0^2=0.01$ (0.1455; −0.013). Both seeds improve at
+  every step down. The twin's picks (step 02) were inside the same grids, a decade higher,
+  and the GNN has ten times its parameters. **Step 07 ran at these edge picks.**
+- As on the twin, $\gamma=0.9995$ never wins and the prior's top value (0.01) wins at every
+  small $q$; R×2 now helps the centralised filter by 0.0009 at its pick.
+- On neuron blocks one-hop (0.1455) is already level with the centralised filter (0.1466),
+  as the twin's neuron cells were (step 03).
+
+Asked and answered 2026-11-05:
+
+| question | decided |
+|---|---|
+| the edge picks | **one step down**, D105's discipline: centralised $q=6\times10^{-8}$ across $\gamma$ × prior × R (8 runs), one-hop $q=6\times10^{-9}$ across $\gamma$ × prior (4 runs), stationary, 2 seeds, ~1.7 GPU-h; another step if the pick lands on the new edge. `run_gnn.py`'s GNN grids now carry the extra point (`GNN_EXTENSION`; the twin's are unchanged), so `--tune-filters` runs the 12 new points, reuses the 52 and reselects over all 64. Chosen over two steps at once (~3.4 GPU-h) and over keeping the edge picks |
+
+⚠ **If the pick moves, step 07's cells are stale but cached:** `run_one` returns `cached` by
+cell name, so a bare `run_gnn.py` would report the old cells under the new selection.
+Re-running them is a separate question, asked when the extension's result is in. The first
+selection is kept as `results/gnn_filters_first_grid.json`.
+
 ### ✅ D147. D3a on Mackey–Glass: blocks cost more than on MNIST, local adapt most; one-hop keeps its lead on either
 
 Analysed 2026-10-31 (queue 5, step 12: 6.9 GPU-h, 8 cells, five seeds, $T=1500$, no
