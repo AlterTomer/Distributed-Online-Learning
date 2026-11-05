@@ -90,6 +90,9 @@ PRIORS = [0.01, 0.001]
 R_SCALES = [1.0, 2.0]
 SGD_RATES = [1e-7, 3e-7, 1e-6, 3e-6, 1e-5, 3e-5, 1e-4]
 ADAMW_RATES = [3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1]
+# One step past a rate picked on its grid's edge (D148), the filters' discipline (D105)
+# applied to the baselines too: local AdamW on the linear cell picked 3e-4, the bottom.
+RATE_EXTENSIONS = {("linear", "local_adamw"): [1e-4]}
 LR_SEEDS, TUNE_SEEDS = [0, 1], [0, 1]
 REPORT_SEEDS = [0, 1, 2, 3, 4]
 HORIZON, EVAL_EVERY = 1500, 25
@@ -215,6 +218,11 @@ def tune_filters_stage(args) -> int:
     return 0
 
 
+def extension_name(args, cell: str, learner: str, lr: float) -> str:
+    return (f"gnn_lr_{cell}_x_{learner}_{lr:g}".replace(".", "p").replace("-", "m")
+            + suffix_of(args))
+
+
 def lr_stage(args) -> int:
     reference = read(args, "reference")
     seeds = [0] if args.smoke else LR_SEEDS
@@ -229,17 +237,29 @@ def lr_stage(args) -> int:
         note = run_one(config_for(args, name, cell, learners, seeds, 1.0, reference),
                        None, None, args.fresh)
         print(f"[{index}/{len(runs)}] {name:<28} {note}", flush=True)
+    options = {**SGD_FAMILY, **ADAMW_FAMILY}
+    for (cell, learner), extra in RATE_EXTENSIONS.items():
+        for lr in extra:
+            name = extension_name(args, cell, learner, lr)
+            note = run_one(config_for(args, name, cell, [{"name": learner, "lr": lr,
+                                                          **options[learner]}],
+                                      seeds, 1.0, reference), None, None, args.fresh)
+            print(f"[extension] {name:<40} {note}", flush=True)
     rates = {cell: {} for cell in CELLS}
     for cell in CELLS:
         for learner, grid in [*((n, SGD_RATES) for n in SGD_FAMILY),
                               *((n, ADAMW_RATES) for n in ADAMW_FAMILY)]:
-            scored = [(settled(f"gnn_lr_{cell}_r{i}{suffix_of(args)}", learner), i)
+            points = [(grid[i], f"gnn_lr_{cell}_r{i}{suffix_of(args)}")
                       for i in indices if i < len(grid)]
-            finite = [(v, i) for v, i in scored if math.isfinite(v)]
+            points += [(lr, extension_name(args, cell, learner, lr))
+                       for lr in RATE_EXTENSIONS.get((cell, learner), [])]
+            points.sort()
+            scored = [(settled(run, learner), lr) for lr, run in points]
+            finite = [(v, lr) for v, lr in scored if math.isfinite(v)]
             if finite:
-                value, i = min(finite)
-                rates[cell][learner] = {"lr": grid[i], "settled_rmse": value,
-                                        "edge": i in (0, len(grid) - 1)}
+                value, lr = min(finite)
+                rates[cell][learner] = {"lr": lr, "settled_rmse": value,
+                                        "edge": lr in (points[0][0], points[-1][0])}
     results_file(args, "rates").write_text(json.dumps(rates, indent=2), encoding="utf-8")
     for cell, chosen in rates.items():
         print(f"\n  {cell}: " + ", ".join(f"{n} {c['lr']:g}{' EDGE' if c['edge'] else ''}"
