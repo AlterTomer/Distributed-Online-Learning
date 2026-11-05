@@ -26,8 +26,9 @@ group b. Every filter on **neuron blocks**; the distributed ones truncated.
 
 **R** is measured, not assumed: M2's protocol on network snapshots, one run's budget,
 the per-position residual variance pooled over nodes (`--reference`). **The filters**
-are tuned on the stationary cell, 2 seeds, M4's and M5's grids with q one decade lower,
-and carried to the drift cell; **the gradient learners** per cell on M3's grids, SGD one
+are tuned on the stationary cell, 2 seeds, M4's and M5's grids with q one decade lower
+(the GNN's one step lower still, D148: its first picks sat on the bottom edge), and
+carried to the drift cell; **the gradient learners** per cell on M3's grids, SGD one
 decade lower.
 
 **The twin**: $d=12$, $d_{\text{ff}}=24$, two graph layers ($p\approx2\,000$), FP64,
@@ -82,6 +83,9 @@ STRUCTURES = ["full", "neuron", "layer"]
 GAMMAS = [1.0, 0.9995]
 CENTRAL_QS = [6e-4, 6e-5, 6e-6, 6e-7]
 DIFFUSION_QS = [6e-4, 6e-5, 6e-6, 6e-7, 6e-8]
+# The GNN's grids reach one step lower (D148): both of its first picks sat on the bottom
+# edge, still falling (-0.026 and -0.013 a decade); the twin's were inside its grids.
+GNN_EXTENSION = {"central": [6e-8], "diffusion": [6e-9]}
 PRIORS = [0.01, 0.001]
 R_SCALES = [1.0, 2.0]
 SGD_RATES = [1e-7, 3e-7, 1e-6, 3e-6, 1e-5, 3e-5, 1e-4]
@@ -130,6 +134,11 @@ def config_for(args, name: str, cell: str, learners: list[dict], seeds: list[int
     return load_config(CELLS[cell], overrides=overrides)
 
 
+def q_grid(args, family: str) -> list[float]:
+    grid = CENTRAL_QS if family == "central" else DIFFUSION_QS
+    return grid if args.twin else grid + GNN_EXTENSION[family]
+
+
 def filter_entry(name: str, gamma: float, q: float, prior: float, structure: str,
                  **extra) -> dict:
     return {"name": name, "transition": "scalar", "gamma": gamma, "forgetting": "process_noise",
@@ -172,11 +181,11 @@ def tune_filters_stage(args) -> int:
     seeds = [0] if args.smoke else TUNE_SEEDS
     pick = (lambda grid: [grid[0], grid[-1]]) if args.smoke else (lambda grid: grid)
     runs = []
-    for g, q, s, r in itertools.product(pick(GAMMAS), pick(CENTRAL_QS), pick(PRIORS),
+    for g, q, s, r in itertools.product(pick(GAMMAS), pick(q_grid(args, "central")), pick(PRIORS),
                                         pick(R_SCALES)):
         runs.append(("central", {"gamma": g, "q": q, "prior": s, "r": r},
                      filter_entry(EXACT_C, g, q, s, structure)))
-    for g, q, s in itertools.product(pick(GAMMAS), pick(DIFFUSION_QS), pick(PRIORS)):
+    for g, q, s in itertools.product(pick(GAMMAS), pick(q_grid(args, "diffusion")), pick(PRIORS)):
         runs.append(("diffusion", {"gamma": g, "q": q, "prior": s, "r": 1.0},
                      filter_entry(ONEHOP, g, q, s, structure)))
     print(f"filter tuning ({tag(args)}): {len(runs)} runs at {len(seeds)} seed(s)\n", flush=True)
@@ -195,7 +204,7 @@ def tune_filters_stage(args) -> int:
         if not finite:
             raise SystemExit(f"  every {family} grid point diverged")
         value, point = min(finite, key=lambda vp: vp[0])
-        edges = [axis for axis, grid in (("q", CENTRAL_QS if family == "central" else DIFFUSION_QS),
+        edges = [axis for axis, grid in (("q", q_grid(args, family)),
                                          ("prior", PRIORS))
                  if point[axis if axis != "prior" else "prior"] in (grid[0], grid[-1])
                  and len(grid) > 2]
