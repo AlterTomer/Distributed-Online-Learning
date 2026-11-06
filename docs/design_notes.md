@@ -4380,6 +4380,24 @@ $e^\star=0.1352$:
   and local SGD.
 - **Time:** cell a 202 / 209 min (11 learners), cell b 65 / 71.
 
+**The local-adapt probe** (step 03's question; `scripts/run_gnn_local_probe.py`, mg, CPU,
+13.9 min a run). The twin, local adapt alone, full covariance, seed 0, $T=1500$:
+
+| $q$ | 6e-8 | **6e-7 (carried)** | 6e-6 |
+|---|---|---|---|
+| settled RMSE | 0.1703 | 0.1714 | 0.1778 |
+
+- **The control reproduces the GPU cell exactly:** 0.1714, and the same trajectory at every
+  evaluation, against `gnt_full_a`'s local adapt at seed 0.
+- **$q$ does not close the gap:** a decade lower gains 0.0011, a decade higher loses 0.0064,
+  against one-hop's 0.1423 on the same seed, 0.029 ahead. Every arm reaches its plateau
+  (~0.17) by $t=600$. On the twin, local adapt's deficit is not the carried setting; it is
+  what one node's data can identify on the coupled task, which full sharing (0.1436) and
+  one-hop's neighbour batches supply.
+- **The GNN's local adapt is a different shape** (step 07): still falling at $t=1500$ on every
+  seed. The probe does not reach it; whether it is the same deficit, slower on neuron
+  blocks, or the edge-tuned $q$, is open until D3c-q.
+
 ### ✅ D147. D3a on Mackey–Glass: blocks cost more than on MNIST, local adapt most; one-hop keeps its lead on either
 
 Analysed 2026-10-31 (queue 5, step 12: 6.9 GPU-h, 8 cells, five seeds, $T=1500$, no
